@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: smart_waste_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: smart_waste_db
+      POSTGRES_USER: smart_waste_user
+      POSTGRES_PASSWORD: smart_waste_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - smart_waste_postgres_data:/var/lib/postgresql/data
+      - ../database/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  redis:
+    image: redis:7-alpine
+    container_name: smart_waste_redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+
+volumes:
+  smart_waste_postgres_data:
