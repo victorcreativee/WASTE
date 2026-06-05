@@ -26,4 +26,15 @@ router.use(
   })
 );
 
+router.use(
+  "/waste",
+  createProxyMiddleware({
+    target: env.wasteServiceUrl,
+    changeOrigin: true,
+    pathRewrite: (path) => {
+      return `/api/waste${path.replace(/^\/waste/, "")}`;
+    },
+  })
+);
+
 export default router;

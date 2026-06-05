@@ -20,8 +20,8 @@ type LoginResponse = {
 };
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("admin@kcca.go.ug");
-  const [password, setPassword] = useState("Password123");
+  const [email, setEmail] = useState("admin@kcca.gov.ug");
+  const [password, setPassword] = useState("test@2026");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);

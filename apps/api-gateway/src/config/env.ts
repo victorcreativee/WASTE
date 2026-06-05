@@ -11,4 +11,5 @@ export const env = {
   authServiceUrl: process.env.AUTH_SERVICE_URL || "http://localhost:8091",
   organizationServiceUrl:
     process.env.ORGANIZATION_SERVICE_URL || "http://localhost:8092",
+  wasteServiceUrl: process.env.WASTE_SERVICE_URL || "http://localhost:8093",
 };
