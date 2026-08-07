@@ -8,7 +8,8 @@ const navItems = [
   { label: "City Overview", href: "/dashboard" },
   { label: "Organizations", href: "/dashboard/organizations" },
   { label: "Waste Operations", href: "/dashboard/waste" },
-  { label: "GIS Map", href: "#" },
+  { label: "Driver Mobile", href: "/dashboard/driver-mobile" },
+  { label: "GIS Map", href: "/dashboard/gis" },
 ];
 
 type CurrentUser = {

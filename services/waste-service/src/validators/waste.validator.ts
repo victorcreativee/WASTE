@@ -101,7 +101,15 @@ export const generateCollectionJobsSchema = z.object({
   estimatedWeightKg: z.number().optional(),
   notes: z.string().optional(),
 });
-
+export const createCollectionRouteSchema = z.object({
+  organizationId: z.string().uuid().optional(),
+  name: z.string().min(2, "Route name is required"),
+  truckId: z.string().uuid().optional(),
+  driverId: z.string().uuid().optional(),
+  routeDate: z.string().min(1, "Route date is required"),
+  jobIds: z.array(z.string().uuid()).min(1, "At least one job is required"),
+  notes: z.string().optional(),
+});
 export type CreateZoneInput = z.infer<typeof createZoneSchema>;
 export type CreateTruckInput = z.infer<typeof createTruckSchema>;
 export type CreateDriverInput = z.infer<typeof createDriverSchema>;
@@ -121,4 +129,7 @@ export type AssignCollectionJobInput = z.infer<
 >;
 export type GenerateCollectionJobsInput = z.infer<
   typeof generateCollectionJobsSchema
+>;
+export type CreateCollectionRouteInput = z.infer<
+  typeof createCollectionRouteSchema
 >;

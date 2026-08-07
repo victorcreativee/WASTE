@@ -2,6 +2,7 @@ import { dbPool } from "../config/database";
 import {
   AssignCollectionJobInput,
   CreateCollectionJobInput,
+  CreateCollectionRouteInput,
   CreateDriverInput,
   CreatePickupScheduleInput,
   CreateTruckInput,
@@ -505,4 +506,254 @@ export async function assignCollectionJob(
   );
 
   return result.rows[0];
+}
+export async function findJobsByDriverId(driverId: string) {
+  const result = await dbPool.query(
+    `
+    SELECT
+      cj.id,
+      cj.organization_id,
+      cj.zone_id,
+      wz.name AS zone_name,
+      cj.truck_id,
+      wt.plate_number,
+      wt.truck_name,
+      cj.driver_id,
+      d.full_name AS driver_name,
+      cj.schedule_id,
+      ps.name AS schedule_name,
+      cj.job_date,
+      cj.status,
+      cj.waste_type,
+      cj.estimated_weight_kg,
+      cj.collected_weight_kg,
+      cj.started_at,
+      cj.completed_at,
+      cj.notes,
+      cj.created_at,
+      cj.updated_at
+    FROM collection_jobs cj
+    LEFT JOIN waste_zones wz ON wz.id = cj.zone_id
+    LEFT JOIN waste_trucks wt ON wt.id = cj.truck_id
+    LEFT JOIN drivers d ON d.id = cj.driver_id
+    LEFT JOIN pickup_schedules ps ON ps.id = cj.schedule_id
+    WHERE cj.driver_id = $1::uuid
+      AND cj.status IN ('assigned', 'in_progress')
+    ORDER BY cj.job_date ASC, cj.created_at ASC
+    `,
+    [driverId]
+  );
+
+  return result.rows;
+}
+
+export async function startDriverCollectionJob(jobId: string) {
+  const result = await dbPool.query(
+    `
+    UPDATE collection_jobs
+    SET
+      status = 'in_progress',
+      started_at = COALESCE(started_at, CURRENT_TIMESTAMP),
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1::uuid
+      AND status = 'assigned'
+      AND truck_id IS NOT NULL
+      AND driver_id IS NOT NULL
+    RETURNING *
+    `,
+    [jobId]
+  );
+
+  return result.rows[0];
+}
+
+export async function completeDriverCollectionJob(
+  jobId: string,
+  collectedWeightKg?: number
+) {
+  const result = await dbPool.query(
+    `
+    UPDATE collection_jobs
+    SET
+      status = 'completed',
+      collected_weight_kg = COALESCE($2::numeric, collected_weight_kg),
+      completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP),
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1::uuid
+      AND status = 'in_progress'
+    RETURNING *
+    `,
+    [jobId, collectedWeightKg ?? null]
+  );
+
+  return result.rows[0];
+}
+export async function findCollectionRoutes() {
+  const result = await dbPool.query(`
+    SELECT
+      cr.id,
+      cr.organization_id,
+      cr.name,
+      cr.truck_id,
+      wt.plate_number,
+      wt.truck_name,
+      cr.driver_id,
+      d.full_name AS driver_name,
+      cr.route_date,
+      cr.status,
+      cr.total_distance_km,
+      cr.estimated_duration_minutes,
+      cr.notes,
+      COUNT(crj.job_id)::int AS job_count,
+      cr.created_at,
+      cr.updated_at
+    FROM collection_routes cr
+    LEFT JOIN waste_trucks wt ON wt.id = cr.truck_id
+    LEFT JOIN drivers d ON d.id = cr.driver_id
+    LEFT JOIN collection_route_jobs crj ON crj.route_id = cr.id
+    GROUP BY cr.id, wt.plate_number, wt.truck_name, d.full_name
+    ORDER BY cr.route_date DESC, cr.created_at DESC
+  `);
+
+  return result.rows;
+}
+
+export async function createCollectionRoute(data: CreateCollectionRouteInput) {
+  const client = await dbPool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const routeResult = await client.query(
+      `
+      INSERT INTO collection_routes (
+        organization_id,
+        name,
+        truck_id,
+        driver_id,
+        route_date,
+        notes
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+      `,
+      [
+        data.organizationId ?? null,
+        data.name,
+        data.truckId ?? null,
+        data.driverId ?? null,
+        data.routeDate,
+        data.notes ?? null,
+      ]
+    );
+
+    const route = routeResult.rows[0];
+
+    for (let index = 0; index < data.jobIds.length; index += 1) {
+      await client.query(
+        `
+        INSERT INTO collection_route_jobs (
+          route_id,
+          job_id,
+          stop_order
+        )
+        VALUES ($1, $2, $3)
+        ON CONFLICT (route_id, job_id) DO NOTHING
+        `,
+        [route.id, data.jobIds[index], index + 1]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    return route;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function findCollectionRouteById(routeId: string) {
+  const routeResult = await dbPool.query(
+    `
+    SELECT
+      cr.id,
+      cr.organization_id,
+      cr.name,
+      cr.truck_id,
+      wt.plate_number,
+      wt.truck_name,
+      cr.driver_id,
+      d.full_name AS driver_name,
+      cr.route_date,
+      cr.status,
+      cr.total_distance_km,
+      cr.estimated_duration_minutes,
+      cr.notes,
+      cr.created_at,
+      cr.updated_at
+    FROM collection_routes cr
+    LEFT JOIN waste_trucks wt ON wt.id = cr.truck_id
+    LEFT JOIN drivers d ON d.id = cr.driver_id
+    WHERE cr.id = $1::uuid
+    `,
+    [routeId]
+  );
+
+  const jobsResult = await dbPool.query(
+    `
+    SELECT
+      cj.id,
+      cj.zone_id,
+      wz.name AS zone_name,
+      ST_Y(wz.center_point::geometry) AS latitude,
+      ST_X(wz.center_point::geometry) AS longitude,
+  
+      cj.truck_id,
+      wt.plate_number,
+      wt.truck_name,
+  
+      cj.driver_id,
+      d.full_name AS driver_name,
+  
+      cj.job_date,
+      cj.status,
+      cj.waste_type,
+      cj.estimated_weight_kg,
+      cj.collected_weight_kg,
+      cj.notes,
+  
+      crj.stop_order
+  
+    FROM collection_route_jobs crj
+  
+    JOIN collection_jobs cj
+      ON cj.id = crj.job_id
+  
+    LEFT JOIN waste_zones wz
+      ON wz.id = cj.zone_id
+  
+    LEFT JOIN waste_trucks wt
+      ON wt.id = cj.truck_id
+  
+    LEFT JOIN drivers d
+      ON d.id = cj.driver_id
+  
+    WHERE crj.route_id = $1::uuid
+  
+    ORDER BY crj.stop_order ASC
+    `,
+    [routeId]
+  );
+
+  if (!routeResult.rows[0]) {
+    return null;
+  }
+
+  return {
+    ...routeResult.rows[0],
+    jobs: jobsResult.rows,
+  };
 }

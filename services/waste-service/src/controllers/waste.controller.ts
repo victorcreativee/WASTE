@@ -8,6 +8,7 @@ import {
   createZoneSchema,
   generateCollectionJobsSchema,
   updateCollectionJobStatusSchema,
+  createCollectionRouteSchema,
 } from "../validators/waste.validator";
 import {
   addCollectionJob,
@@ -23,6 +24,12 @@ import {
   listPickupSchedules,
   listTrucks,
   listZones,
+  completeDriverJob,
+  listDriverJobs,
+  startDriverJob,
+  addCollectionRoute,
+  getCollectionRouteDetails,
+  listCollectionRoutes,
 } from "../services/waste.service";
 
 export async function getZones(req: Request, res: Response) {
@@ -203,5 +210,102 @@ export async function assignCollectionJobHandler(req: Request, res: Response) {
     success: true,
     message: "Collection job assigned successfully",
     data: job,
+  });
+}
+export async function getDriverJobsHandler(req: Request, res: Response) {
+  const driverId = req.params.driverId as string;
+  const jobs = await listDriverJobs(driverId);
+
+  return res.status(200).json({
+    success: true,
+    message: "Driver jobs fetched successfully",
+    data: jobs,
+  });
+}
+
+export async function startDriverJobHandler(req: Request, res: Response) {
+  const jobId = req.params.jobId as string;
+  const job = await startDriverJob(jobId);
+
+  if (!job) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Driver job cannot be started. It may not exist, may not be assigned, or may not have a truck and driver.",
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: "Driver job started successfully",
+    data: job,
+  });
+}
+
+export async function completeDriverJobHandler(req: Request, res: Response) {
+  const jobId = req.params.jobId as string;
+  const collectedWeightKg =
+    typeof req.body.collectedWeightKg === "number"
+      ? req.body.collectedWeightKg
+      : undefined;
+
+  const job = await completeDriverJob(jobId, collectedWeightKg);
+
+  if (!job) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Driver job cannot be completed. It may not exist or may not be in progress.",
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: "Driver job completed successfully",
+    data: job,
+  });
+}
+export async function getCollectionRoutes(req: Request, res: Response) {
+  const routes = await listCollectionRoutes();
+
+  return res.status(200).json({
+    success: true,
+    message: "Collection routes fetched successfully",
+    data: routes,
+  });
+}
+
+export async function createCollectionRouteHandler(
+  req: Request,
+  res: Response
+) {
+  const input = createCollectionRouteSchema.parse(req.body);
+  const route = await addCollectionRoute(input);
+
+  return res.status(201).json({
+    success: true,
+    message: "Collection route created successfully",
+    data: route,
+  });
+}
+
+export async function getCollectionRouteDetailsHandler(
+  req: Request,
+  res: Response
+) {
+  const routeId = req.params.id as string;
+  const route = await getCollectionRouteDetails(routeId);
+
+  if (!route) {
+    return res.status(404).json({
+      success: false,
+      message: "Collection route not found",
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: "Collection route details fetched successfully",
+    data: route,
   });
 }

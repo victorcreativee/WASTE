@@ -12,6 +12,12 @@ import {
   findZones,
   generateCollectionJobsFromSchedule,
   updateCollectionJobStatus,
+  completeDriverCollectionJob,
+  findJobsByDriverId,
+  startDriverCollectionJob,
+  createCollectionRoute,
+  findCollectionRouteById,
+  findCollectionRoutes,
 } from "../repositories/waste.repository";
 import {
   AssignCollectionJobInput,
@@ -22,6 +28,7 @@ import {
   CreateZoneInput,
   GenerateCollectionJobsInput,
   UpdateCollectionJobStatusInput,
+  CreateCollectionRouteInput,
 } from "../validators/waste.validator";
 
 export async function listZones() {
@@ -80,4 +87,29 @@ export async function assignTruckAndDriverToJob(
   input: AssignCollectionJobInput
 ) {
   return assignCollectionJob(jobId, input);
+}
+export async function listDriverJobs(driverId: string) {
+  return findJobsByDriverId(driverId);
+}
+
+export async function startDriverJob(jobId: string) {
+  return startDriverCollectionJob(jobId);
+}
+
+export async function completeDriverJob(
+  jobId: string,
+  collectedWeightKg?: number
+) {
+  return completeDriverCollectionJob(jobId, collectedWeightKg);
+}
+export async function listCollectionRoutes() {
+  return findCollectionRoutes();
+}
+
+export async function addCollectionRoute(input: CreateCollectionRouteInput) {
+  return createCollectionRoute(input);
+}
+
+export async function getCollectionRouteDetails(routeId: string) {
+  return findCollectionRouteById(routeId);
 }

@@ -64,8 +64,30 @@ type ApiListResponse<T> = {
   message: string;
   data: T[];
 };
+type CollectionRoute = {
+  id: string;
+  name: string;
+  truck_id: string | null;
+  plate_number: string | null;
+  truck_name: string | null;
+  driver_id: string | null;
+  driver_name: string | null;
+  route_date: string;
+  status: string;
+  total_distance_km: string | null;
+  estimated_duration_minutes: number | null;
+  notes: string | null;
+  job_count: number;
+};
 
-type ActiveTab = "zones" | "trucks" | "drivers" | "schedules" | "jobs";
+type ActiveTab =
+  | "dispatch"
+  | "zones"
+  | "trucks"
+  | "drivers"
+  | "schedules"
+  | "jobs"
+  | "routes";
 type JobFilter =
   | "all"
   | "pending"
@@ -83,13 +105,23 @@ function formatJobDate(value: string) {
   }).format(new Date(value));
 }
 function statusClass(status: string) {
-  if (status === "completed")
+  if (status === "completed" || status === "active")
     return "bg-emerald-50 text-emerald-700 border-emerald-200";
+
   if (status === "in_progress")
     return "bg-blue-50 text-blue-700 border-blue-200";
+
+  if (status === "assigned" || status === "dispatched")
+    return "bg-indigo-50 text-indigo-700 border-indigo-200";
+
+  if (status === "planned")
+    return "bg-amber-50 text-amber-700 border-amber-200";
+
   if (status === "cancelled") return "bg-red-50 text-red-700 border-red-200";
+
   if (status === "missed")
     return "bg-orange-50 text-orange-700 border-orange-200";
+
   return "bg-slate-50 text-slate-700 border-slate-200";
 }
 
@@ -104,12 +136,22 @@ export default function WasteOperationsPage() {
   const [schedules, setSchedules] = useState<PickupSchedule[]>([]);
   const [jobs, setJobs] = useState<CollectionJob[]>([]);
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>("zones");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("dispatch");
   const [jobFilter, setJobFilter] = useState<JobFilter>("all");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [assigningJobId, setAssigningJobId] = useState<string | null>(null);
+  const [routes, setRoutes] = useState<CollectionRoute[]>([]);
+
+  const [routeForm, setRouteForm] = useState({
+    name: "",
+    routeDate: "",
+    truckId: "",
+    driverId: "",
+    notes: "",
+    jobIds: [] as string[],
+  });
 
   const [assignForm, setAssignForm] = useState({
     truckId: "",
@@ -158,7 +200,32 @@ export default function WasteOperationsPage() {
     if (jobFilter === "all") return jobs;
     return jobs.filter((job) => job.status === jobFilter);
   }, [jobs, jobFilter]);
+  const dispatchJobs = useMemo(() => {
+    return jobs
+      .filter((job) => job.status !== "completed" && job.status !== "cancelled")
+      .sort((a, b) => {
+        const statusOrder: Record<string, number> = {
+          in_progress: 1,
+          assigned: 2,
+          pending: 3,
+          missed: 4,
+        };
 
+        return (
+          (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99) ||
+          new Date(a.job_date).getTime() - new Date(b.job_date).getTime()
+        );
+      });
+  }, [jobs]);
+
+  const dispatchStats = useMemo(() => {
+    return {
+      pending: jobs.filter((job) => job.status === "pending").length,
+      assigned: jobs.filter((job) => job.status === "assigned").length,
+      inProgress: jobs.filter((job) => job.status === "in_progress").length,
+      completed: jobs.filter((job) => job.status === "completed").length,
+    };
+  }, [jobs]);
   async function loadWasteData() {
     try {
       setLoading(true);
@@ -170,6 +237,7 @@ export default function WasteOperationsPage() {
         driversResponse,
         schedulesResponse,
         jobsResponse,
+        routesResponse,
       ] = await Promise.all([
         apiRequest<ApiListResponse<Zone>>("/api/waste/zones"),
         apiRequest<ApiListResponse<Truck>>("/api/waste/trucks"),
@@ -180,6 +248,9 @@ export default function WasteOperationsPage() {
         apiRequest<ApiListResponse<CollectionJob>>(
           "/api/waste/collection-jobs"
         ),
+        apiRequest<ApiListResponse<CollectionRoute>>(
+          "/api/waste/collection-routes"
+        ),
       ]);
 
       setZones(zonesResponse.data);
@@ -187,6 +258,7 @@ export default function WasteOperationsPage() {
       setDrivers(driversResponse.data);
       setSchedules(schedulesResponse.data);
       setJobs(jobsResponse.data);
+      setRoutes(routesResponse.data);
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "Failed to load waste data"
@@ -381,7 +453,56 @@ export default function WasteOperationsPage() {
       setSaving(false);
     }
   }
+  async function createRoute(event: React.FormEvent) {
+    event.preventDefault();
 
+    if (routeForm.jobIds.length === 0) {
+      setError("Select at least one collection job for the route.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError("");
+
+      await apiRequest("/api/waste/collection-routes", {
+        method: "POST",
+        body: JSON.stringify({
+          name: routeForm.name,
+          routeDate: routeForm.routeDate,
+          truckId: routeForm.truckId || undefined,
+          driverId: routeForm.driverId || undefined,
+          jobIds: routeForm.jobIds,
+          notes: routeForm.notes || undefined,
+        }),
+      });
+
+      setRouteForm({
+        name: "",
+        routeDate: "",
+        truckId: "",
+        driverId: "",
+        notes: "",
+        jobIds: [],
+      });
+
+      await loadWasteData();
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Failed to create route"
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+  function toggleRouteJob(jobId: string) {
+    setRouteForm((current) => ({
+      ...current,
+      jobIds: current.jobIds.includes(jobId)
+        ? current.jobIds.filter((id) => id !== jobId)
+        : [...current.jobIds, jobId],
+    }));
+  }
   async function updateJobStatus(jobId: string, status: string) {
     try {
       setSaving(true);
@@ -492,11 +613,13 @@ export default function WasteOperationsPage() {
           <div>
             <div className="flex flex-wrap gap-6 border-b border-slate-200">
               {[
+                ["dispatch", "Dispatch Board"],
                 ["zones", `Zones (${zones.length})`],
                 ["trucks", `Trucks (${trucks.length})`],
                 ["drivers", `Drivers (${drivers.length})`],
                 ["schedules", `Schedules (${schedules.length})`],
                 ["jobs", `Jobs (${jobs.length})`],
+                ["routes", `Routes (${routes.length})`],
               ].map(([key, label]) => (
                 <button
                   key={key}
@@ -512,12 +635,12 @@ export default function WasteOperationsPage() {
                 </button>
               ))}
             </div>
-
             {activeTab === "jobs" && (
               <div className="mt-6 flex flex-wrap gap-3">
                 {[
                   ["all", "All"],
                   ["pending", "Pending"],
+                  ["assigned", "Assigned"],
                   ["in_progress", "In progress"],
                   ["completed", "Completed"],
                   ["cancelled", "Cancelled"],
@@ -543,6 +666,113 @@ export default function WasteOperationsPage() {
                 <p className="p-6 text-sm text-slate-500">
                   Loading waste operations...
                 </p>
+              ) : activeTab === "dispatch" ? (
+                <div className="space-y-6 p-6">
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <div className="border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-500">
+                        Pending
+                      </p>
+                      <p className="mt-2 text-3xl font-black text-slate-950">
+                        {dispatchStats.pending}
+                      </p>
+                    </div>
+
+                    <div className="border border-indigo-200 bg-indigo-50 p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.15em] text-indigo-600">
+                        Assigned
+                      </p>
+                      <p className="mt-2 text-3xl font-black text-indigo-700">
+                        {dispatchStats.assigned}
+                      </p>
+                    </div>
+
+                    <div className="border border-blue-200 bg-blue-50 p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.15em] text-blue-600">
+                        In Progress
+                      </p>
+                      <p className="mt-2 text-3xl font-black text-blue-700">
+                        {dispatchStats.inProgress}
+                      </p>
+                    </div>
+
+                    <div className="border border-emerald-200 bg-emerald-50 p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.15em] text-emerald-600">
+                        Completed
+                      </p>
+                      <p className="mt-2 text-3xl font-black text-emerald-700">
+                        {dispatchStats.completed}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h2 className="text-xl font-black text-slate-950">
+                      Active dispatch queue
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Operational view of jobs that still need dispatch
+                      attention.
+                    </p>
+                  </div>
+
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3">Date / Zone</th>
+                        <th className="px-4 py-3">Driver</th>
+                        <th className="px-4 py-3">Truck</th>
+                        <th className="px-4 py-3">Waste</th>
+                        <th className="px-4 py-3">Status</th>
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-slate-200">
+                      {dispatchJobs.length ? (
+                        dispatchJobs.map((job) => (
+                          <tr key={job.id}>
+                            <td className="px-4 py-4">
+                              <p className="font-black text-slate-950">
+                                {formatJobDate(job.job_date)}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {job.zone_name || "Unknown zone"}
+                              </p>
+                            </td>
+
+                            <td className="px-4 py-4 text-slate-600">
+                              {job.driver_name || "Not assigned"}
+                            </td>
+
+                            <td className="px-4 py-4 text-slate-600">
+                              {job.plate_number || "Not assigned"}
+                            </td>
+
+                            <td className="px-4 py-4 text-slate-600">
+                              {formatLabel(job.waste_type)}
+                            </td>
+
+                            <td className="px-4 py-4">
+                              <span
+                                className={`border px-3 py-1 text-xs font-black ${statusClass(
+                                  job.status
+                                )}`}
+                              >
+                                {formatLabel(job.status)}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-6 text-slate-500">
+                            No active dispatch jobs.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               ) : activeTab === "zones" ? (
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
@@ -688,6 +918,7 @@ export default function WasteOperationsPage() {
                       <th className="px-4 py-3">Frequency</th>
                       <th className="px-4 py-3">Preferred time</th>
                       <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
@@ -732,13 +963,76 @@ export default function WasteOperationsPage() {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5} className="px-4 py-6 text-slate-500">
+                        <td colSpan={6} className="px-4 py-6 text-slate-500">
                           No pickup schedules created yet.
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
+              ) : activeTab === "routes" ? (
+                routes.length ? (
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3">Route</th>
+                        <th className="px-4 py-3">Date</th>
+                        <th className="px-4 py-3">Truck</th>
+                        <th className="px-4 py-3">Driver</th>
+                        <th className="px-4 py-3">Jobs</th>
+                        <th className="px-4 py-3">Status</th>
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-slate-200">
+                      {routes.map((route) => (
+                        <tr key={route.id}>
+                          <td className="px-4 py-4">
+                            <p className="font-black text-slate-950">
+                              {route.name}
+                            </p>
+
+                            {route.notes && (
+                              <p className="mt-1 text-xs text-slate-500">
+                                {route.notes}
+                              </p>
+                            )}
+                          </td>
+
+                          <td className="px-4 py-4 text-slate-600">
+                            {formatJobDate(route.route_date)}
+                          </td>
+
+                          <td className="px-4 py-4 text-slate-600">
+                            {route.plate_number || "Not assigned"}
+                          </td>
+
+                          <td className="px-4 py-4 text-slate-600">
+                            {route.driver_name || "Not assigned"}
+                          </td>
+
+                          <td className="px-4 py-4 text-slate-600">
+                            {route.job_count}
+                          </td>
+
+                          <td className="px-4 py-4">
+                            <span
+                              className={`border px-3 py-1 text-xs font-black ${statusClass(
+                                route.status
+                              )}`}
+                            >
+                              {formatLabel(route.status)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="p-6 text-sm text-slate-500">
+                    No collection routes created yet.
+                  </p>
+                )
               ) : (
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-50 text-xs uppercase tracking-[0.12em] text-slate-500">
@@ -1007,7 +1301,6 @@ export default function WasteOperationsPage() {
                 </form>
               </>
             )}
-
             {activeTab === "trucks" && (
               <>
                 <h2 className="text-2xl font-black text-slate-950">
@@ -1057,7 +1350,6 @@ export default function WasteOperationsPage() {
                 </form>
               </>
             )}
-
             {activeTab === "drivers" && (
               <>
                 <h2 className="text-2xl font-black text-slate-950">
@@ -1107,7 +1399,6 @@ export default function WasteOperationsPage() {
                 </form>
               </>
             )}
-
             {activeTab === "schedules" && (
               <>
                 <h2 className="text-2xl font-black text-slate-950">
@@ -1186,7 +1477,6 @@ export default function WasteOperationsPage() {
                 </form>
               </>
             )}
-
             {activeTab === "jobs" && (
               <>
                 <h2 className="text-2xl font-black text-slate-950">
@@ -1306,6 +1596,152 @@ export default function WasteOperationsPage() {
                     className="w-full bg-emerald-700 px-5 py-4 text-sm font-black text-white hover:bg-emerald-800 disabled:opacity-60"
                   >
                     {saving ? "Saving..." : "Create job"}
+                  </button>
+                </form>
+              </>
+            )}
+            {activeTab === "routes" && (
+              <>
+                <h2 className="text-2xl font-black text-slate-950">
+                  Create collection route
+                </h2>
+
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  Group collection jobs into an operational route for a truck
+                  and driver.
+                </p>
+
+                <form onSubmit={createRoute} className="mt-7 space-y-5">
+                  <input
+                    required
+                    value={routeForm.name}
+                    onChange={(event) =>
+                      setRouteForm({
+                        ...routeForm,
+                        name: event.target.value,
+                      })
+                    }
+                    placeholder="Route name"
+                    className="w-full border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-700"
+                  />
+
+                  <input
+                    required
+                    type="date"
+                    value={routeForm.routeDate}
+                    onChange={(event) =>
+                      setRouteForm({
+                        ...routeForm,
+                        routeDate: event.target.value,
+                      })
+                    }
+                    className="w-full border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-700"
+                  />
+
+                  <select
+                    value={routeForm.truckId}
+                    onChange={(event) =>
+                      setRouteForm({
+                        ...routeForm,
+                        truckId: event.target.value,
+                      })
+                    }
+                    className="w-full border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-700"
+                  >
+                    <option value="">No truck assigned</option>
+
+                    {trucks.map((truck) => (
+                      <option key={truck.id} value={truck.id}>
+                        {truck.plate_number}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={routeForm.driverId}
+                    onChange={(event) =>
+                      setRouteForm({
+                        ...routeForm,
+                        driverId: event.target.value,
+                      })
+                    }
+                    className="w-full border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-700"
+                  >
+                    <option value="">No driver assigned</option>
+
+                    {drivers.map((driver) => (
+                      <option key={driver.id} value={driver.id}>
+                        {driver.full_name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div>
+                    <p className="mb-3 text-sm font-black text-slate-950">
+                      Select jobs
+                    </p>
+
+                    <div className="max-h-64 space-y-2 overflow-y-auto border border-slate-200 p-3">
+                      {jobs
+                        .filter(
+                          (job) =>
+                            job.status !== "completed" &&
+                            job.status !== "cancelled"
+                        )
+                        .map((job) => (
+                          <label
+                            key={job.id}
+                            className="flex cursor-pointer items-start gap-3 border-b border-slate-100 py-2 last:border-0"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={routeForm.jobIds.includes(job.id)}
+                              onChange={() => toggleRouteJob(job.id)}
+                              className="mt-1"
+                            />
+
+                            <span>
+                              <span className="block text-sm font-black text-slate-900">
+                                {job.zone_name || "Unknown zone"}
+                              </span>
+
+                              <span className="block text-xs text-slate-500">
+                                {formatJobDate(job.job_date)} ·{" "}
+                                {formatLabel(job.status)}
+                              </span>
+                            </span>
+                          </label>
+                        ))}
+
+                      {!jobs.filter(
+                        (job) =>
+                          job.status !== "completed" &&
+                          job.status !== "cancelled"
+                      ).length && (
+                        <p className="text-sm text-slate-500">
+                          No available jobs to add to a route.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <textarea
+                    value={routeForm.notes}
+                    onChange={(event) =>
+                      setRouteForm({
+                        ...routeForm,
+                        notes: event.target.value,
+                      })
+                    }
+                    placeholder="Route notes"
+                    className="min-h-24 w-full border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-700"
+                  />
+
+                  <button
+                    disabled={saving}
+                    className="w-full bg-emerald-700 px-5 py-4 text-sm font-black text-white hover:bg-emerald-800 disabled:opacity-60"
+                  >
+                    {saving ? "Saving..." : "Create route"}
                   </button>
                 </form>
               </>

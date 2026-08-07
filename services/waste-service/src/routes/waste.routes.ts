@@ -13,6 +13,12 @@ import {
   getTrucks,
   getZones,
   updateCollectionJobStatusHandler,
+  completeDriverJobHandler,
+  getDriverJobsHandler,
+  startDriverJobHandler,
+  createCollectionRouteHandler,
+  getCollectionRouteDetailsHandler,
+  getCollectionRoutes,
 } from "../controllers/waste.controller";
 const router = Router();
 
@@ -150,6 +156,70 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await generateCollectionJobsHandler(req, res);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+router.get(
+  "/drivers/:driverId/jobs",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await getDriverJobsHandler(req, res);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.patch(
+  "/driver-jobs/:jobId/start",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await startDriverJobHandler(req, res);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.patch(
+  "/driver-jobs/:jobId/complete",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await completeDriverJobHandler(req, res);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+router.get(
+  "/collection-routes",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await getCollectionRoutes(req, res);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  "/collection-routes",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await createCollectionRouteHandler(req, res);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.get(
+  "/collection-routes/:id",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await getCollectionRouteDetailsHandler(req, res);
     } catch (error) {
       next(error);
     }

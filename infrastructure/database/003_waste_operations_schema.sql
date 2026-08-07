@@ -144,3 +144,45 @@ CREATE INDEX IF NOT EXISTS idx_collection_jobs_truck_id ON collection_jobs(truck
 CREATE INDEX IF NOT EXISTS idx_collection_jobs_driver_id ON collection_jobs(driver_id);
 CREATE INDEX IF NOT EXISTS idx_collection_jobs_status ON collection_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_collection_jobs_job_date ON collection_jobs(job_date);
+
+CREATE TABLE IF NOT EXISTS collection_routes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+    name VARCHAR(150) NOT NULL,
+    truck_id UUID REFERENCES waste_trucks(id) ON DELETE SET NULL,
+    driver_id UUID REFERENCES drivers(id) ON DELETE SET NULL,
+    route_date DATE NOT NULL,
+    status VARCHAR(40) NOT NULL DEFAULT 'planned' CHECK (
+        status IN (
+            'planned',
+            'dispatched',
+            'in_progress',
+            'completed',
+            'cancelled'
+        )
+    ),
+    total_distance_km NUMERIC(10, 2),
+    estimated_duration_minutes INTEGER,
+    route_geometry GEOMETRY(LINESTRING, 4326),
+    notes TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS collection_route_jobs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    route_id UUID NOT NULL REFERENCES collection_routes(id) ON DELETE CASCADE,
+    job_id UUID NOT NULL REFERENCES collection_jobs(id) ON DELETE CASCADE,
+    stop_order INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(route_id, job_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_collection_routes_route_date ON collection_routes(route_date);
+CREATE INDEX IF NOT EXISTS idx_collection_routes_status ON collection_routes(status);
+CREATE INDEX IF NOT EXISTS idx_collection_routes_truck_id ON collection_routes(truck_id);
+CREATE INDEX IF NOT EXISTS idx_collection_routes_driver_id ON collection_routes(driver_id);
+CREATE INDEX IF NOT EXISTS idx_collection_routes_geometry ON collection_routes USING GIST(route_geometry);
+
+CREATE INDEX IF NOT EXISTS idx_collection_route_jobs_route_id ON collection_route_jobs(route_id);
+CREATE INDEX IF NOT EXISTS idx_collection_route_jobs_job_id ON collection_route_jobs(job_id);
