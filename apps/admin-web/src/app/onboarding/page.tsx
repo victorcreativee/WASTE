@@ -1,0 +1,25 @@
+"use client";
+/* eslint-disable react-hooks/set-state-in-effect -- session storage is available after hydration */
+import Link from "next/link";
+import {useCallback,useEffect,useMemo,useState} from "react";
+import {apiRequest} from "@/lib/api";
+
+type Permit={id:string;application_number:string;permit_number:string|null;status:string;review_notes:string|null};
+type AccessApplication={id:string;application_number:string;status:string;review_notes:string|null};
+function readable(value:string){return value.replaceAll("_"," ")}
+
+export default function ApplicantOnboarding(){
+ const [ready,setReady]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState("");
+ const [permits,setPermits]=useState<Permit[]>([]),[access,setAccess]=useState<AccessApplication[]>([]);
+ const load=useCallback(async()=>{try{const [p,a]=await Promise.all([apiRequest<{data:Permit[]}>("/api/waste/regulatory/applicant/permits"),apiRequest<{data:AccessApplication[]}>("/api/waste/regulatory/applicant/account-applications")]);setPermits(p.data);setAccess(a.data)}catch(e){setError(e instanceof Error?e.message:"Onboarding progress could not be loaded")}finally{setLoading(false)}},[]);
+ useEffect(()=>{try{const user=JSON.parse(sessionStorage.getItem("currentUser")||"{}");if(!user.roles?.includes("organization_applicant")){window.location.href="/login";return;}setReady(true);void load()}catch{window.location.href="/login"}},[load]);
+ const permit=permits[0],account=access[0];
+ const steps=useMemo(()=>[
+  {name:"KCCA permit",state:permit?readable(permit.status):"not started",detail:permit?`Application ${permit.application_number}`:"Submit company details and registration evidence.",href:"/onboarding/permit",action:permit?"View permit":"Start application",available:true},
+  {name:"Requested documents",state:permit?.status==="information_required"?"action required":permit?"no action required":"waiting for application",detail:permit?.status==="information_required"?(permit.review_notes||"KCCA requested more evidence."):"This opens only when KCCA asks for additional evidence.",href:"/onboarding/documents",action:"Review requests",available:Boolean(permit)},
+  {name:"KCCA certificate",state:permit?.status==="approved"?"available":"waiting for approval",detail:permit?.status==="approved"?`Permit ${permit.permit_number||"approved"} is ready to download.`:"KCCA issues the certificate after approving the permit.",href:"/onboarding/permit",action:"View certificate",available:permit?.status==="approved"},
+  {name:"Platform access",state:account?readable(account.status):permit?.status==="approved"?"ready to apply":"locked",detail:account?`Application ${account.application_number}`:"Choose a package and send the KCCA certificate to the System Admin.",href:"/onboarding/platform-access",action:account?"View application":"Apply for access",available:permit?.status==="approved"},
+ ],[permit,account]);
+ if(!ready)return <main className="p-8 text-sm">Opening your onboarding workspace…</main>;
+ return <main className="min-h-screen bg-[#f7f7f5] px-5 py-10 text-slate-900"><div className="mx-auto max-w-5xl"><header className="border-b border-slate-300 pb-7"><p className="text-xs font-semibold uppercase tracking-[.2em] text-[#3156a3]">Organization verification</p><h1 className="mt-3 text-3xl font-semibold">Your onboarding progress</h1><p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">Complete each available step in order. Your operational workspace remains protected until KCCA and the System Admin finish verification.</p></header>{error&&<p role="alert" className="mt-6 border-l-2 border-red-600 bg-red-50 p-4 text-sm text-red-700">{error} <button onClick={()=>void load()} className="ml-2 font-semibold underline">Try again</button></p>}{loading?<p className="mt-8 text-sm text-slate-500">Loading your progress…</p>:<><section className="mt-8 overflow-x-auto border-y border-slate-300 bg-white"><table className="w-full min-w-[760px] text-left"><thead><tr><th>Step</th><th>Current status</th><th>What this means</th><th>Next action</th></tr></thead><tbody>{steps.map((step,index)=><tr key={step.name}><td><p className="table-primary">{index+1}. {step.name}</p></td><td><span className={`status ${step.state==="action required"?"status-information_required":step.state==="available"||step.state==="ready to apply"?"status-approved":""}`}>{step.state}</span></td><td className="max-w-md text-sm leading-6 text-slate-600">{step.detail}</td><td>{step.available?<Link href={step.href} className="inline-block border border-[#3156a3] px-3 py-2 text-xs font-semibold text-[#3156a3]">{step.action}</Link>:<span className="text-xs text-slate-400">Complete the previous step</span>}</td></tr>)}</tbody></table></section><aside className="mt-7 border-l-2 border-[#c6842f] bg-amber-50 p-5 text-sm leading-6 text-amber-950"><strong>What happens after approval?</strong> The System Admin verifies your certificate and selected package. After approval, your nominated administrator receives secure account-setup instructions; only then does the full organization operations system become available.</aside></>}</div></main>;
+}

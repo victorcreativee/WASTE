@@ -5,10 +5,18 @@ import {
   getOrganization,
   listOrganizations,
 } from "../services/organization.service";
+import { AuthenticatedRequest } from "../middlewares/auth.middleware";
+
+function organizationScope(req: Request) {
+  const auth = (req as AuthenticatedRequest).auth;
+  return auth?.roles.some((role) => ["company_admin", "supervisor"].includes(role))
+    ? auth.organizationId
+    : null;
+}
 
 export async function getOrganizations(req: Request, res: Response) {
   try {
-    const organizations = await listOrganizations();
+    const organizations = await listOrganizations(organizationScope(req));
 
     return res.status(200).json({
       success: true,
@@ -37,7 +45,7 @@ export async function getOrganizationById(req: Request, res: Response) {
       });
     }
 
-    const organization = await getOrganization(id);
+    const organization = await getOrganization(id, organizationScope(req));
 
     return res.status(200).json({
       success: true,
@@ -66,7 +74,7 @@ export async function createOrganizationHandler(req: Request, res: Response) {
       data: organization,
     });
   } catch (error) {
-    return res.status(400).json({
+    return res.status((error as any).statusCode||400).json({
       success: false,
       message:
         error instanceof Error

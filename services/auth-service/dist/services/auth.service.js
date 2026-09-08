@@ -4,8 +4,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerUser = registerUser;
+exports.registerOrganizationApplicant = registerOrganizationApplicant;
 exports.loginUser = loginUser;
 exports.getCurrentUser = getCurrentUser;
+const organization_access_service_1 = require("./organization-access.service");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const auth_repository_1 = require("../repositories/auth.repository");
 const jwt_1 = require("../utils/jwt");
@@ -57,6 +59,13 @@ async function registerUser(input) {
         },
     };
 }
+async function registerOrganizationApplicant(input) {
+    const passwordHash = await bcrypt_1.default.hash(input.password, 12);
+    const user = await (0, auth_repository_1.createOrganizationApplicant)(input, passwordHash);
+    const accessToken = (0, jwt_1.signAccessToken)({ userId: user.id, email: user.email, organizationId: null, roles: ["organization_applicant"] });
+    const refreshToken = (0, jwt_1.signRefreshToken)({ userId: user.id });
+    return { user: sanitizeUser(user), roles: [{ name: "organization_applicant" }], permissions: [], tokens: { accessToken, refreshToken } };
+}
 async function loginUser(input) {
     const user = await (0, auth_repository_1.findUserByEmail)(input.email);
     if (!user) {
@@ -75,17 +84,23 @@ async function loginUser(input) {
         error.statusCode = 401;
         throw error;
     }
+    const roles = await (0, role_repository_1.getUserRoles)(user.id);
+    await (0, organization_access_service_1.requireActiveOrganization)(user.organization_id, roles, user.id);
     await (0, auth_repository_1.updateLastLogin)(user.id);
+    const permissions = await (0, role_repository_1.getUserPermissions)(user.id);
     const accessToken = (0, jwt_1.signAccessToken)({
         userId: user.id,
         email: user.email,
         organizationId: user.organization_id,
+        roles: roles.map((role) => role.name),
     });
     const refreshToken = (0, jwt_1.signRefreshToken)({
         userId: user.id,
     });
     return {
         user: sanitizeUser(user),
+        roles,
+        permissions,
         tokens: {
             accessToken,
             refreshToken,
@@ -94,12 +109,13 @@ async function loginUser(input) {
 }
 async function getCurrentUser(userId) {
     const user = await (0, auth_repository_2.findUserById)(userId);
-    if (!user) {
-        const error = new Error("User not found");
+    if (!user || user.status !== "active") {
+        const error = new Error("User account is unavailable");
         error.statusCode = 404;
         throw error;
     }
     const roles = await (0, role_repository_1.getUserRoles)(user.id);
+    await (0, organization_access_service_1.requireActiveOrganization)(user.organization_id, roles, user.id);
     const permissions = await (0, role_repository_1.getUserPermissions)(user.id);
     return {
         user: sanitizeUser(user),

@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import { Modal } from "@/components/ui/System";
+import { Pagination, usePagination } from "@/components/ui/Pagination";
+import { AdminSetup } from "./AdminSetup";
 import { apiRequest } from "@/lib/api";
 
 type Organization = {
@@ -20,6 +23,7 @@ type OrganizationsResponse = {
   message: string;
   data: Organization[];
 };
+type ApprovedPermit={id:string;application_number:string;company_name:string;registration_number:string;valid_until:string|null;organization_id:string|null};
 
 const organizationTypes = [
   "all",
@@ -32,14 +36,20 @@ const organizationTypes = [
   "citizen_group",
   "system",
 ];
+function roleSnapshot(){try{return JSON.parse(sessionStorage.getItem("currentUser")||"{}").roles?.join(",")||"unknown";}catch{return"unknown";}}
+function subscribe(){return()=>undefined;}
 
 export default function OrganizationsPage() {
+  const roles=useSyncExternalStore(subscribe,roleSnapshot,()=>"hydrating");
+  const canCreateOrganization=roles.includes("system_admin");
+  const [createOpen,setCreateOpen]=useState(false);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [approvedPermits,setApprovedPermits]=useState<ApprovedPermit[]>([]);
 
   const [form, setForm] = useState({
     name: "",
@@ -47,6 +57,7 @@ export default function OrganizationsPage() {
     email: "",
     phone: "",
     address: "",
+    approvedPermitId: "",
   });
 
   async function loadOrganizations() {
@@ -83,15 +94,18 @@ export default function OrganizationsPage() {
           email: form.email || undefined,
           phone: form.phone || undefined,
           address: form.address || undefined,
+          approvedPermitId: form.approvedPermitId || undefined,
         }),
       });
 
+      setCreateOpen(false);
       setForm({
         name: "",
         type: "waste_collection_company",
         email: "",
         phone: "",
         address: "",
+        approvedPermitId: "",
       });
 
       await loadOrganizations();
@@ -105,8 +119,14 @@ export default function OrganizationsPage() {
   }
 
   useEffect(() => {
-    loadOrganizations();
+    apiRequest<OrganizationsResponse>("/api/organizations")
+      .then((response) => setOrganizations(response.data))
+      .catch((loadError: unknown) =>
+        setError(loadError instanceof Error ? loadError.message : "Failed to load organizations")
+      )
+      .finally(() => setLoading(false));
   }, []);
+  useEffect(()=>{if(!canCreateOrganization)return;apiRequest<{data:ApprovedPermit[]}>("/api/waste/regulatory/permit-applications?status=approved").then(r=>setApprovedPermits(r.data.filter(p=>!p.organization_id))).catch(()=>setApprovedPermits([]));},[canCreateOrganization]);
 
   const filteredOrganizations = useMemo(() => {
     return organizations.filter((organization) => {
@@ -122,11 +142,12 @@ export default function OrganizationsPage() {
     });
   }, [organizations, search, typeFilter]);
 
+  const pagination=usePagination(filteredOrganizations);
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl">
         <section className="border-b border-slate-200 pb-7">
-          <p className="text-sm font-black uppercase tracking-[0.25em] text-emerald-700">
+          <p className="text-sm font-black uppercase tracking-[0.25em] text-[#3156a3]">
             City Stakeholders
           </p>
           <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950">
@@ -137,6 +158,7 @@ export default function OrganizationsPage() {
             waste ecosystem organized before operations, trucks, zones, and
             citizen reports are connected.
           </p>
+          {canCreateOrganization&&<button type="button" onClick={()=>setCreateOpen(true)} className="mt-5 bg-[#3156a3] px-4 py-2 text-sm text-white">Add organization</button>}
         </section>
 
         {error && (
@@ -145,9 +167,9 @@ export default function OrganizationsPage() {
           </div>
         )}
 
-        <section className="grid gap-10 py-8 xl:grid-cols-[1.2fr_0.8fr]">
+        <section className="py-8">
           <div>
-            <div className="flex flex-col justify-between gap-5 border-b border-slate-200 pb-5 lg:flex-row lg:items-end">
+            <div className="mb-0 flex flex-col justify-between gap-5 pb-4 lg:flex-row lg:items-end">
               <div>
                 <h2 className="text-2xl font-black text-slate-950">
                   Registered partners
@@ -160,16 +182,17 @@ export default function OrganizationsPage() {
 
               <div className="flex flex-col gap-3 sm:flex-row">
                 <input
+                  type="search"
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) => {setSearch(event.target.value);pagination.setPage(1);}}
                   placeholder="Search organization..."
-                  className="border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-700"
+                  className="table-search"
                 />
 
                 <select
                   value={typeFilter}
-                  onChange={(event) => setTypeFilter(event.target.value)}
-                  className="border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-700"
+                  onChange={(event) => {setTypeFilter(event.target.value);pagination.setPage(1);}}
+                  className="border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-[#3156a3]"
                 >
                   {organizationTypes.map((type) => (
                     <option key={type} value={type}>
@@ -180,69 +203,26 @@ export default function OrganizationsPage() {
               </div>
             </div>
 
-            <div className="divide-y divide-slate-200">
+            <div className="table-wrap">
               {loading ? (
-                <p className="py-8 text-sm text-slate-500">
+                <p className="p-8 text-sm text-slate-500">
                   Loading organizations...
                 </p>
               ) : filteredOrganizations.length === 0 ? (
-                <p className="py-8 text-sm text-slate-500">
+                <p className="p-8 text-sm text-slate-500">
                   No organizations match your search.
                 </p>
               ) : (
-                filteredOrganizations.map((organization) => (
-                  <div
-                    key={organization.id}
-                    className="grid gap-4 py-5 lg:grid-cols-[1fr_220px_120px]"
-                  >
-                    <div>
-                      <p className="text-lg font-black text-slate-950">
-                        {organization.name}
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-slate-500">
-                        {organization.address || "No address added"}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                        Type
-                      </p>
-                      <p className="mt-1 text-sm font-bold text-slate-800">
-                        {organization.type.replaceAll("_", " ")}
-                      </p>
-                    </div>
-
-                    <div className="text-left lg:text-right">
-                      <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
-                        Status
-                      </p>
-                      <p className="mt-1 text-sm font-black text-emerald-700">
-                        {organization.is_active ? "Active" : "Inactive"}
-                      </p>
-                    </div>
-
-                    <div className="lg:col-span-3">
-                      <p className="text-sm text-slate-500">
-                        {organization.email || "No email"} ·{" "}
-                        {organization.phone || "No phone"}
-                      </p>
-                    </div>
-                  </div>
-                ))
+                <table className="min-w-[760px] text-left"><thead><tr><th>Organization</th><th>Type</th><th>Contact</th><th>Status</th>{canCreateOrganization&&<th>Onboarding</th>}</tr></thead><tbody>{pagination.paged.map((organization) => (
+                  <tr key={organization.id}><td><p className="table-primary">{organization.name}</p><p className="table-secondary">{organization.address||"No address added"}</p></td><td className="capitalize">{organization.type.replaceAll("_"," ")}</td><td><p>{organization.email||"No email"}</p><p className="table-secondary">{organization.phone||"No phone"}</p></td><td><span className={`status status-${organization.is_active?"active":"inactive"}`}>{organization.is_active?"Active":"Inactive"}</span></td>{canCreateOrganization&&<td>{organization.type==="waste_collection_company"&&organization.is_active?<AdminSetup organization={organization}/>:<span className="text-xs text-slate-500">Not eligible</span>}</td>}</tr>
+                ))}</tbody></table>
               )}
             </div>
+            <Pagination page={pagination.page} pageSize={pagination.pageSize} total={pagination.total} totalPages={pagination.totalPages} onPage={pagination.setPage} onPageSize={pagination.setPageSize}/>
           </div>
 
-          <aside className="border-l border-slate-200 pl-8">
-            <h2 className="text-2xl font-black text-slate-950">
-              Add organization
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-slate-500">
-              Add one verified institution or partner at a time. Later, these
-              organizations will own users, trucks, zones, reports, and
-              recycling records.
-            </p>
+          {canCreateOrganization&&<Modal open={createOpen} title="Add organization" description="Register a verified organization. For a waste-collection company, issue its first-administrator setup link after creation." onClose={()=>{if(!creating)setCreateOpen(false);}}>
+            {error&&<p role="alert" className="text-sm text-red-700">{error}</p>}
 
             <form onSubmit={handleCreate} className="mt-7 space-y-5">
               <label className="block">
@@ -255,7 +235,7 @@ export default function OrganizationsPage() {
                     setForm({ ...form, name: event.target.value })
                   }
                   required
-                  className="mt-2 w-full border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-700"
+                  className="mt-2 w-full border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-[#3156a3]"
                   placeholder="Example: Kampala Recycling Partners"
                 />
               </label>
@@ -267,7 +247,7 @@ export default function OrganizationsPage() {
                   onChange={(event) =>
                     setForm({ ...form, type: event.target.value })
                   }
-                  className="mt-2 w-full border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-700"
+                  className="mt-2 w-full border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-[#3156a3]"
                 >
                   {organizationTypes
                     .filter((type) => type !== "all")
@@ -279,6 +259,8 @@ export default function OrganizationsPage() {
                 </select>
               </label>
 
+              {form.type==="waste_collection_company"&&<label className="block"><span className="text-sm font-black text-slate-700">Approved KCCA permit</span><select required value={form.approvedPermitId} onChange={event=>{const permit=approvedPermits.find(item=>item.id===event.target.value);setForm({...form,approvedPermitId:event.target.value,name:permit?.company_name||form.name})}} className="mt-2 w-full border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-[#3156a3]"><option value="">Select an unused approved permit</option>{approvedPermits.map(permit=><option key={permit.id} value={permit.id}>{permit.application_number} · {permit.company_name}</option>)}</select><span className="mt-2 block text-xs font-normal text-slate-500">Waste collectors can only be activated after KCCA approval.</span></label>}
+
               <label className="block">
                 <span className="text-sm font-black text-slate-700">Email</span>
                 <input
@@ -286,7 +268,7 @@ export default function OrganizationsPage() {
                   onChange={(event) =>
                     setForm({ ...form, email: event.target.value })
                   }
-                  className="mt-2 w-full border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-700"
+                  className="mt-2 w-full border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-[#3156a3]"
                   placeholder="info@example.ug"
                 />
               </label>
@@ -298,7 +280,7 @@ export default function OrganizationsPage() {
                   onChange={(event) =>
                     setForm({ ...form, phone: event.target.value })
                   }
-                  className="mt-2 w-full border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-700"
+                  className="mt-2 w-full border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-[#3156a3]"
                   placeholder="+256..."
                 />
               </label>
@@ -312,7 +294,7 @@ export default function OrganizationsPage() {
                   onChange={(event) =>
                     setForm({ ...form, address: event.target.value })
                   }
-                  className="mt-2 min-h-24 w-full border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-700"
+                  className="mt-2 min-h-24 w-full border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-[#3156a3]"
                   placeholder="Kampala, Uganda"
                 />
               </label>
@@ -320,12 +302,12 @@ export default function OrganizationsPage() {
               <button
                 type="submit"
                 disabled={creating}
-                className="w-full bg-emerald-700 px-5 py-4 text-sm font-black text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full bg-[#3156a3] px-5 py-4 text-sm font-black text-white transition hover:bg-[#284886] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {creating ? "Creating organization..." : "Create organization"}
               </button>
             </form>
-          </aside>
+          </Modal>}
         </section>
       </div>
     </AppShell>

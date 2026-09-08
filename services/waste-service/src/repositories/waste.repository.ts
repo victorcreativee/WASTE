@@ -9,24 +9,57 @@ import {
   CreateZoneInput,
   GenerateCollectionJobsInput,
   UpdateCollectionJobStatusInput,
+  AssignZoneServiceAreaInput,
 } from "../validators/waste.validator";
 
-export async function findZones() {
+type OrganizationResource =
+  | "users"
+  | "waste_zones"
+  | "waste_trucks"
+  | "drivers"
+  | "pickup_schedules"
+  | "collection_jobs";
+
+export async function resourcesBelongToOrganization(
+  resource: OrganizationResource,
+  ids: string[],
+  organizationId: string
+) {
+  if (ids.length === 0) return true;
+
+  const result = await dbPool.query(
+    `SELECT COUNT(DISTINCT id)::int AS count
+     FROM ${resource}
+     WHERE organization_id = $1::uuid
+       AND id = ANY($2::uuid[])`,
+    [organizationId, ids]
+  );
+
+  return result.rows[0].count === new Set(ids).size;
+}
+
+export async function findZones(organizationId: string | null) {
   const result = await dbPool.query(`
     SELECT 
-      id,
-      organization_id,
-      name,
-      description,
-      area_type,
-      ST_Y(center_point::geometry) AS latitude,
-      ST_X(center_point::geometry) AS longitude,
-      is_active,
-      created_at,
-      updated_at
-    FROM waste_zones
-    ORDER BY created_at DESC
-  `);
+      wz.id,
+      wz.organization_id,
+      o.name AS organization_name,
+      wz.name,
+      wz.description,
+      wz.area_type,
+      ST_Y(wz.center_point::geometry) AS latitude,
+      ST_X(wz.center_point::geometry) AS longitude,
+      wz.is_active,
+      COUNT(csl.id)::int AS customer_count,
+      wz.created_at,
+      wz.updated_at
+    FROM waste_zones wz
+    LEFT JOIN organizations o ON o.id = wz.organization_id
+    LEFT JOIN customer_service_locations csl ON csl.zone_id = wz.id
+    WHERE ($1::uuid IS NULL OR wz.organization_id = $1::uuid)
+    GROUP BY wz.id, o.name
+    ORDER BY wz.created_at DESC
+  `, [organizationId]);
 
   return result.rows;
 }
@@ -83,7 +116,51 @@ export async function createZone(data: CreateZoneInput) {
   return result.rows[0];
 }
 
-export async function findTrucks() {
+export async function assignZoneServiceArea(
+  zoneId: string,
+  data: AssignZoneServiceAreaInput
+) {
+  const client = await dbPool.connect();
+  try {
+    await client.query("BEGIN");
+    const organizationResult = await client.query(
+      `SELECT id FROM organizations
+       WHERE id = $1::uuid AND type = 'waste_collection_company' AND is_active = true`,
+      [data.organizationId]
+    );
+    if (!organizationResult.rows[0]) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const hasPoint = data.latitude !== undefined && data.longitude !== undefined;
+    const zoneResult = await client.query(
+      `UPDATE waste_zones SET organization_id = $2::uuid,
+         center_point = CASE WHEN $3::boolean
+           THEN ST_SetSRID(ST_Point($4, $5), 4326)::geography
+           ELSE center_point END,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1::uuid
+       RETURNING id, organization_id, name, area_type,
+         ST_Y(center_point::geometry) AS latitude,
+         ST_X(center_point::geometry) AS longitude, is_active`,
+      [zoneId, data.organizationId, hasPoint, data.longitude ?? null, data.latitude ?? null]
+    );
+    if (!zoneResult.rows[0]) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    // Regulatory coverage reassignment must not transfer private customer relationships.
+    await client.query("COMMIT");
+    return { ...zoneResult.rows[0], rematched_customers: 0 };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function findTrucks(organizationId: string | null) {
   const result = await dbPool.query(`
     SELECT 
       id,
@@ -97,8 +174,9 @@ export async function findTrucks() {
       created_at,
       updated_at
     FROM waste_trucks
+    WHERE ($1::uuid IS NULL OR organization_id = $1::uuid)
     ORDER BY created_at DESC
-  `);
+  `, [organizationId]);
 
   return result.rows;
 }
@@ -134,7 +212,7 @@ export async function createTruck(data: CreateTruckInput) {
   return result.rows[0];
 }
 
-export async function findDrivers() {
+export async function findDrivers(organizationId: string | null) {
   const result = await dbPool.query(`
     SELECT 
       id,
@@ -147,8 +225,9 @@ export async function findDrivers() {
       created_at,
       updated_at
     FROM drivers
+    WHERE ($1::uuid IS NULL OR organization_id = $1::uuid)
     ORDER BY created_at DESC
-  `);
+  `, [organizationId]);
 
   return result.rows;
 }
@@ -186,7 +265,7 @@ export async function createDriver(data: CreateDriverInput) {
 
   return result.rows[0];
 }
-export async function findPickupSchedules() {
+export async function findPickupSchedules(organizationId: string | null) {
   const result = await dbPool.query(`
     SELECT 
       ps.id,
@@ -201,8 +280,9 @@ export async function findPickupSchedules() {
       ps.updated_at
     FROM pickup_schedules ps
     LEFT JOIN waste_zones wz ON wz.id = ps.zone_id
+    WHERE ($1::uuid IS NULL OR ps.organization_id = $1::uuid)
     ORDER BY ps.created_at DESC
-  `);
+  `, [organizationId]);
 
   return result.rows;
 }
@@ -241,7 +321,7 @@ export async function createPickupSchedule(data: CreatePickupScheduleInput) {
   return result.rows[0];
 }
 
-export async function findCollectionJobs() {
+export async function findCollectionJobs(organizationId: string | null) {
   const result = await dbPool.query(`
     SELECT
       cj.id,
@@ -263,6 +343,16 @@ export async function findCollectionJobs() {
       cj.started_at,
       cj.completed_at,
       cj.notes,
+      EXISTS (
+        SELECT 1 FROM collection_route_jobs crj
+        JOIN collection_routes cr ON cr.id=crj.route_id
+        WHERE crj.job_id = cj.id AND cr.status <> 'cancelled'
+      ) AS is_routed,
+      (SELECT COUNT(*)::int FROM customer_collection_stops cs
+       WHERE cs.collection_job_id = cj.id) AS customer_stop_count,
+      (SELECT COUNT(*)::int FROM customer_collection_stops cs
+       WHERE cs.collection_job_id = cj.id
+         AND cs.status IN ('completed', 'skipped', 'cancelled')) AS resolved_customer_stop_count,
       cj.created_at,
       cj.updated_at
     FROM collection_jobs cj
@@ -270,8 +360,9 @@ export async function findCollectionJobs() {
     LEFT JOIN waste_trucks wt ON wt.id = cj.truck_id
     LEFT JOIN drivers d ON d.id = cj.driver_id
     LEFT JOIN pickup_schedules ps ON ps.id = cj.schedule_id
+    WHERE ($1::uuid IS NULL OR cj.organization_id = $1::uuid)
     ORDER BY cj.job_date DESC, cj.created_at DESC
-  `);
+  `, [organizationId]);
 
   return result.rows;
 }
@@ -311,10 +402,14 @@ export async function createCollectionJob(data: CreateCollectionJobInput) {
 
 export async function updateCollectionJobStatus(
   jobId: string,
-  data: UpdateCollectionJobStatusInput
+  data: UpdateCollectionJobStatusInput,
+  organizationId: string | null
 ) {
-  const result = await dbPool.query(
-    `
+  const client = await dbPool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query(
+      `
     UPDATE collection_jobs
     SET
       status = $2::text,
@@ -330,6 +425,11 @@ export async function updateCollectionJobStatus(
       END,
       updated_at = CURRENT_TIMESTAMP
     WHERE id = $1::uuid
+      AND ($5::uuid IS NULL OR organization_id = $5::uuid)
+      AND ($2::text <> 'completed' OR NOT EXISTS (
+        SELECT 1 FROM customer_collection_stops cs WHERE cs.collection_job_id=collection_jobs.id
+          AND cs.status NOT IN ('completed','skipped','cancelled')
+      ))
       AND (
         ($2::text = 'assigned' AND status = 'pending' AND truck_id IS NOT NULL AND driver_id IS NOT NULL)
         OR ($2::text = 'in_progress' AND status = 'assigned' AND truck_id IS NOT NULL AND driver_id IS NOT NULL)
@@ -338,13 +438,30 @@ export async function updateCollectionJobStatus(
         OR ($2::text = 'cancelled' AND status IN ('pending', 'assigned'))
       )
     RETURNING *
-    `,
-    [jobId, data.status, data.collectedWeightKg ?? null, data.notes ?? null]
-  );
+      `,
+      [jobId, data.status, data.collectedWeightKg ?? null, data.notes ?? null, organizationId]
+    );
 
-  return result.rows[0];
+    if (result.rows[0] && data.status === "cancelled") {
+      await client.query(
+        `UPDATE customer_collection_stops
+         SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+         WHERE collection_job_id = $1::uuid
+           AND status IN ('pending', 'arrived')`,
+        [jobId]
+      );
+    }
+
+    await client.query("COMMIT");
+    return result.rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
-export async function findPickupScheduleById(scheduleId: string) {
+export async function findPickupScheduleById(scheduleId: string, organizationId: string | null) {
   const result = await dbPool.query(
     `
     SELECT
@@ -359,8 +476,9 @@ export async function findPickupScheduleById(scheduleId: string) {
       updated_at
     FROM pickup_schedules
     WHERE id = $1
+      AND ($2::uuid IS NULL OR organization_id = $2::uuid)
     `,
-    [scheduleId]
+    [scheduleId, organizationId]
   );
 
   return result.rows[0];
@@ -386,9 +504,10 @@ function getFrequencyStepDays(frequency: string) {
 
 export async function generateCollectionJobsFromSchedule(
   scheduleId: string,
-  data: GenerateCollectionJobsInput
+  data: GenerateCollectionJobsInput,
+  organizationId: string | null
 ) {
-  const schedule = await findPickupScheduleById(scheduleId);
+  const schedule = await findPickupScheduleById(scheduleId, organizationId);
 
   if (!schedule) {
     return {
@@ -459,9 +578,11 @@ export async function generateCollectionJobsFromSchedule(
         status,
         waste_type,
         estimated_weight_kg,
-        notes
+        notes,
+        schedule_occurrence_key
       )
-      VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5::uuid, $6, 'pending', $7, $8, $9, $5::uuid::text || ':' || $6::date::text)
+      ON CONFLICT (schedule_occurrence_key) WHERE schedule_occurrence_key IS NOT NULL DO NOTHING
       RETURNING *
       `,
       [
@@ -477,7 +598,8 @@ export async function generateCollectionJobsFromSchedule(
       ]
     );
 
-    createdJobs.push(result.rows[0]);
+    if(result.rows[0])createdJobs.push(result.rows[0]);
+    else skipped+=1;
   }
 
   return {
@@ -488,7 +610,8 @@ export async function generateCollectionJobsFromSchedule(
 }
 export async function assignCollectionJob(
   jobId: string,
-  data: AssignCollectionJobInput
+  data: AssignCollectionJobInput,
+  organizationId: string | null
 ) {
   const result = await dbPool.query(
     `
@@ -499,15 +622,33 @@ export async function assignCollectionJob(
       status = 'assigned',
       updated_at = CURRENT_TIMESTAMP
     WHERE id = $1::uuid
+      AND ($4::uuid IS NULL OR organization_id = $4::uuid)
+      AND ($4::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM waste_trucks wt
+        WHERE wt.id = $2::uuid AND wt.organization_id = $4::uuid
+          AND wt.status IN ('available','assigned')
+          AND NOT EXISTS (
+            SELECT 1 FROM truck_documents td
+            WHERE td.truck_id=wt.id AND td.expires_on<collection_jobs.job_date
+          )
+      ))
+      AND ($4::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM drivers d
+        WHERE d.id = $3::uuid AND d.organization_id = $4::uuid AND d.status IN ('available','assigned')
+      ))
       AND status IN ('pending', 'assigned')
     RETURNING *
     `,
-    [jobId, data.truckId, data.driverId]
+    [jobId, data.truckId, data.driverId, organizationId]
   );
 
   return result.rows[0];
 }
-export async function findJobsByDriverId(driverId: string) {
+export async function findJobsByDriverId(
+  driverId: string,
+  organizationId: string | null,
+  userId: string | null
+) {
   const result = await dbPool.query(
     `
     SELECT
@@ -537,17 +678,23 @@ export async function findJobsByDriverId(driverId: string) {
     LEFT JOIN waste_trucks wt ON wt.id = cj.truck_id
     LEFT JOIN drivers d ON d.id = cj.driver_id
     LEFT JOIN pickup_schedules ps ON ps.id = cj.schedule_id
-    WHERE cj.driver_id = $1::uuid
+    WHERE ($3::uuid IS NULL OR d.user_id = $3::uuid)
+      AND ($3::uuid IS NOT NULL OR cj.driver_id = NULLIF($1, '')::uuid)
+      AND ($2::uuid IS NULL OR cj.organization_id = $2::uuid)
       AND cj.status IN ('assigned', 'in_progress')
     ORDER BY cj.job_date ASC, cj.created_at ASC
     `,
-    [driverId]
+    [driverId, organizationId, userId]
   );
 
   return result.rows;
 }
 
-export async function startDriverCollectionJob(jobId: string) {
+export async function startDriverCollectionJob(
+  jobId: string,
+  organizationId: string | null,
+  userId: string | null
+) {
   const result = await dbPool.query(
     `
     UPDATE collection_jobs
@@ -556,12 +703,17 @@ export async function startDriverCollectionJob(jobId: string) {
       started_at = COALESCE(started_at, CURRENT_TIMESTAMP),
       updated_at = CURRENT_TIMESTAMP
     WHERE id = $1::uuid
+      AND ($2::uuid IS NULL OR organization_id = $2::uuid)
+      AND ($3::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM drivers d
+        WHERE d.id = collection_jobs.driver_id AND d.user_id = $3::uuid
+      ))
       AND status = 'assigned'
       AND truck_id IS NOT NULL
       AND driver_id IS NOT NULL
     RETURNING *
     `,
-    [jobId]
+    [jobId, organizationId, userId]
   );
 
   return result.rows[0];
@@ -569,7 +721,9 @@ export async function startDriverCollectionJob(jobId: string) {
 
 export async function completeDriverCollectionJob(
   jobId: string,
-  collectedWeightKg?: number
+  collectedWeightKg: number | undefined,
+  organizationId: string | null,
+  userId: string | null
 ) {
   const result = await dbPool.query(
     `
@@ -580,15 +734,22 @@ export async function completeDriverCollectionJob(
       completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP),
       updated_at = CURRENT_TIMESTAMP
     WHERE id = $1::uuid
+      AND ($3::uuid IS NULL OR organization_id = $3::uuid)
+      AND ($4::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM drivers d
+        WHERE d.id = collection_jobs.driver_id AND d.user_id = $4::uuid
+      ))
       AND status = 'in_progress'
+      AND NOT EXISTS (SELECT 1 FROM customer_collection_stops cs
+        WHERE cs.collection_job_id=collection_jobs.id AND cs.status NOT IN ('completed','skipped','cancelled'))
     RETURNING *
     `,
-    [jobId, collectedWeightKg ?? null]
+    [jobId, collectedWeightKg ?? null, organizationId, userId]
   );
 
   return result.rows[0];
 }
-export async function findCollectionRoutes() {
+export async function findCollectionRoutes(organizationId: string | null) {
   const result = await dbPool.query(`
     SELECT
       cr.id,
@@ -611,9 +772,10 @@ export async function findCollectionRoutes() {
     LEFT JOIN waste_trucks wt ON wt.id = cr.truck_id
     LEFT JOIN drivers d ON d.id = cr.driver_id
     LEFT JOIN collection_route_jobs crj ON crj.route_id = cr.id
+    WHERE ($1::uuid IS NULL OR cr.organization_id = $1::uuid)
     GROUP BY cr.id, wt.plate_number, wt.truck_name, d.full_name
     ORDER BY cr.route_date DESC, cr.created_at DESC
-  `);
+  `, [organizationId]);
 
   return result.rows;
 }
@@ -623,6 +785,28 @@ export async function createCollectionRoute(data: CreateCollectionRouteInput) {
 
   try {
     await client.query("BEGIN");
+
+    for(const jobId of [...data.jobIds].sort()){
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",[jobId]);
+    }
+    const resources=await client.query(`SELECT
+      EXISTS(SELECT 1 FROM waste_trucks wt WHERE wt.id=$2::uuid AND wt.organization_id=$1::uuid AND wt.status IN ('available','assigned')
+        AND NOT EXISTS(SELECT 1 FROM truck_documents td WHERE td.truck_id=wt.id AND td.expires_on<$4::date)) truck_ready,
+      EXISTS(SELECT 1 FROM drivers d WHERE d.id=$3::uuid AND d.organization_id=$1::uuid AND d.status IN ('available','assigned')) driver_ready,
+      EXISTS(SELECT 1 FROM collection_routes cr WHERE cr.organization_id=$1::uuid AND cr.route_date=$4::date
+        AND cr.status IN ('planned','dispatched','in_progress') AND (cr.truck_id=$2::uuid OR cr.driver_id=$3::uuid)) route_conflict`,
+      [data.organizationId,data.truckId,data.driverId,data.routeDate]);
+    if(!resources.rows[0].truck_ready)throw Object.assign(new Error('Choose an available, compliant vehicle for this route'),{statusCode:409});
+    if(!resources.rows[0].driver_ready)throw Object.assign(new Error('Choose an available driver for this route'),{statusCode:409});
+    if(resources.rows[0].route_conflict)throw Object.assign(new Error('This driver or vehicle already has an active route on the selected date'),{statusCode:409});
+
+    const selectedJobs=await client.query(`SELECT cj.id,cj.job_date::text AS job_date,cj.status,cj.truck_id,cj.driver_id,
+      EXISTS(SELECT 1 FROM collection_route_jobs crj JOIN collection_routes cr ON cr.id=crj.route_id
+        WHERE crj.job_id=cj.id AND cr.status<>'cancelled') already_routed
+      FROM collection_jobs cj WHERE cj.id=ANY($1::uuid[]) AND cj.organization_id=$2::uuid FOR UPDATE`,[data.jobIds,data.organizationId]);
+    if(selectedJobs.rows.length!==new Set(data.jobIds).size)throw Object.assign(new Error('Every selected job must belong to this organization'),{statusCode:400});
+    const invalid=selectedJobs.rows.find(job=>String(job.job_date).slice(0,10)!==data.routeDate||!['pending','assigned'].includes(job.status)||job.already_routed||(job.truck_id&&job.truck_id!==data.truckId)||(job.driver_id&&job.driver_id!==data.driverId));
+    if(invalid)throw Object.assign(new Error('Selected jobs must be open, unrouted, on the route date, and compatible with the chosen driver and vehicle'),{statusCode:409});
 
     const routeResult = await client.query(
       `
@@ -649,6 +833,9 @@ export async function createCollectionRoute(data: CreateCollectionRouteInput) {
 
     const route = routeResult.rows[0];
 
+    await client.query(`UPDATE collection_jobs SET truck_id=$2::uuid,driver_id=$3::uuid,status='assigned',updated_at=CURRENT_TIMESTAMP
+      WHERE id=ANY($1::uuid[])`,[data.jobIds,data.truckId,data.driverId]);
+
     for (let index = 0; index < data.jobIds.length; index += 1) {
       await client.query(
         `
@@ -674,8 +861,32 @@ export async function createCollectionRoute(data: CreateCollectionRouteInput) {
     client.release();
   }
 }
+export async function updateCollectionRouteRoutingData(
+  routeId: string,
+  routeGeometryGeoJson: string,
+  totalDistanceKm: number,
+  estimatedDurationMinutes: number,
+  organizationId: string | null
+) {
+  const result = await dbPool.query(
+    `
+    UPDATE collection_routes
+    SET
+      route_geometry = ST_SetSRID(ST_GeomFromGeoJSON($2::text), 4326),
+      total_distance_km = $3::numeric,
+      estimated_duration_minutes = $4::integer,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1::uuid
+      AND ($5::uuid IS NULL OR organization_id = $5::uuid)
+    RETURNING id
+    `,
+    [routeId, routeGeometryGeoJson, totalDistanceKm, estimatedDurationMinutes, organizationId]
+  );
 
-export async function findCollectionRouteById(routeId: string) {
+  return result.rows[0] ?? null;
+}
+
+export async function findCollectionRouteById(routeId: string, organizationId: string | null) {
   const routeResult = await dbPool.query(
     `
     SELECT
@@ -691,6 +902,10 @@ export async function findCollectionRouteById(routeId: string) {
       cr.status,
       cr.total_distance_km,
       cr.estimated_duration_minutes,
+      CASE
+        WHEN cr.route_geometry IS NULL THEN NULL
+        ELSE ST_AsGeoJSON(cr.route_geometry)::json
+      END AS route_geometry,
       cr.notes,
       cr.created_at,
       cr.updated_at
@@ -698,8 +913,9 @@ export async function findCollectionRouteById(routeId: string) {
     LEFT JOIN waste_trucks wt ON wt.id = cr.truck_id
     LEFT JOIN drivers d ON d.id = cr.driver_id
     WHERE cr.id = $1::uuid
+      AND ($2::uuid IS NULL OR cr.organization_id = $2::uuid)
     `,
-    [routeId]
+    [routeId, organizationId]
   );
 
   const jobsResult = await dbPool.query(
@@ -742,10 +958,11 @@ export async function findCollectionRouteById(routeId: string) {
       ON d.id = cj.driver_id
   
     WHERE crj.route_id = $1::uuid
+      AND ($2::uuid IS NULL OR cj.organization_id = $2::uuid)
   
     ORDER BY crj.stop_order ASC
     `,
-    [routeId]
+    [routeId, organizationId]
   );
 
   if (!routeResult.rows[0]) {

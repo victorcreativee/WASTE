@@ -1,0 +1,2 @@
+ALTER TABLE organization_permit_applications ADD COLUMN IF NOT EXISTS applicant_access_token_hash TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_permit_applicant_access_token ON organization_permit_applications(applicant_access_token_hash) WHERE applicant_access_token_hash IS NOT NULL;

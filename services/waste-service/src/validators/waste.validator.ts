@@ -18,6 +18,17 @@ export const createZoneSchema = z.object({
   longitude: z.number().optional(),
 });
 
+export const assignZoneServiceAreaSchema = z.object({
+  organizationId: z.string().uuid("Select a valid waste collection company"),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+}).refine(
+  (input) => (input.latitude === undefined) === (input.longitude === undefined),
+  "Latitude and longitude must be provided together"
+);
+
+export type AssignZoneServiceAreaInput = z.infer<typeof assignZoneServiceAreaSchema>;
+
 export const createTruckSchema = z.object({
   organizationId: z.string().uuid().optional(),
   plateNumber: z.string().min(2, "Plate number is required"),
@@ -43,8 +54,8 @@ export const createPickupScheduleSchema = z.object({
 export const createCollectionJobSchema = z.object({
   organizationId: z.string().uuid().optional(),
   zoneId: z.string().uuid("Valid zone ID is required"),
-  truckId: z.string().uuid().optional(),
-  driverId: z.string().uuid().optional(),
+  truckId: z.string().uuid("Choose a route vehicle"),
+  driverId: z.string().uuid("Choose a route driver"),
   scheduleId: z.string().uuid().optional(),
   jobDate: z.string().min(1, "Job date is required"),
   wasteType: z
@@ -104,10 +115,16 @@ export const generateCollectionJobsSchema = z.object({
 export const createCollectionRouteSchema = z.object({
   organizationId: z.string().uuid().optional(),
   name: z.string().min(2, "Route name is required"),
-  truckId: z.string().uuid().optional(),
-  driverId: z.string().uuid().optional(),
+  truckId: z.string().uuid("Choose a route vehicle"),
+  driverId: z.string().uuid("Choose a route driver"),
   routeDate: z.string().min(1, "Route date is required"),
-  jobIds: z.array(z.string().uuid()).min(1, "At least one job is required"),
+  jobIds: z
+    .array(z.string().uuid())
+    .min(1, "At least one job is required")
+    .refine(
+      (jobIds) => new Set(jobIds).size === jobIds.length,
+      "Select each collection job only once"
+    ),
   notes: z.string().optional(),
 });
 export type CreateZoneInput = z.infer<typeof createZoneSchema>;

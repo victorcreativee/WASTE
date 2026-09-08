@@ -1,9 +1,10 @@
 import { Request, Response } from "express";
-import { loginSchema, registerSchema } from "../validators/auth.validator";
+import { loginSchema, organizationApplicantRegisterSchema, registerSchema } from "../validators/auth.validator";
 import {
   loginUser,
   registerUser,
   getCurrentUser,
+  registerOrganizationApplicant,
 } from "../services/auth.service";
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 
@@ -25,6 +26,11 @@ export async function register(req: Request, res: Response) {
       message: error instanceof Error ? error.message : "Registration failed",
     });
   }
+}
+
+export async function registerApplicant(req:Request,res:Response){
+  const result=await registerOrganizationApplicant(organizationApplicantRegisterSchema.parse(req.body));
+  return res.status(201).json({success:true,message:"Onboarding account created",data:result});
 }
 
 export async function login(req: Request, res: Response) {

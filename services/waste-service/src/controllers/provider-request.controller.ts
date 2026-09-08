@@ -1,0 +1,11 @@
+import {Request,Response} from 'express';
+import {AuthenticatedRequest} from '../middlewares/auth.middleware';
+import {createProviderRequestSchema,reviewProviderRequestSchema} from '../validators/provider-request.validator';
+import {cancelProviderRequest,createProviderRequest,customerProviderRequests,organizationProviderRequests,providerOptions,reviewProviderRequest} from '../repositories/provider-request.repository';
+const auth=(req:Request)=>(req as AuthenticatedRequest).auth!;
+export async function getProviderOptions(req:Request,res:Response){return res.json({success:true,message:'Covered providers fetched',data:await providerOptions(auth(req).userId)});}
+export async function getMyProviderRequests(req:Request,res:Response){return res.json({success:true,message:'Provider requests fetched',data:await customerProviderRequests(auth(req).userId)});}
+export async function postProviderRequest(req:Request,res:Response){const input=createProviderRequestSchema.parse(req.body);const data=await createProviderRequest(auth(req).userId,input.organizationId,input.note);return res.status(201).json({success:true,message:'Provider request submitted for review',data});}
+export async function deleteProviderRequest(req:Request,res:Response){const data=await cancelProviderRequest(auth(req).userId,req.params.id as string);if(!data)return res.status(404).json({success:false,message:'Open provider request not found'});return res.json({success:true,message:'Provider request cancelled',data});}
+export async function getOrganizationProviderRequests(req:Request,res:Response){const org=auth(req).organizationId!;return res.json({success:true,message:'Provider review queue fetched',data:await organizationProviderRequests(org)});}
+export async function patchProviderRequest(req:Request,res:Response){const identity=auth(req),input=reviewProviderRequestSchema.parse(req.body);const data=await reviewProviderRequest(identity.userId,identity.organizationId!,req.params.id as string,input);if(!data)return res.status(404).json({success:false,message:'This request is not awaiting your organization’s review'});return res.json({success:true,message:input.action==='reject'?'Provider request rejected':data.status==='pending_new_provider'?'Release approved; awaiting the new provider':'Provider relationship approved',data});}

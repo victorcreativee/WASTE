@@ -13,5 +13,47 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+export const organizationApplicantRegisterSchema = z.object({
+  companyName: z.string().trim().min(2).max(150),
+  registrationNumber: z.string().trim().toUpperCase().min(3).max(50).regex(/^[A-Z0-9][A-Z0-9 .\/-]*$/, "Use a valid company registration number"),
+  fullName: z.string().trim().min(2).max(150).regex(/^[\p{L}][\p{L} .'-]*$/u, "Enter a valid contact name"),
+  email: z.string().trim().toLowerCase().email("Enter a valid email such as name@mailcompany.com").max(254),
+  phone: z.string().trim().regex(/^\+256\d{9}$/, "Use 12 characters in Uganda format, for example +256782390653"),
+  password: z.string().min(12).max(72).refine(value => /[A-Z]/.test(value) && /[a-z]/.test(value) && /\d/.test(value), "Use uppercase, lowercase and a number"),
+}).strict();
+export type OrganizationApplicantRegisterInput = z.infer<typeof organizationApplicantRegisterSchema>;
+
+export const createOrganizationUserSchema = z.object({
+  fullName: z.string().trim().min(2).max(150),
+  email: z.string().email(),
+  phone: z.string().trim().max(50).optional(),
+  password: z.string().min(8).max(128),
+  role: z.enum(["supervisor", "driver"]),
+  licenseNumber: z.string().trim().max(100).optional(),
+});
+
+export const createOrganizationCustomerSchema = z.object({
+  fullName: z.string().trim().min(2).max(150),
+  email: z.string().email(),
+  phone: z.string().trim().max(50).optional(),
+  password: z.string().min(8).max(128),
+  customerType: z.enum(["residential", "commercial", "office_business", "industrial"]),
+  locationLabel: z.string().trim().min(2).max(100).default("Primary location"),
+  address: z.string().trim().min(5).max(500),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+});
+
+export const updateOrganizationUserStatusSchema = z.object({
+  status: z.enum(["active", "inactive", "suspended"]),
+});
+
+export const assignSupervisorDriversSchema = z.object({
+  driverIds: z.array(z.string().uuid()).max(100),
+});
+
+export type CreateOrganizationUserInput = z.infer<typeof createOrganizationUserSchema>;
+export type CreateOrganizationCustomerInput = z.infer<typeof createOrganizationCustomerSchema>;
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

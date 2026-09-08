@@ -1,0 +1,16 @@
+"use client";
+import {CircleMarker,MapContainer,Polyline,Popup,TileLayer,Tooltip} from "react-leaflet";
+export type LiveVehicle={id:string;organization_name:string;plate_number:string;truck_name:string|null;status:string;latitude:number|string|null;longitude:number|string|null;accuracy_m:string|null;speed_kph:string|null;heading_degrees:string|null;recorded_at:string|null;route_name:string|null;route_status:string|null;driver_name:string|null;signal_status:"current"|"delayed"|"stale"|"never";distance_from_route_m:number|null;is_off_route:boolean;is_stopped_too_long:boolean;alert_code:"signal_missing"|"off_route"|"stopped_too_long"|null;review_status?:"acknowledged"|"resolved"|"escalated";review_outcome?:string;review_notes?:string;reviewed_at?:string};
+export type LivePoint={id:string;latitude:number|string;longitude:number|string;recorded_at:string;speed_kph:string|null};
+const center:[number,number]=[0.3476,32.5825];
+export default function FleetLiveMap({vehicles,onSelect,now,trail,controlRoom=true}:{vehicles:LiveVehicle[];onSelect:(vehicle:LiveVehicle)=>void;now:number;trail:LivePoint[];controlRoom?:boolean}){
+ const positions=trail.map(point=>[Number(point.latitude),Number(point.longitude)] as [number,number]);
+ return <div className={`fleet-map-shell ${controlRoom?"fleet-map-control":""}`}>
+  {controlRoom&&<div className="fleet-map-grid" aria-hidden="true"/>}
+  <MapContainer center={center} zoom={12} scrollWheelZoom className="h-[560px] w-full"><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/>
+   {positions.length>1&&<Polyline positions={positions} pathOptions={{color:controlRoom?"#55d6ff":"#3156a3",weight:4,opacity:.8}}/>}
+   {vehicles.filter(vehicle=>vehicle.latitude!==null&&vehicle.longitude!==null).map(vehicle=>{const age=vehicle.recorded_at?now-new Date(vehicle.recorded_at).getTime():Infinity,freshness=age<=60000?"current":age<=300000?"delayed":"stale",color=vehicle.alert_code?"#ef4444":freshness==="current"?(controlRoom?"#55d6ff":"#3156a3"):freshness==="delayed"?"#f59e0b":"#64748b",point:[number,number]=[Number(vehicle.latitude),Number(vehicle.longitude)];return <span key={vehicle.id}>{controlRoom&&<CircleMarker center={point} radius={20} pathOptions={{color,fillColor:color,fillOpacity:.08,weight:1,className:freshness==="current"||vehicle.alert_code?"fleet-signal-pulse":""}}/>}<CircleMarker center={point} radius={controlRoom?8:10} pathOptions={{color,fillColor:color,fillOpacity:1,weight:2}} eventHandlers={{click:()=>onSelect(vehicle)}}>{controlRoom&&<Tooltip permanent direction="top" offset={[0,-9]} className="fleet-vehicle-label">{vehicle.alert_code?"! ":""}{vehicle.plate_number} · {Number(vehicle.speed_kph||0).toFixed(0)} km/h</Tooltip>}<Popup><strong>{vehicle.plate_number}</strong><br/>{vehicle.organization_name}<br/>{vehicle.driver_name||"No active driver"}<br/>{vehicle.alert_code?`Attention: ${vehicle.alert_code.replaceAll("_"," ")}`:vehicle.recorded_at?`Updated ${new Date(vehicle.recorded_at).toLocaleTimeString("en-GB")}`:"No live signal"}</Popup></CircleMarker></span>})}
+  </MapContainer>
+  {controlRoom&&<div className="fleet-live-stamp"><span/> LIVE OPERATIONS</div>}
+ </div>;
+}

@@ -1,7 +1,10 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { requireActiveOrganization } from "../services/organization-access.service";
 import { env } from "../config/env";
 import { getUserPermissions } from "../repositories/role.repository";
+import { getUserRoles } from "../repositories/role.repository";
+import { findUserById } from "../repositories/auth.repository";
 
 export type AuthenticatedRequest = Request & {
   user?: {
@@ -42,6 +45,27 @@ export function requireAuth(
       message: "Invalid or expired authentication token",
     });
   }
+}
+
+export function requireRoles(...allowedRoles: string[]) {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+    const [user, roles] = await Promise.all([findUserById(userId), getUserRoles(userId)]);
+    if (!user || user.status !== "active") {
+      return res.status(401).json({ success: false, message: "User account is unavailable" });
+    }
+    if (!roles.some((role) => allowedRoles.includes(role.name))) {
+      return res.status(403).json({ success: false, message: "You do not have access to manage organization staff" });
+    }
+    await requireActiveOrganization(user.organization_id, roles, userId);
+    req.user = {
+      userId,
+      email: req.user?.email,
+      organizationId: user.organization_id,
+    };
+    next();
+  };
 }
 export function requirePermission(permissionCode: string) {
   return async (

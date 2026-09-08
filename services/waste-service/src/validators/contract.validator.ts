@@ -1,0 +1,1 @@
+import{z}from'zod';export const contractSchema=z.object({customerId:z.string().uuid(),planId:z.string().uuid(),startsOn:z.string().date(),endsOn:z.string().date(),notes:z.string().trim().max(1000).optional()});export const contractStatusSchema=z.object({status:z.enum(['active','suspended','cancelled'])});

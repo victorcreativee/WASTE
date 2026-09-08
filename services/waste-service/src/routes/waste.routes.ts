@@ -13,13 +13,13 @@ import {
   getTrucks,
   getZones,
   updateCollectionJobStatusHandler,
-  completeDriverJobHandler,
-  getDriverJobsHandler,
-  startDriverJobHandler,
   createCollectionRouteHandler,
   getCollectionRouteDetailsHandler,
   getCollectionRoutes,
+  generateCollectionRouteRoadRouteHandler,
+  assignZoneServiceAreaHandler,
 } from "../controllers/waste.controller";
+import { requireRoles } from "../middlewares/auth.middleware";
 const router = Router();
 
 router.get(
@@ -35,9 +35,22 @@ router.get(
 
 router.post(
   "/zones",
+  requireRoles("system_admin", "kcca_admin"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await createZoneHandler(req, res);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.patch(
+  "/zones/:id/service-assignment",
+  requireRoles("system_admin", "kcca_admin"),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await assignZoneServiceAreaHandler(req, res);
     } catch (error) {
       next(error);
     }
@@ -162,38 +175,6 @@ router.post(
   }
 );
 router.get(
-  "/drivers/:driverId/jobs",
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      await getDriverJobsHandler(req, res);
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-router.patch(
-  "/driver-jobs/:jobId/start",
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      await startDriverJobHandler(req, res);
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-router.patch(
-  "/driver-jobs/:jobId/complete",
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      await completeDriverJobHandler(req, res);
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-router.get(
   "/collection-routes",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -206,6 +187,7 @@ router.get(
 
 router.post(
   "/collection-routes",
+  requireRoles("company_admin", "supervisor"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await createCollectionRouteHandler(req, res);
@@ -220,6 +202,16 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await getCollectionRouteDetailsHandler(req, res);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+router.post(
+  "/collection-routes/:id/generate-road-route",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await generateCollectionRouteRoadRouteHandler(req, res);
     } catch (error) {
       next(error);
     }

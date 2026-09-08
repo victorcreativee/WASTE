@@ -1,0 +1,28 @@
+module.exports=async({one,check,request,orgBase,a,b,adminA,adminB,supervisor,kcca,driverA})=>{
+ const path='/api/organizations/workspace';
+ const get=actor=>request(actor,path,'GET',undefined,orgBase);
+ const patch=(actor,body)=>request(actor,path,'PATCH',body,orgBase);
+ const overview=await get(adminA);
+ check(overview.status===200&&overview.body.data.profile.id===a,'Administrator sees own company setup');
+ check(Number.isInteger(overview.body.data.counts.staff)&&overview.body.data.counts.staff>=1,'Checklist has scoped staff count');
+ check(!JSON.stringify(overview.body).includes(b),'Checklist does not disclose another tenant id');
+ for(const actor of [adminB,supervisor,kcca,driverA])check((await get(actor)).status===(actor===adminB?200:403),'Workspace access follows administrator role and own tenant');
+ const original=overview.body.data.profile;
+ const expected={email:original.email||'',phone:original.phone||'',address:original.address||''};
+ const input={email:'operations-a@rollback.invalid',phone:'+256700000001',address:'Rollback Kampala address',expected};
+ check((await patch(supervisor,input)).status===403,'Supervisor cannot edit company profile');
+ check((await patch(kcca,input)).status===403,'Platform actor cannot use company-owned edit endpoint');
+ check((await patch(adminA,{...input,name:'Renamed by request'})).status===400,'Platform-owned fields rejected');
+ const saved=await patch(adminA,input);
+ check(saved.status===200,'Administrator updates contact details');
+ const updated=await one('SELECT name,type,is_active,email,phone,address FROM organizations WHERE id=$1',[a]);
+ check(updated.name===original.name&&updated.type===original.type&&updated.is_active===original.is_active,'Name type and activation unchanged');
+ check(updated.email===input.email&&updated.phone===input.phone&&updated.address===input.address,'Contact fields persisted');
+ check((await patch(adminA,input)).status===409,'Stale contact edit rejected');
+ const event=await one("SELECT actor_id,previous_value,new_value FROM organization_audit_events WHERE organization_id=$1 AND action='contact_updated' ORDER BY created_at DESC LIMIT 1",[a]);
+ check(event.actor_id===adminA&&event.previous_value.email===expected.email&&event.new_value.email===input.email,'Contact audit stores actor and before/after values');
+ const refreshed=await get(adminA);
+ check(refreshed.status===200&&refreshed.body.data.profile.email===input.email,'Workspace returns saved contact');
+ check((await patch(adminA,{email:'invalid',phone:'',address:'',expected:{email:input.email,phone:input.phone,address:input.address}})).status===400,'Invalid contact returns validation error');
+ console.log('PASS: scoped company profile and setup checklist.');
+};

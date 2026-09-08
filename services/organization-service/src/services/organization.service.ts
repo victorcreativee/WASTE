@@ -5,12 +5,12 @@ import {
 } from "../repositories/organization.repository";
 import { CreateOrganizationInput } from "../validators/organization.validator";
 
-export async function listOrganizations() {
-  return findOrganizations();
+export async function listOrganizations(organizationId: string | null) {
+  return findOrganizations(organizationId);
 }
 
-export async function getOrganization(id: string) {
-  const organization = await findOrganizationById(id);
+export async function getOrganization(id: string, organizationId: string | null) {
+  const organization = await findOrganizationById(id, organizationId);
 
   if (!organization) {
     const error = new Error("Organization not found");

@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import { OrganizationWorkspaceNav } from "@/components/layout/OrganizationWorkspaceNav";
 import { apiRequest } from "@/lib/api";
 
 const WasteMap = dynamic(() => import("@/components/gis/WasteMap"), {
@@ -44,6 +45,11 @@ type RouteStop = {
   waste_type: string;
 };
 
+type RouteGeometry = {
+  type: "LineString";
+  coordinates: [number, number][];
+};
+
 type RouteDetails = {
   id: string;
   name: string;
@@ -51,6 +57,9 @@ type RouteDetails = {
   status: string;
   plate_number: string | null;
   driver_name: string | null;
+  total_distance_km: number | string | null;
+  estimated_duration_minutes: number | null;
+  route_geometry: RouteGeometry | null;
   jobs: RouteStop[];
 };
 
@@ -79,6 +88,38 @@ function formatDate(value: string) {
 function formatLabel(value: string) {
   return value.replaceAll("_", " ");
 }
+function formatDistance(value: number | string | null) {
+  if (value === null) {
+    return "Not calculated";
+  }
+
+  const distance = Number(value);
+
+  if (!Number.isFinite(distance)) {
+    return "Not calculated";
+  }
+
+  return `${distance.toFixed(2)} km`;
+}
+
+function formatDuration(value: number | null) {
+  if (value === null) {
+    return "Not calculated";
+  }
+
+  if (value < 60) {
+    return `${value} min`;
+  }
+
+  const hours = Math.floor(value / 60);
+  const minutes = value % 60;
+
+  if (minutes === 0) {
+    return `${hours} hr`;
+  }
+
+  return `${hours} hr ${minutes} min`;
+}
 
 export default function GISPage() {
   const [zones, setZones] = useState<Zone[]>([]);
@@ -89,7 +130,10 @@ export default function GISPage() {
 
   const [loading, setLoading] = useState(true);
   const [loadingRoute, setLoadingRoute] = useState(false);
+  const [generatingRoute, setGeneratingRoute] = useState(false);
+
   const [error, setError] = useState("");
+  const [routeMessage, setRouteMessage] = useState("");
 
   const mappedZones = useMemo(
     () =>
@@ -104,30 +148,6 @@ export default function GISPage() {
       ) ?? [],
     [selectedRoute]
   );
-
-  async function loadGISData() {
-    try {
-      setLoading(true);
-      setError("");
-
-      const [zonesResponse, routesResponse] = await Promise.all([
-        apiRequest<ApiListResponse<Zone>>("/api/waste/zones"),
-
-        apiRequest<ApiListResponse<CollectionRoute>>(
-          "/api/waste/collection-routes"
-        ),
-      ]);
-
-      setZones(zonesResponse.data);
-      setRoutes(routesResponse.data);
-    } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Failed to load GIS data"
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function loadRoute(routeId: string) {
     if (!routeId) {
@@ -154,18 +174,72 @@ export default function GISPage() {
       setLoadingRoute(false);
     }
   }
+  async function generateRoadRoute() {
+    if (!selectedRouteId) {
+      return;
+    }
+
+    try {
+      setGeneratingRoute(true);
+      setError("");
+      setRouteMessage("");
+
+      const response = await apiRequest<ApiItemResponse<RouteDetails>>(
+        `/api/waste/collection-routes/${selectedRouteId}/generate-road-route`,
+        {
+          method: "POST",
+        }
+      );
+
+      setSelectedRoute(response.data);
+
+      setRouteMessage(
+        "Road route generated successfully. Distance and travel time have been updated."
+      );
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Failed to generate road route"
+      );
+    } finally {
+      setGeneratingRoute(false);
+    }
+  }
 
   useEffect(() => {
-    loadGISData();
+    let active = true;
+
+    Promise.all([
+      apiRequest<ApiListResponse<Zone>>("/api/waste/zones"),
+      apiRequest<ApiListResponse<CollectionRoute>>(
+        "/api/waste/collection-routes"
+      ),
+    ])
+      .then(([zonesResponse, routesResponse]) => {
+        if (!active) return;
+
+        setZones(zonesResponse.data);
+        setRoutes(routesResponse.data);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+
+        setError(
+          error instanceof Error ? error.message : "Failed to load GIS data"
+        );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
-
-  useEffect(() => {
-    loadRoute(selectedRouteId);
-  }, [selectedRouteId]);
 
   return (
     <AppShell>
       <div className="mx-auto max-w-[1500px]">
+        <OrganizationWorkspaceNav/>
         <section className="border-b border-slate-200 pb-7">
           <p className="text-sm font-black uppercase tracking-[0.25em] text-emerald-700">
             Geographic Operations
@@ -184,6 +258,11 @@ export default function GISPage() {
         {error && (
           <div className="mt-6 border-l-4 border-red-600 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
             {error}
+          </div>
+        )}
+        {routeMessage && (
+          <div className="mt-6 border-l-4 border-emerald-600 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-800">
+            {routeMessage}
           </div>
         )}
 
@@ -216,7 +295,13 @@ export default function GISPage() {
               <select
                 disabled={loading}
                 value={selectedRouteId}
-                onChange={(event) => setSelectedRouteId(event.target.value)}
+                onChange={(event) => {
+                  const routeId = event.target.value;
+                  setSelectedRouteId(routeId);
+                  setRouteMessage("");
+                  setError("");
+                  void loadRoute(routeId);
+                }}
                 className="mt-4 w-full border border-slate-300 px-4 py-3 text-sm outline-none focus:border-emerald-700"
               >
                 <option value="">Show zones only</option>
@@ -263,12 +348,36 @@ export default function GISPage() {
                   </p>
 
                   <p>
+                    <span className="font-black text-slate-900">Distance:</span>{" "}
+                    {formatDistance(selectedRoute.total_distance_km)}
+                  </p>
+
+                  <p>
+                    <span className="font-black text-slate-900">
+                      Est. travel time:
+                    </span>{" "}
+                    {formatDuration(selectedRoute.estimated_duration_minutes)}
+                  </p>
+
+                  <p>
                     <span className="font-black text-slate-900">
                       Mapped stops:
                     </span>{" "}
                     {mappedRouteStops.length}
                   </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={generateRoadRoute}
+                  disabled={generatingRoute || mappedRouteStops.length < 2}
+                  className="mt-5 w-full bg-emerald-700 px-4 py-3 text-sm font-black text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {generatingRoute
+                    ? "Generating road route..."
+                    : selectedRoute.route_geometry
+                    ? "Recalculate road route"
+                    : "Generate road route"}
+                </button>
               </div>
             )}
 
@@ -285,7 +394,11 @@ export default function GISPage() {
                 Loading GIS workspace...
               </div>
             ) : (
-              <WasteMap zones={zones} routeStops={selectedRoute?.jobs ?? []} />
+              <WasteMap
+                zones={zones}
+                routeStops={selectedRoute?.jobs ?? []}
+                routeGeometry={selectedRoute?.route_geometry ?? null}
+              />
             )}
           </main>
         </section>

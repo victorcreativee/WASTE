@@ -1,0 +1,37 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const zod_1 = require("zod");
+const system_bootstrap_repository_1 = require("../repositories/system-bootstrap.repository");
+const r = (0, express_1.Router)(), attempts = new Map();
+function localOnly(req, res, next) { const remote = req.socket.remoteAddress || '', origin = req.headers.origin; let originLocal = false; try {
+    const host = origin ? new URL(origin).hostname : '';
+    originLocal = ['localhost', '127.0.0.1', '::1'].includes(host);
+}
+catch { } if (!originLocal || !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote))
+    return res.status(403).json({ success: false, message: 'First-time setup is available only from the server’s local browser' }); res.setHeader('Cache-Control', 'no-store'); next(); }
+const schema = zod_1.z.object({ fullName: zod_1.z.string().trim().min(2).max(150), email: zod_1.z.string().trim().email().max(254), password: zod_1.z.string().min(12).max(72).refine(p => Buffer.byteLength(p, 'utf8') <= 72 && /[a-z]/.test(p) && /[A-Z]/.test(p) && /[0-9]/.test(p) && /[^A-Za-z0-9]/.test(p), 'Use 12–72 characters with uppercase, lowercase, number and symbol') }).strict();
+r.use('/system-bootstrap', localOnly);
+r.get('/system-bootstrap/status', async (_q, res, next) => { try {
+    res.json({ success: true, data: await (0, system_bootstrap_repository_1.systemBootstrapStatus)() });
+}
+catch (e) {
+    next(e);
+} });
+r.post('/system-bootstrap', async (req, res, next) => { try {
+    const now = Date.now(), key = req.socket.remoteAddress || 'local', entry = attempts.get(key) || { count: 0, until: now + 60000 };
+    if (entry.until < now) {
+        entry.count = 0;
+        entry.until = now + 60000;
+    }
+    entry.count++;
+    attempts.set(key, entry);
+    if (entry.count > 5)
+        return res.status(429).json({ success: false, message: 'Too many setup attempts. Wait one minute.' });
+    const data = await (0, system_bootstrap_repository_1.createFirstSystemAdmin)(schema.parse(req.body));
+    res.status(201).json({ success: true, message: 'System Admin created. Sign in to continue platform setup.', data });
+}
+catch (e) {
+    next(e);
+} });
+exports.default = r;

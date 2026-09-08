@@ -1,3 +1,4 @@
+import { operationalOrganizationScope } from "../middlewares/organization-scope";
 import { Request, Response } from "express";
 import {
   assignCollectionJobSchema,
@@ -9,6 +10,7 @@ import {
   generateCollectionJobsSchema,
   updateCollectionJobStatusSchema,
   createCollectionRouteSchema,
+  assignZoneServiceAreaSchema,
 } from "../validators/waste.validator";
 import {
   addCollectionJob,
@@ -30,10 +32,28 @@ import {
   addCollectionRoute,
   getCollectionRouteDetails,
   listCollectionRoutes,
+  generateRoadRouteForCollectionRoute,
+  assignServiceArea,
 } from "../services/waste.service";
+import { AuthenticatedRequest } from "../middlewares/auth.middleware";
+
+const organizationScope = operationalOrganizationScope;
+
+function driverUserScope(req: Request) {
+  const auth = (req as AuthenticatedRequest).auth;
+  return auth?.roles.includes("driver") ? auth.userId : null;
+}
+
+function enforceOrganization<T extends { organizationId?: string }>(
+  req: Request,
+  input: T
+): T {
+  const organizationId = organizationScope(req);
+  return organizationId ? { ...input, organizationId } : input;
+}
 
 export async function getZones(req: Request, res: Response) {
-  const zones = await listZones();
+  const zones = await listZones(organizationScope(req));
 
   return res.status(200).json({
     success: true,
@@ -44,7 +64,7 @@ export async function getZones(req: Request, res: Response) {
 
 export async function createZoneHandler(req: Request, res: Response) {
   const input = createZoneSchema.parse(req.body);
-  const zone = await addZone(input);
+  const zone = await addZone(enforceOrganization(req, input));
 
   return res.status(201).json({
     success: true,
@@ -53,8 +73,24 @@ export async function createZoneHandler(req: Request, res: Response) {
   });
 }
 
+export async function assignZoneServiceAreaHandler(req: Request, res: Response) {
+  const input = assignZoneServiceAreaSchema.parse(req.body);
+  const zone = await assignServiceArea(req.params.id as string, input);
+  if (!zone) {
+    return res.status(404).json({
+      success: false,
+      message: "Zone or active waste collection company not found",
+    });
+  }
+  return res.status(200).json({
+    success: true,
+    message: "Service area assigned successfully",
+    data: zone,
+  });
+}
+
 export async function getTrucks(req: Request, res: Response) {
-  const trucks = await listTrucks();
+  const trucks = await listTrucks(organizationScope(req));
 
   return res.status(200).json({
     success: true,
@@ -65,7 +101,7 @@ export async function getTrucks(req: Request, res: Response) {
 
 export async function createTruckHandler(req: Request, res: Response) {
   const input = createTruckSchema.parse(req.body);
-  const truck = await addTruck(input);
+  const truck = await addTruck(enforceOrganization(req, input));
 
   return res.status(201).json({
     success: true,
@@ -75,7 +111,7 @@ export async function createTruckHandler(req: Request, res: Response) {
 }
 
 export async function getDrivers(req: Request, res: Response) {
-  const drivers = await listDrivers();
+  const drivers = await listDrivers(organizationScope(req));
 
   return res.status(200).json({
     success: true,
@@ -86,7 +122,7 @@ export async function getDrivers(req: Request, res: Response) {
 
 export async function createDriverHandler(req: Request, res: Response) {
   const input = createDriverSchema.parse(req.body);
-  const driver = await addDriver(input);
+  const driver = await addDriver(enforceOrganization(req, input));
 
   return res.status(201).json({
     success: true,
@@ -96,7 +132,7 @@ export async function createDriverHandler(req: Request, res: Response) {
 }
 
 export async function getPickupSchedules(req: Request, res: Response) {
-  const schedules = await listPickupSchedules();
+  const schedules = await listPickupSchedules(organizationScope(req));
 
   return res.status(200).json({
     success: true,
@@ -107,7 +143,7 @@ export async function getPickupSchedules(req: Request, res: Response) {
 
 export async function createPickupScheduleHandler(req: Request, res: Response) {
   const input = createPickupScheduleSchema.parse(req.body);
-  const schedule = await addPickupSchedule(input);
+  const schedule = await addPickupSchedule(enforceOrganization(req, input));
 
   return res.status(201).json({
     success: true,
@@ -117,7 +153,7 @@ export async function createPickupScheduleHandler(req: Request, res: Response) {
 }
 
 export async function getCollectionJobs(req: Request, res: Response) {
-  const jobs = await listCollectionJobs();
+  const jobs = await listCollectionJobs(organizationScope(req));
 
   return res.status(200).json({
     success: true,
@@ -128,7 +164,7 @@ export async function getCollectionJobs(req: Request, res: Response) {
 
 export async function createCollectionJobHandler(req: Request, res: Response) {
   const input = createCollectionJobSchema.parse(req.body);
-  const job = await addCollectionJob(input);
+  const job = await addCollectionJob(enforceOrganization(req, input));
 
   return res.status(201).json({
     success: true,
@@ -142,7 +178,11 @@ export async function updateCollectionJobStatusHandler(
   res: Response
 ) {
   const input = updateCollectionJobStatusSchema.parse(req.body);
-  const job = await changeCollectionJobStatus(req.params.id as string, input);
+  const job = await changeCollectionJobStatus(
+    req.params.id as string,
+    input,
+    organizationScope(req)
+  );
 
   if (!job) {
     return res.status(404).json({
@@ -164,7 +204,11 @@ export async function generateCollectionJobsHandler(
   const input = generateCollectionJobsSchema.parse(req.body);
 
   const scheduleId = req.params.id as string;
-  const result = await generateJobsForPickupSchedule(scheduleId, input);
+  const result = await generateJobsForPickupSchedule(
+    scheduleId,
+    input,
+    organizationScope(req)
+  );
 
   if (!result.schedule) {
     return res.status(404).json({
@@ -189,6 +233,7 @@ export async function generateCollectionJobsHandler(
       createdJobs: result.jobs,
       createdCount: result.jobs.length,
       skippedExistingJobs: result.skipped,
+      customerStopsCreated: result.customerStopsCreated,
     },
   });
 }
@@ -196,13 +241,17 @@ export async function assignCollectionJobHandler(req: Request, res: Response) {
   const input = assignCollectionJobSchema.parse(req.body);
   const jobId = req.params.id as string;
 
-  const job = await assignTruckAndDriverToJob(jobId, input);
+  const job = await assignTruckAndDriverToJob(
+    jobId,
+    input,
+    organizationScope(req)
+  );
 
   if (!job) {
     return res.status(400).json({
       success: false,
       message:
-        "Collection job cannot be assigned. It may not exist or may already be in progress, completed, or cancelled.",
+        "Collection job cannot be assigned. Check that the job is still open, the driver is active, and the vehicle is available with no expired compliance document.",
     });
   }
 
@@ -213,8 +262,12 @@ export async function assignCollectionJobHandler(req: Request, res: Response) {
   });
 }
 export async function getDriverJobsHandler(req: Request, res: Response) {
-  const driverId = req.params.driverId as string;
-  const jobs = await listDriverJobs(driverId);
+  const driverId = (req.params.driverId as string | undefined) ?? "";
+  const jobs = await listDriverJobs(
+    driverId,
+    organizationScope(req),
+    driverUserScope(req)
+  );
 
   return res.status(200).json({
     success: true,
@@ -225,7 +278,11 @@ export async function getDriverJobsHandler(req: Request, res: Response) {
 
 export async function startDriverJobHandler(req: Request, res: Response) {
   const jobId = req.params.jobId as string;
-  const job = await startDriverJob(jobId);
+  const job = await startDriverJob(
+    jobId,
+    organizationScope(req),
+    driverUserScope(req)
+  );
 
   if (!job) {
     return res.status(400).json({
@@ -249,7 +306,12 @@ export async function completeDriverJobHandler(req: Request, res: Response) {
       ? req.body.collectedWeightKg
       : undefined;
 
-  const job = await completeDriverJob(jobId, collectedWeightKg);
+  const job = await completeDriverJob(
+    jobId,
+    collectedWeightKg,
+    organizationScope(req),
+    driverUserScope(req)
+  );
 
   if (!job) {
     return res.status(400).json({
@@ -266,7 +328,7 @@ export async function completeDriverJobHandler(req: Request, res: Response) {
   });
 }
 export async function getCollectionRoutes(req: Request, res: Response) {
-  const routes = await listCollectionRoutes();
+  const routes = await listCollectionRoutes(organizationScope(req));
 
   return res.status(200).json({
     success: true,
@@ -280,7 +342,7 @@ export async function createCollectionRouteHandler(
   res: Response
 ) {
   const input = createCollectionRouteSchema.parse(req.body);
-  const route = await addCollectionRoute(input);
+  const route = await addCollectionRoute(enforceOrganization(req, input));
 
   return res.status(201).json({
     success: true,
@@ -294,7 +356,7 @@ export async function getCollectionRouteDetailsHandler(
   res: Response
 ) {
   const routeId = req.params.id as string;
-  const route = await getCollectionRouteDetails(routeId);
+  const route = await getCollectionRouteDetails(routeId, organizationScope(req));
 
   if (!route) {
     return res.status(404).json({
@@ -307,5 +369,48 @@ export async function getCollectionRouteDetailsHandler(
     success: true,
     message: "Collection route details fetched successfully",
     data: route,
+  });
+}
+export async function generateCollectionRouteRoadRouteHandler(
+  req: Request,
+  res: Response
+) {
+  const routeId = req.params.id as string;
+  const result = await generateRoadRouteForCollectionRoute(
+    routeId,
+    organizationScope(req)
+  );
+
+  if (result.status === "not_found") {
+    return res.status(404).json({
+      success: false,
+      message: "Collection route not found",
+    });
+  }
+
+  if (result.status === "insufficient_stops") {
+    return res.status(400).json({
+      success: false,
+      message:
+        "At least two ordered collection stops are required to generate a road route",
+      data: result.route,
+    });
+  }
+
+  if (result.status === "invalid_coordinates") {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Every collection stop must have valid zone coordinates before road routing can be generated",
+      data: {
+        invalidCoordinateStops: result.invalidCoordinateStops,
+      },
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: "Road-following collection route generated successfully",
+    data: result.route,
   });
 }

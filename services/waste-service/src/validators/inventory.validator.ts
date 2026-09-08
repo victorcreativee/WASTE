@@ -1,0 +1,5 @@
+import {z} from 'zod';
+export const itemSchema=z.object({sku:z.string().trim().min(2).max(60),name:z.string().trim().min(2).max(160),category:z.enum(['bins','ppe','vehicle_parts','tools','cleaning_supplies','office','other']),unit:z.string().trim().min(1).max(30),reorderLevel:z.number().nonnegative(),unitCostUgx:z.number().int().nonnegative(),storageLocation:z.string().trim().max(160).optional()});
+export const movementSchema=z.object({movementType:z.enum(['receipt','issue','adjustment']),quantity:z.number().refine(v=>v!==0),reason:z.string().trim().min(3).max(240),reference:z.string().trim().max(120).optional()});
+export const purchaseRequestSchema=z.object({itemName:z.string().trim().min(2).max(160),category:z.string().trim().min(2).max(40),quantity:z.number().positive(),unit:z.string().trim().min(1).max(30),estimatedCostUgx:z.number().int().nonnegative(),justification:z.string().trim().min(5).max(500)});
+export const purchaseStatusSchema=z.object({status:z.enum(['submitted','approved','ordered','received','rejected','cancelled'])});

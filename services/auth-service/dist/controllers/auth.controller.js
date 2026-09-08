@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.register = register;
+exports.registerApplicant = registerApplicant;
 exports.login = login;
 exports.me = me;
 const auth_validator_1 = require("../validators/auth.validator");
@@ -22,6 +23,10 @@ async function register(req, res) {
             message: error instanceof Error ? error.message : "Registration failed",
         });
     }
+}
+async function registerApplicant(req, res) {
+    const result = await (0, auth_service_1.registerOrganizationApplicant)(auth_validator_1.organizationApplicantRegisterSchema.parse(req.body));
+    return res.status(201).json({ success: true, message: "Onboarding account created", data: result });
 }
 async function login(req, res) {
     try {

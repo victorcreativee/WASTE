@@ -28,14 +28,24 @@ type RouteStop = {
   waste_type: string;
 };
 
+type RouteGeometry = {
+  type: "LineString";
+  coordinates: [number, number][];
+};
+
 type WasteMapProps = {
   zones: ZoneMapItem[];
   routeStops: RouteStop[];
+  routeGeometry: RouteGeometry | null;
 };
 
 const KAMPALA_CENTER: [number, number] = [0.3476, 32.5825];
 
-export default function WasteMap({ zones, routeStops }: WasteMapProps) {
+export default function WasteMap({
+  zones,
+  routeStops,
+  routeGeometry,
+}: WasteMapProps) {
   const mappedZones = zones.filter(
     (zone) => zone.latitude !== null && zone.longitude !== null
   );
@@ -44,10 +54,17 @@ export default function WasteMap({ zones, routeStops }: WasteMapProps) {
     .filter((stop) => stop.latitude !== null && stop.longitude !== null)
     .sort((a, b) => a.stop_order - b.stop_order);
 
-  const routePositions: [number, number][] = mappedRouteStops.map((stop) => [
-    Number(stop.latitude),
-    Number(stop.longitude),
-  ]);
+  const roadRoutePositions: [number, number][] =
+    routeGeometry?.type === "LineString"
+      ? routeGeometry.coordinates
+          .filter(
+            ([longitude, latitude]) =>
+              Number.isFinite(longitude) && Number.isFinite(latitude)
+          )
+          .map(
+            ([longitude, latitude]) => [latitude, longitude] as [number, number]
+          )
+      : [];
 
   return (
     <MapContainer
@@ -83,10 +100,9 @@ export default function WasteMap({ zones, routeStops }: WasteMapProps) {
           </Popup>
         </CircleMarker>
       ))}
-
-      {routePositions.length >= 2 && (
+      {roadRoutePositions.length >= 2 && (
         <Polyline
-          positions={routePositions}
+          positions={roadRoutePositions}
           pathOptions={{
             color: "#2563eb",
             weight: 4,

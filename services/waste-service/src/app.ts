@@ -2,9 +2,32 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import { ZodError } from "zod";
 
 import healthRoutes from "./routes/health.routes";
 import wasteRoutes from "./routes/waste.routes";
+import routingRoutes from "./routes/routing.routes";
+import { requireAuth, requireRoles } from "./middlewares/auth.middleware";
+import driverRoutes from "./routes/driver.routes";
+import citizenIssueRoutes from "./routes/citizen-issue.routes";
+import commandCenterRoutes from "./routes/command-center.routes";
+import jobProblemRoutes from "./routes/job-problem.routes";
+import customerServiceRoutes from "./routes/customer-service.routes";
+import routeExecutionRoutes from "./routes/route-execution.routes";
+import billingRoutes from "./routes/billing.routes";
+import fleetRoutes from "./routes/fleet.routes";
+import expenseRoutes from "./routes/expense.routes";
+import inventoryRoutes from "./routes/inventory.routes";
+import procurementRoutes from "./routes/procurement.routes";
+import payablesRoutes from "./routes/payables.routes";
+import reportRoutes from "./routes/report.routes";
+import contractRoutes from "./routes/contract.routes";
+import providerRequestRoutes from "./routes/provider-request.routes";
+import customerStopRoutes from "./routes/customer-stop.routes";
+import regulatoryPublicRoutes from "./routes/regulatory-public.routes";
+import regulatoryRoutes from "./routes/regulatory.routes";
+import applicantOnboardingRoutes from "./routes/applicant-onboarding.routes";
+import platformOnboardingRoutes from "./routes/platform-onboarding.routes";
 
 const app = express();
 
@@ -15,6 +38,32 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
 
 app.use("/api/waste", healthRoutes);
+app.use("/api/waste/public", regulatoryPublicRoutes);
+app.use("/api/waste", requireAuth);
+app.use("/api/waste/regulatory", regulatoryRoutes);
+app.use("/api/waste/regulatory", applicantOnboardingRoutes);
+app.use("/api/waste/regulatory", platformOnboardingRoutes);
+app.use("/api/waste", driverRoutes);
+app.use("/api/waste", citizenIssueRoutes);
+app.use("/api/waste", jobProblemRoutes);
+app.use("/api/waste", customerServiceRoutes);
+app.use("/api/waste", providerRequestRoutes);
+app.use("/api/waste", customerStopRoutes);
+app.use("/api/waste", routeExecutionRoutes);
+app.use("/api/waste", billingRoutes);
+app.use("/api/waste", fleetRoutes);
+app.use("/api/waste", expenseRoutes);
+app.use("/api/waste", inventoryRoutes);
+app.use("/api/waste", procurementRoutes);
+app.use("/api/waste", payablesRoutes);
+app.use("/api/waste", reportRoutes);
+app.use("/api/waste", contractRoutes);
+app.use(
+  "/api/waste",
+  requireRoles("system_admin", "kcca_admin", "company_admin", "supervisor")
+);
+app.use("/api/waste/routing", routingRoutes);
+app.use("/api/waste", commandCenterRoutes);
 app.use("/api/waste", wasteRoutes);
 
 app.use((req, res) => {
@@ -32,6 +81,23 @@ app.use(
     res: express.Response,
     next: express.NextFunction
   ) => {
+    if (error instanceof ZodError) {
+      const issue = error.issues[0];
+      const field = issue?.path.length ? `${issue.path.join(".")}: ` : "";
+      return res.status(400).json({
+        success: false,
+        message: `${field}${issue?.message || "Please check the submitted information"}`,
+      });
+    }
+    if ((error as { code?: string; constraint?: string }).code === "23505") {
+      const constraint = (error as { constraint?: string }).constraint;
+      const message = constraint === "one_open_permit_per_registration"
+        ? "An active permit application already exists for this company registration number"
+        : constraint === "one_open_account_application_per_admin_email"
+          ? "This administrator email is already connected to an active account application"
+          : "This information is already registered";
+      return res.status(409).json({ success: false, message });
+    }
     return res.status((error as any).statusCode || 400).json({
       success: false,
       message: error.message || "Waste service error",

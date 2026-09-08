@@ -4,10 +4,18 @@ import {
   getOrganizationById,
   getOrganizations,
 } from "../controllers/organization.controller";
+import { requireRoles } from "../middlewares/auth.middleware";
 
 const router = Router();
+const canReadOrganizations = requireRoles(
+  "system_admin",
+  "kcca_admin",
+  "company_admin"
+  , "supervisor"
+);
+const canCreateOrganizations = requireRoles("system_admin");
 
-router.get("/", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/", canReadOrganizations, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await getOrganizations(req, res);
   } catch (error) {
@@ -15,7 +23,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/:id", canReadOrganizations, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await getOrganizationById(req, res);
   } catch (error) {
@@ -23,7 +31,7 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-router.post("/", async (req: Request, res: Response, next: NextFunction) => {
+router.post("/", canCreateOrganizations, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await createOrganizationHandler(req, res);
   } catch (error) {

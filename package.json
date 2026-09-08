@@ -7,6 +7,7 @@
     "doc": "docs"
   },
   "scripts": {
+    "dev": "concurrently --kill-others-on-fail --names gateway,auth,org,waste,web \"npm run dev --prefix apps/api-gateway\" \"npm run dev --prefix services/auth-service\" \"npm run dev --prefix services/organization-service\" \"npm run dev --prefix services/waste-service\" \"npm run dev --prefix apps/admin-web\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

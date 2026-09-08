@@ -5,6 +5,8 @@ import morgan from "morgan";
 
 import healthRoutes from "./routes/health.routes";
 import organizationRoutes from "./routes/organization.routes";
+import workspaceRoutes from "./routes/workspace.routes";
+import { requireAuth } from "./middlewares/auth.middleware";
 
 const app = express();
 
@@ -15,6 +17,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
 
 app.use("/api/organizations", healthRoutes);
+app.use("/api/organizations", requireAuth);
+app.use("/api/organizations", workspaceRoutes);
 app.use("/api/organizations", organizationRoutes);
 
 app.use((req, res) => {

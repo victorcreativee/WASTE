@@ -1,10 +1,13 @@
+import { requireActiveOrganization } from "./organization-access.service";
 import bcrypt from "bcrypt";
 import { LoginInput, RegisterInput } from "../validators/auth.validator";
 import {
+  createOrganizationApplicant,
   createUser,
   findUserByEmail,
   updateLastLogin,
 } from "../repositories/auth.repository";
+import type { OrganizationApplicantRegisterInput } from "../validators/auth.validator";
 import { signAccessToken, signRefreshToken } from "../utils/jwt";
 import {
   assignRoleToUser,
@@ -76,6 +79,14 @@ export async function registerUser(input: RegisterInput) {
   };
 }
 
+export async function registerOrganizationApplicant(input:OrganizationApplicantRegisterInput){
+  const passwordHash=await bcrypt.hash(input.password,12);
+  const user=await createOrganizationApplicant(input,passwordHash);
+  const accessToken=signAccessToken({userId:user.id,email:user.email,organizationId:null,roles:["organization_applicant"]});
+  const refreshToken=signRefreshToken({userId:user.id});
+  return {user:sanitizeUser(user),roles:[{name:"organization_applicant"}],permissions:[],tokens:{accessToken,refreshToken}};
+}
+
 export async function loginUser(input: LoginInput) {
   const user = await findUserByEmail(input.email);
 
@@ -102,12 +113,16 @@ export async function loginUser(input: LoginInput) {
     throw error;
   }
 
+  const roles = await getUserRoles(user.id);
+  await requireActiveOrganization(user.organization_id, roles, user.id);
   await updateLastLogin(user.id);
+  const permissions = await getUserPermissions(user.id);
 
   const accessToken = signAccessToken({
     userId: user.id,
     email: user.email,
     organizationId: user.organization_id,
+    roles: roles.map((role) => role.name),
   });
 
   const refreshToken = signRefreshToken({
@@ -116,6 +131,8 @@ export async function loginUser(input: LoginInput) {
 
   return {
     user: sanitizeUser(user),
+    roles,
+    permissions,
     tokens: {
       accessToken,
       refreshToken,
@@ -125,13 +142,14 @@ export async function loginUser(input: LoginInput) {
 export async function getCurrentUser(userId: string) {
   const user = await findUserById(userId);
 
-  if (!user) {
-    const error = new Error("User not found");
+  if (!user || user.status !== "active") {
+    const error = new Error("User account is unavailable");
     (error as any).statusCode = 404;
     throw error;
   }
 
   const roles = await getUserRoles(user.id);
+  await requireActiveOrganization(user.organization_id, roles, user.id);
   const permissions = await getUserPermissions(user.id);
 
   return {

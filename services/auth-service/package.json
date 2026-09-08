@@ -4,8 +4,13 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "migrate:organization-applicants": "node scripts/migrate-organization-applicants.cjs --apply",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
+    "seed:role-accounts": "ts-node scripts/seed-role-accounts.ts",
+    "bootstrap:system-admin": "node scripts/bootstrap-system-admin.cjs",
+    "migrate:platform-users:check": "node scripts/migrate-platform-user-administration.cjs",
+    "migrate:platform-users": "node scripts/migrate-platform-user-administration.cjs --apply",
     "start": "node dist/server.js"
   },
   "keywords": [],

@@ -1,0 +1,14 @@
+import { NextFunction,Request,Response,Router } from 'express';
+import { createDocument,createFuel,createMaintenance,getFleetOverview,getFleetTruck,getLiveAlertHistory,getLiveFleet,getVehicleLocationHistory,patchMaintenance,patchTruck,postDriverLocation,reviewLiveAlert } from '../controllers/fleet.controller';
+import { requireRoles } from '../middlewares/auth.middleware';
+const router=Router();const run=(h:(r:Request,s:Response)=>Promise<unknown>)=>async(r:Request,s:Response,n:NextFunction)=>{try{await h(r,s);}catch(e){n(e);}};
+const view=requireRoles('company_admin','supervisor');const manage=requireRoles('company_admin','supervisor');
+router.get('/fleet/live',requireRoles('company_admin','supervisor','kcca_admin','system_admin'),run(getLiveFleet));
+router.get('/fleet/live/:truckId/history',requireRoles('company_admin','supervisor','kcca_admin','system_admin'),run(getVehicleLocationHistory));
+router.get('/fleet/live/:truckId/alerts',requireRoles('company_admin','supervisor','kcca_admin','system_admin'),run(getLiveAlertHistory));
+router.post('/fleet/live/:truckId/alerts',manage,run(reviewLiveAlert));
+router.post('/fleet/live/location',requireRoles('driver'),run(postDriverLocation));
+router.get('/fleet/overview',view,run(getFleetOverview));router.get('/fleet/trucks/:truckId',view,run(getFleetTruck));
+router.patch('/fleet/trucks/:truckId/status',manage,run(patchTruck));router.post('/fleet/trucks/:truckId/maintenance',manage,run(createMaintenance));
+router.patch('/fleet/maintenance/:id/status',manage,run(patchMaintenance));router.post('/fleet/trucks/:truckId/documents',manage,run(createDocument));router.post('/fleet/trucks/:truckId/fuel',manage,run(createFuel));
+export default router;

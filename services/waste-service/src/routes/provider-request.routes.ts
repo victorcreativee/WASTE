@@ -1,0 +1,11 @@
+import {NextFunction,Request,Response,Router} from 'express';
+import {requireRoles} from '../middlewares/auth.middleware';
+import {deleteProviderRequest,getMyProviderRequests,getOrganizationProviderRequests,getProviderOptions,patchProviderRequest,postProviderRequest} from '../controllers/provider-request.controller';
+const r=Router(),run=(h:(q:Request,s:Response)=>Promise<unknown>)=>async(q:Request,s:Response,n:NextFunction)=>{try{await h(q,s)}catch(e){n(e)}};
+r.get('/customer-service/provider-options',requireRoles('citizen'),run(getProviderOptions));
+r.get('/customer-service/provider-requests',requireRoles('citizen'),run(getMyProviderRequests));
+r.post('/customer-service/provider-requests',requireRoles('citizen'),run(postProviderRequest));
+r.delete('/customer-service/provider-requests/:id',requireRoles('citizen'),run(deleteProviderRequest));
+r.get('/customers/provider-requests',requireRoles('company_admin'),run(getOrganizationProviderRequests));
+r.patch('/customers/provider-requests/:id',requireRoles('company_admin'),run(patchProviderRequest));
+export default r;

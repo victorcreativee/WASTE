@@ -1,0 +1,4 @@
+import {z} from 'zod';
+export const createPayrollPeriodSchema=z.object({name:z.string().trim().min(2).max(100),startsOn:z.string().date(),endsOn:z.string().date(),payDate:z.string().date()}).superRefine((x,ctx)=>{if(x.endsOn<x.startsOn)ctx.addIssue({code:'custom',message:'Period end must be on or after its start',path:['endsOn']});if(x.payDate<x.endsOn)ctx.addIssue({code:'custom',message:'Pay date must be on or after the period end',path:['payDate']});});
+export const payrollLineSchema=z.object({userId:z.string().uuid(),basicPayUgx:z.number().int().nonnegative(),allowanceUgx:z.number().int().nonnegative().default(0),deductionUgx:z.number().int().nonnegative().default(0),notes:z.string().trim().max(500).optional()}).refine(x=>x.deductionUgx<=x.basicPayUgx+x.allowanceUgx,{message:'Deductions cannot exceed staff earnings',path:['deductionUgx']});
+export const payrollStatusSchema=z.object({status:z.enum(['approved','paid','cancelled'])});
