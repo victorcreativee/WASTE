@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { OrganizationWorkspaceNav } from "@/components/layout/OrganizationWorkspaceNav";
+import {Feedback,PageHeader} from "@/components/ui/System";
 import { apiRequest } from "@/lib/api";
 
 const WasteMap = dynamic(() => import("@/components/gis/WasteMap"), {
@@ -240,30 +241,13 @@ export default function GISPage() {
     <AppShell>
       <div className="mx-auto max-w-[1500px]">
         <OrganizationWorkspaceNav/>
-        <section className="border-b border-slate-200 pb-7">
-          <p className="text-sm font-black uppercase tracking-[0.25em] text-emerald-700">
-            Geographic Operations
-          </p>
-
-          <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950">
-            GIS Operations Map
-          </h1>
-
-          <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-            Geographic view of waste collection zones and planned collection
-            route stops across Kampala.
-          </p>
-        </section>
+        <PageHeader eyebrow="City coverage" title="Coverage map" description="Inspect collection zones, planned route stops, and geographic service coverage across Kampala."/>
 
         {error && (
-          <div className="mt-6 border-l-4 border-red-600 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
-            {error}
-          </div>
+          <Feedback tone="error">{error}</Feedback>
         )}
         {routeMessage && (
-          <div className="mt-6 border-l-4 border-emerald-600 bg-emerald-50 px-5 py-4 text-sm font-semibold text-emerald-800">
-            {routeMessage}
-          </div>
+          <Feedback tone="success">{routeMessage}</Feedback>
         )}
 
         <section className="grid gap-6 py-8 xl:grid-cols-[300px_1fr]">

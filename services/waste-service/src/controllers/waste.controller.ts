@@ -11,6 +11,7 @@ import {
   updateCollectionJobStatusSchema,
   createCollectionRouteSchema,
   assignZoneServiceAreaSchema,
+  updateZoneSchema,
 } from "../validators/waste.validator";
 import {
   addCollectionJob,
@@ -34,6 +35,7 @@ import {
   listCollectionRoutes,
   generateRoadRouteForCollectionRoute,
   assignServiceArea,
+  editZone,
 } from "../services/waste.service";
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 
@@ -71,6 +73,13 @@ export async function createZoneHandler(req: Request, res: Response) {
     message: "Waste zone created successfully",
     data: zone,
   });
+}
+export async function updateZoneHandler(req:Request,res:Response){
+  const organizationId=organizationScope(req);
+  if(!organizationId)return res.status(403).json({success:false,message:"Only the responsible company can edit its zone"});
+  const input=updateZoneSchema.parse(req.body),zone=await editZone(req.params.id as string,organizationId,input);
+  if(!zone)return res.status(404).json({success:false,message:"Zone not found"});
+  return res.json({success:true,message:"Zone updated",data:zone});
 }
 
 export async function assignZoneServiceAreaHandler(req: Request, res: Response) {

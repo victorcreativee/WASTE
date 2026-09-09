@@ -39,11 +39,17 @@ exports.createMaintenance = createMaintenance;
 exports.patchMaintenance = patchMaintenance;
 exports.createDocument = createDocument;
 exports.createFuel = createFuel;
+exports.getLiveFleet = getLiveFleet;
+exports.postDriverLocation = postDriverLocation;
+exports.getVehicleLocationHistory = getVehicleLocationHistory;
+exports.reviewLiveAlert = reviewLiveAlert;
+exports.getLiveAlertHistory = getLiveAlertHistory;
 exports.patchTruck = patchTruck;
+const organization_scope_1 = require("../middlewares/organization-scope");
 const repo = __importStar(require("../repositories/fleet.repository"));
 const fleet_validator_1 = require("../validators/fleet.validator");
 const auth = (r) => r.auth;
-const scope = (r) => auth(r).roles.some(x => ['company_admin', 'supervisor'].includes(x)) ? auth(r).organizationId : null;
+const scope = organization_scope_1.requireOrganizationScope;
 const org = (r) => { const id = auth(r).organizationId; if (!id) {
     const e = new Error('Account is not linked to an organization');
     e.statusCode = 403;
@@ -55,4 +61,9 @@ async function createMaintenance(req, res) { const data = await repo.addMaintena
 async function patchMaintenance(req, res) { const data = await repo.updateMaintenanceStatus(req.params.id, org(req), fleet_validator_1.maintenanceStatusSchema.parse(req.body).status); return data ? res.json({ success: true, message: 'Maintenance status updated', data }) : res.status(404).json({ success: false, message: 'Maintenance record not found' }); }
 async function createDocument(req, res) { const data = await repo.addTruckDocument(req.params.truckId, org(req), auth(req).userId, fleet_validator_1.truckDocumentSchema.parse(req.body)); return data ? res.status(201).json({ success: true, message: 'Compliance document added', data }) : res.status(404).json({ success: false, message: 'Truck not found in your organization' }); }
 async function createFuel(req, res) { const data = await repo.addFuelRecord(req.params.truckId, org(req), auth(req).userId, fleet_validator_1.fuelRecordSchema.parse(req.body)); return data ? res.status(201).json({ success: true, message: 'Fuel expense recorded', data }) : res.status(404).json({ success: false, message: 'Truck not found in your organization' }); }
+async function getLiveFleet(req, res) { return res.json({ success: true, message: 'Live fleet positions fetched', data: await repo.liveFleet((0, organization_scope_1.operationalOrganizationScope)(req)) }); }
+async function postDriverLocation(req, res) { const data = await repo.recordDriverLocation(auth(req).userId, fleet_validator_1.vehicleLocationSchema.parse(req.body)); return res.status(201).json({ success: true, message: 'Vehicle location updated', data }); }
+async function getVehicleLocationHistory(req, res) { const { minutes } = fleet_validator_1.vehicleHistoryQuerySchema.parse(req.query); return res.json({ success: true, message: 'Vehicle movement history fetched', data: await repo.vehicleLocationHistory(req.params.truckId, (0, organization_scope_1.operationalOrganizationScope)(req), minutes) }); }
+async function reviewLiveAlert(req, res) { const data = await repo.reviewFleetAlert(req.params.truckId, org(req), auth(req).userId, fleet_validator_1.fleetAlertReviewSchema.parse(req.body)); return res.status(201).json({ success: true, message: 'Fleet warning review recorded', data }); }
+async function getLiveAlertHistory(req, res) { return res.json({ success: true, message: 'Fleet warning history fetched', data: await repo.fleetAlertHistory(req.params.truckId, (0, organization_scope_1.operationalOrganizationScope)(req)) }); }
 async function patchTruck(req, res) { const data = await repo.updateTruckStatus(req.params.truckId, org(req), fleet_validator_1.truckStatusSchema.parse(req.body).status); return data ? res.json({ success: true, message: 'Truck availability updated', data }) : res.status(404).json({ success: false, message: 'Truck not found in your organization' }); }

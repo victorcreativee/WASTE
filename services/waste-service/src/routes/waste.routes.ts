@@ -18,6 +18,7 @@ import {
   getCollectionRoutes,
   generateCollectionRouteRoadRouteHandler,
   assignZoneServiceAreaHandler,
+  updateZoneHandler,
 } from "../controllers/waste.controller";
 import { requireRoles } from "../middlewares/auth.middleware";
 const router = Router();
@@ -35,7 +36,7 @@ router.get(
 
 router.post(
   "/zones",
-  requireRoles("system_admin", "kcca_admin"),
+  requireRoles("system_admin", "kcca_admin", "company_admin"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       await createZoneHandler(req, res);
@@ -44,6 +45,7 @@ router.post(
     }
   }
 );
+router.patch("/zones/:id",requireRoles("company_admin"),async(req:Request,res:Response,next:NextFunction)=>{try{await updateZoneHandler(req,res);}catch(error){next(error);}});
 
 router.patch(
   "/zones/:id/service-assignment",

@@ -44,6 +44,9 @@ export async function findZones(organizationId: string | null) {
       wz.id,
       wz.organization_id,
       o.name AS organization_name,
+      wz.division_id,
+      division.name AS division_name,
+      wz.catalog_area_id,
       wz.name,
       wz.description,
       wz.area_type,
@@ -55,9 +58,10 @@ export async function findZones(organizationId: string | null) {
       wz.updated_at
     FROM waste_zones wz
     LEFT JOIN organizations o ON o.id = wz.organization_id
+    LEFT JOIN kampala_divisions division ON division.id=wz.division_id
     LEFT JOIN customer_service_locations csl ON csl.zone_id = wz.id
     WHERE ($1::uuid IS NULL OR wz.organization_id = $1::uuid)
-    GROUP BY wz.id, o.name
+    GROUP BY wz.id, o.name, division.name
     ORDER BY wz.created_at DESC
   `, [organizationId]);
 
@@ -72,6 +76,8 @@ export async function createZone(data: CreateZoneInput) {
     `
     INSERT INTO waste_zones (
       organization_id,
+      division_id,
+      catalog_area_id,
       name,
       description,
       area_type,
@@ -79,14 +85,18 @@ export async function createZone(data: CreateZoneInput) {
     )
     VALUES (
       $1,
-      $2,
-      $3,
+      $2::uuid,
+      $3::uuid,
       $4,
-      ${hasPoint ? "ST_SetSRID(ST_MakePoint($6, $5), 4326)::geography" : "NULL"}
+      $5,
+      $6,
+      ${hasPoint ? "ST_SetSRID(ST_MakePoint($8, $7), 4326)::geography" : "NULL"}
     )
     RETURNING 
       id,
       organization_id,
+      division_id,
+      catalog_area_id,
       name,
       description,
       area_type,
@@ -99,6 +109,8 @@ export async function createZone(data: CreateZoneInput) {
     hasPoint
       ? [
           data.organizationId ?? null,
+          data.divisionId ?? null,
+          data.catalogAreaId ?? null,
           data.name,
           data.description ?? null,
           data.areaType,
@@ -107,6 +119,8 @@ export async function createZone(data: CreateZoneInput) {
         ]
       : [
           data.organizationId ?? null,
+          data.divisionId ?? null,
+          data.catalogAreaId ?? null,
           data.name,
           data.description ?? null,
           data.areaType,
@@ -114,6 +128,18 @@ export async function createZone(data: CreateZoneInput) {
   );
 
   return result.rows[0];
+}
+
+export async function updateZoneForOrganization(zoneId:string,organizationId:string,data:any){
+  const hasPoint=data.latitude!==undefined&&data.longitude!==undefined;
+  const result=await dbPool.query(`UPDATE waste_zones SET
+    name=COALESCE($3,name),catalog_area_id=CASE WHEN $4::boolean THEN $5::uuid ELSE catalog_area_id END,
+    description=CASE WHEN $6::boolean THEN $7 ELSE description END,area_type=COALESCE($8,area_type),
+    center_point=CASE WHEN $9::boolean THEN ST_SetSRID(ST_MakePoint($11,$10),4326)::geography ELSE center_point END,
+    updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid AND organization_id=$2::uuid RETURNING *`,
+    [zoneId,organizationId,data.name??null,Object.prototype.hasOwnProperty.call(data,"catalogAreaId"),data.catalogAreaId??null,
+      Object.prototype.hasOwnProperty.call(data,"description"),data.description??null,data.areaType??null,hasPoint,data.latitude??null,data.longitude??null]);
+  return result.rows[0]??null;
 }
 
 export async function assignZoneServiceArea(

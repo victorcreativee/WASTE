@@ -1,5 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.dispatchCollectionRouteHandler = dispatchCollectionRouteHandler;
+exports.cancelCollectionRouteHandler = cancelCollectionRouteHandler;
 exports.getDriverRoutesHandler = getDriverRoutesHandler;
 exports.getDriverRouteDetailsHandler = getDriverRouteDetailsHandler;
 exports.startDriverRouteHandler = startDriverRouteHandler;
@@ -13,6 +15,21 @@ function scope(req) {
     return auth.roles.some((role) => ["company_admin", "supervisor"].includes(role)) ? auth.organizationId : null;
 }
 function driverUserId(req) { return identity(req).roles.includes("driver") ? identity(req).userId : null; }
+async function dispatchCollectionRouteHandler(req, res) {
+    const organizationId = identity(req).organizationId;
+    const route = await (0, route_execution_repository_1.dispatchCollectionRoute)(req.params.routeId, organizationId);
+    return res.status(200).json({ success: true, message: "Route dispatched to the assigned driver", data: route });
+}
+async function cancelCollectionRouteHandler(req, res) {
+    const auth = identity(req);
+    const input = route_execution_validator_1.cancelCollectionRouteSchema.parse(req.body);
+    const route = await (0, route_execution_repository_1.cancelCollectionRoute)(req.params.routeId, auth.organizationId, auth.userId, input);
+    return res.status(200).json({
+        success: true,
+        message: `${route.returned_job_count} unfinished jobs returned to dispatch`,
+        data: route,
+    });
+}
 async function getDriverRoutesHandler(req, res) {
     const routes = await (0, route_execution_repository_1.findDriverRoutes)(req.params.driverId ?? "", scope(req), driverUserId(req));
     return res.status(200).json({ success: true, message: "Driver routes fetched", data: routes });

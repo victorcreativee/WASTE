@@ -4,6 +4,7 @@ exports.upsertMyCustomerServiceHandler = upsertMyCustomerServiceHandler;
 exports.getMyCustomerServiceHandler = getMyCustomerServiceHandler;
 exports.getCustomersHandler = getCustomersHandler;
 exports.updateCustomerServiceStatusHandler = updateCustomerServiceStatusHandler;
+const organization_scope_1 = require("../middlewares/organization-scope");
 const customer_service_repository_1 = require("../repositories/customer-service.repository");
 const customer_service_validator_1 = require("../validators/customer-service.validator");
 function identity(req) { return req.auth; }
@@ -16,8 +17,7 @@ async function getMyCustomerServiceHandler(req, res) {
     return res.status(200).json({ success: true, message: "Customer service overview fetched", data: overview });
 }
 async function getCustomersHandler(req, res) {
-    const auth = identity(req);
-    const organizationId = auth.roles.some((role) => ["company_admin", "supervisor"].includes(role)) ? auth.organizationId : null;
+    const organizationId = (0, organization_scope_1.requireOrganizationScope)(req);
     const customers = await (0, customer_service_repository_1.findCustomers)(organizationId);
     return res.status(200).json({ success: true, message: "Customers fetched", data: customers });
 }

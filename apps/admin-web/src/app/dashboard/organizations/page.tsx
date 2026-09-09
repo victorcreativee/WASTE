@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { Modal } from "@/components/ui/System";
+import { Feedback, Modal, PageHeader } from "@/components/ui/System";
 import { Pagination, usePagination } from "@/components/ui/Pagination";
 import { AdminSetup } from "./AdminSetup";
 import { apiRequest } from "@/lib/api";
@@ -24,6 +24,8 @@ type OrganizationsResponse = {
   data: Organization[];
 };
 type ApprovedPermit={id:string;application_number:string;company_name:string;registration_number:string;valid_until:string|null;organization_id:string|null};
+type Division={id:string;name:string;code:string};
+type DivisionAuthorization={organization_id:string;division_id:string;status:string;expires_on:string|null};
 
 const organizationTypes = [
   "all",
@@ -42,6 +44,7 @@ function subscribe(){return()=>undefined;}
 export default function OrganizationsPage() {
   const roles=useSyncExternalStore(subscribe,roleSnapshot,()=>"hydrating");
   const canCreateOrganization=roles.includes("system_admin");
+  const canManageDivisions=roles.includes("kcca_admin");
   const [createOpen,setCreateOpen]=useState(false);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +53,8 @@ export default function OrganizationsPage() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [approvedPermits,setApprovedPermits]=useState<ApprovedPermit[]>([]);
+  const [divisions,setDivisions]=useState<Division[]>([]),[authorizations,setAuthorizations]=useState<DivisionAuthorization[]>([]);
+  const [divisionOrganization,setDivisionOrganization]=useState<Organization|null>(null),[selectedDivisions,setSelectedDivisions]=useState<string[]>([]),[authorizationExpiry,setAuthorizationExpiry]=useState(""),[savingDivisions,setSavingDivisions]=useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -126,7 +131,11 @@ export default function OrganizationsPage() {
       )
       .finally(() => setLoading(false));
   }, []);
-  useEffect(()=>{if(!canCreateOrganization)return;apiRequest<{data:ApprovedPermit[]}>("/api/waste/regulatory/permit-applications?status=approved").then(r=>setApprovedPermits(r.data.filter(p=>!p.organization_id))).catch(()=>setApprovedPermits([]));},[canCreateOrganization]);
+  useEffect(()=>{if(!canCreateOrganization&&!canManageDivisions)return;apiRequest<{data:ApprovedPermit[]}>("/api/waste/regulatory/permit-applications?status=approved").then(r=>setApprovedPermits(canCreateOrganization?r.data.filter(p=>!p.organization_id):r.data)).catch(()=>setApprovedPermits([]));},[canCreateOrganization,canManageDivisions]);
+  useEffect(()=>{if(!canManageDivisions)return;Promise.all([apiRequest<{data:Division[]}>("/api/waste/regulatory/divisions"),apiRequest<{data:DivisionAuthorization[]}>("/api/waste/regulatory/division-authorizations")]).then(([d,a])=>{setDivisions(d.data);setAuthorizations(a.data);}).catch((e:unknown)=>setError(e instanceof Error?e.message:"Failed to load division assignments"));},[canManageDivisions]);
+
+  function openDivisionAssignment(organization:Organization){const current=authorizations.filter(item=>item.organization_id===organization.id&&item.status==="active");setDivisionOrganization(organization);setSelectedDivisions(current.map(item=>item.division_id));setAuthorizationExpiry(current[0]?.expires_on?.slice(0,10)||"");setError("");}
+  async function saveDivisionAssignment(event:React.FormEvent){event.preventDefault();if(!divisionOrganization)return;const permit=approvedPermits.find(item=>item.organization_id===divisionOrganization.id);if(!permit){setError("This collector needs a current approved KCCA permit before divisions can be assigned.");return;}try{setSavingDivisions(true);setError("");await apiRequest("/api/waste/regulatory/division-authorizations",{method:"POST",body:JSON.stringify({organizationId:divisionOrganization.id,permitApplicationId:permit.id,divisionIds:selectedDivisions,expiresOn:authorizationExpiry||undefined})});const refreshed=await apiRequest<{data:DivisionAuthorization[]}>("/api/waste/regulatory/division-authorizations");setAuthorizations(refreshed.data);setDivisionOrganization(null);}catch(e){setError(e instanceof Error?e.message:"Failed to save division assignments");}finally{setSavingDivisions(false);}}
 
   const filteredOrganizations = useMemo(() => {
     return organizations.filter((organization) => {
@@ -146,25 +155,10 @@ export default function OrganizationsPage() {
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl">
-        <section className="border-b border-slate-200 pb-7">
-          <p className="text-sm font-black uppercase tracking-[0.25em] text-[#3156a3]">
-            City Stakeholders
-          </p>
-          <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950">
-            Organizations
-          </h1>
-          <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-            This area keeps the real institutions and partners behind Kampala’s
-            waste ecosystem organized before operations, trucks, zones, and
-            citizen reports are connected.
-          </p>
-          {canCreateOrganization&&<button type="button" onClick={()=>setCreateOpen(true)} className="mt-5 bg-[#3156a3] px-4 py-2 text-sm text-white">Add organization</button>}
-        </section>
+        <PageHeader eyebrow={canManageDivisions?"KCCA oversight":"Platform administration"} title={canManageDivisions?"Licensed collectors":"Organizations"} description={canManageDivisions?"Assign permitted divisions and monitor the organizations responsible for city waste collection.":"Review active organizations created through the verified permit and platform-access process."} action={canCreateOrganization?<a href="/dashboard/account-verification" className="inline-block bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">Review account applications</a>:undefined}/>
 
         {error && (
-          <div className="mt-6 border-l-4 border-red-600 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
-            {error}
-          </div>
+          <Feedback tone="error">{error}</Feedback>
         )}
 
         <section className="py-8">
@@ -213,8 +207,8 @@ export default function OrganizationsPage() {
                   No organizations match your search.
                 </p>
               ) : (
-                <table className="min-w-[760px] text-left"><thead><tr><th>Organization</th><th>Type</th><th>Contact</th><th>Status</th>{canCreateOrganization&&<th>Onboarding</th>}</tr></thead><tbody>{pagination.paged.map((organization) => (
-                  <tr key={organization.id}><td><p className="table-primary">{organization.name}</p><p className="table-secondary">{organization.address||"No address added"}</p></td><td className="capitalize">{organization.type.replaceAll("_"," ")}</td><td><p>{organization.email||"No email"}</p><p className="table-secondary">{organization.phone||"No phone"}</p></td><td><span className={`status status-${organization.is_active?"active":"inactive"}`}>{organization.is_active?"Active":"Inactive"}</span></td>{canCreateOrganization&&<td>{organization.type==="waste_collection_company"&&organization.is_active?<AdminSetup organization={organization}/>:<span className="text-xs text-slate-500">Not eligible</span>}</td>}</tr>
+                <table className="min-w-[900px] text-left"><thead><tr><th>Organization</th><th>Type</th><th>Contact</th><th>Status</th>{canManageDivisions&&<th>Authorized divisions</th>}{canCreateOrganization&&<th>Onboarding</th>}</tr></thead><tbody>{pagination.paged.map((organization) => (
+                  <tr key={organization.id}><td><p className="table-primary">{organization.name}</p><p className="table-secondary">{organization.address||"No address added"}</p></td><td className="capitalize">{organization.type.replaceAll("_"," ")}</td><td><p>{organization.email||"No email"}</p><p className="table-secondary">{organization.phone||"No phone"}</p></td><td><span className={`status status-${organization.is_active?"active":"inactive"}`}>{organization.is_active?"Active":"Inactive"}</span></td>{canManageDivisions&&<td>{organization.type==="waste_collection_company"?<div><p className="text-sm">{authorizations.filter(item=>item.organization_id===organization.id&&item.status==="active").map(item=>divisions.find(d=>d.id===item.division_id)?.name).filter(Boolean).join(", ")||"Not assigned"}</p><button onClick={()=>openDivisionAssignment(organization)} className="mt-1 text-xs font-semibold text-[#3156a3]">Manage divisions</button></div>:<span className="text-xs text-slate-500">Not applicable</span>}</td>}{canCreateOrganization&&<td>{organization.type==="waste_collection_company"&&organization.is_active?<AdminSetup organization={organization}/>:<span className="text-xs text-slate-500">Not eligible</span>}</td>}</tr>
                 ))}</tbody></table>
               )}
             </div>
@@ -308,6 +302,14 @@ export default function OrganizationsPage() {
               </button>
             </form>
           </Modal>}
+          <Modal open={Boolean(divisionOrganization)} title="Assign authorized divisions" description={divisionOrganization?`Choose where ${divisionOrganization.name} is licensed to operate. The company creates its own zones and routes inside these divisions.`:undefined} onClose={()=>{if(!savingDivisions)setDivisionOrganization(null);}}>
+            <form onSubmit={saveDivisionAssignment} className="space-y-5">
+              <fieldset><legend className="text-sm font-semibold">Kampala divisions</legend><div className="mt-2 divide-y border-y border-slate-200">{divisions.map(division=><label key={division.id} className="flex items-center gap-3 py-3 text-sm"><input type="checkbox" checked={selectedDivisions.includes(division.id)} onChange={()=>setSelectedDivisions(current=>current.includes(division.id)?current.filter(id=>id!==division.id):[...current,division.id])}/><span>{division.name}</span></label>)}</div></fieldset>
+              <label className="block text-sm font-semibold">Authorization expires<input required type="date" min={new Date().toISOString().slice(0,10)} value={authorizationExpiry} onChange={event=>setAuthorizationExpiry(event.target.value)} className="mt-1 w-full border border-slate-300 p-3 font-normal"/></label>
+              <p className="text-xs text-slate-500">Removing a division suspends future setup in that division. Existing records remain available for audit.</p>
+              <button disabled={savingDivisions||selectedDivisions.length===0} className="w-full bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white disabled:opacity-40">{savingDivisions?"Saving…":"Save division authorization"}</button>
+            </form>
+          </Modal>
         </section>
       </div>
     </AppShell>

@@ -40,12 +40,12 @@ export async function generateCustomerStops(jobId:string,organizationId:string){
 
 export async function updateCustomerStop(id:string,userId:string,input:{action:'arrive'|'complete'|'skip';collectedWeightKg?:number;notes?:string;evidenceUrl?:string;exceptionReason?:string;exceptionNotes?:string}){
  const client=await dbPool.connect();try{await client.query('BEGIN');
-  const found=await client.query(`SELECT s.*,cj.status job_status,d.user_id driver_user_id FROM customer_collection_stops s
-   JOIN collection_jobs cj ON cj.id=s.collection_job_id JOIN drivers d ON d.id=cj.driver_id
+  const found=await client.query(`SELECT s.*,cj.status job_status,crj.status route_stop_status,d.user_id driver_user_id FROM customer_collection_stops s
+   JOIN collection_jobs cj ON cj.id=s.collection_job_id JOIN collection_route_jobs crj ON crj.job_id=cj.id JOIN drivers d ON d.id=cj.driver_id
    WHERE s.id=$1 FOR UPDATE OF s`,[id]);const stop=found.rows[0];
   if(!stop||stop.driver_user_id!==userId){await client.query('ROLLBACK');return null;}
   if(!['in_progress'].includes(stop.job_status))throw Object.assign(new Error('Start the assigned collection job before updating household stops'),{statusCode:409});
-  const valid=input.action==='arrive'&&stop.status==='pending'||input.action==='complete'&&stop.status==='arrived'||input.action==='skip'&&['pending','arrived'].includes(stop.status);
+  const valid=input.action==='arrive'&&stop.route_stop_status==='arrived'&&stop.status==='pending'||input.action==='complete'&&stop.route_stop_status==='arrived'&&stop.status==='arrived'||input.action==='skip'&&stop.route_stop_status==='arrived'&&['pending','arrived'].includes(stop.status);
   if(!valid)throw Object.assign(new Error('Household stop action is not valid from its current status'),{statusCode:409});
   const status=input.action==='arrive'?'arrived':input.action==='complete'?'completed':'skipped';
   const updated=await client.query(`UPDATE customer_collection_stops SET status=$2::varchar,arrived_at=CASE WHEN $2::varchar='arrived' THEN COALESCE(arrived_at,CURRENT_TIMESTAMP) ELSE arrived_at END,

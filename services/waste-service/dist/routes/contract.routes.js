@@ -9,7 +9,7 @@ const r = (0, express_1.Router)(), run = (h) => async (q, s, n) => { try {
 catch (e) {
     n(e);
 } };
-r.get('/contracts', (0, auth_middleware_1.requireRoles)('company_admin', 'supervisor', 'kcca_admin', 'system_admin'), run(contract_controller_1.getContracts));
+r.get('/contracts', (0, auth_middleware_1.requireRoles)('company_admin', 'supervisor'), run(contract_controller_1.getContracts));
 r.post('/contracts', (0, auth_middleware_1.requireRoles)('company_admin'), run(contract_controller_1.postContract));
 r.patch('/contracts/:id/status', (0, auth_middleware_1.requireRoles)('company_admin'), run(contract_controller_1.patchContract));
 exports.default = r;

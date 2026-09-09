@@ -21,6 +21,7 @@ import {
   updateCollectionRouteRoutingData,
   resourcesBelongToOrganization,
   assignZoneServiceArea,
+  updateZoneForOrganization,
 } from "../repositories/waste.repository";
 import { generateCustomerStops } from "../repositories/customer-stop.repository";
 import {
@@ -79,8 +80,13 @@ export async function listZones(organizationId: string | null) {
 }
 
 export async function addZone(input: CreateZoneInput) {
+  if(input.organizationId&&!input.divisionId){
+    const error=Object.assign(new Error("Choose one of the divisions KCCA assigned to your organization"),{statusCode:400});
+    throw error;
+  }
   return createZone(input);
 }
+export async function editZone(zoneId:string,organizationId:string,input:any){return updateZoneForOrganization(zoneId,organizationId,input);}
 
 export async function assignServiceArea(
   zoneId: string,

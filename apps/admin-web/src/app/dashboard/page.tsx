@@ -114,96 +114,46 @@ export default function DashboardPage() {
     loadDashboard();
   }, []);
 
-  const recentOrganizations = organizations.slice(0, 6);
+  const recentOrganizations = organizations.slice(0, 5);
   const roles = user?.roles.map((role) => role.name) || [];
   const isCityController = roles.some((role) => ["kcca_admin", "system_admin"].includes(role));
-  const metrics = [
-    ["Jobs today", summary.jobs_today],
-    ["Completed", summary.completed_jobs],
-    ["Missed", summary.missed_jobs],
-    ["Completion", `${summary.service_completion_percentage}%`],
-    ["Active routes", summary.active_routes],
-    ["Available trucks", summary.available_trucks],
-    ["Active drivers", summary.active_drivers],
-    ["Zones covered", summary.zones_covered],
-    ["Open issues", summary.pending_citizen_issues],
-    ["Customers", summary.total_customers],
-    ["Driver alerts", summary.open_driver_problems],
-    ...(isCityController ? [["Unassigned zones", summary.unassigned_zones]] : []),
-  ];
+  const attention = [
+    {label:"Unassigned service areas",value:summary.unassigned_zones,href:"/dashboard/organizations",action:"Review coverage"},
+    {label:"Unresolved resident issues",value:summary.pending_citizen_issues,href:"/dashboard/citizen-issues",action:"Open issue queue"},
+    {label:"Driver or vehicle alerts",value:summary.open_driver_problems,href:"/dashboard/waste",action:"Review operations"},
+    {label:"Missed collections today",value:summary.missed_jobs,href:"/dashboard/waste",action:"Review trips"},
+  ].filter(item=>item.value>0);
 
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl">
-        <PageHeader eyebrow="Today in Kampala" title={`Good to see you, ${user ? user.user.fullName : "loading"}.`} description="Live service delivery, capacity, coverage and exceptions for your authorized operating area."/>
+        <PageHeader eyebrow={isCityController?"KCCA command centre":"Today"} title={isCityController?"Kampala waste operations":`Good to see you, ${user ? user.user.fullName : "loading"}.`} description={isCityController?"See what needs attention, monitor active collections and maintain citywide accountability.":"See today’s work, operational capacity and service exceptions."}/>
         {error&&<Feedback tone="error">{error}</Feedback>}
+        <section className="py-8">
+          {isCityController&&<section className="mb-10"><div className="flex items-end justify-between border-b border-slate-300 pb-3"><div><h2 className="text-xl font-semibold text-slate-950">What needs attention</h2><p className="mt-1 text-sm text-slate-500">Exceptions are shown here so the control room knows where to act first.</p></div></div>{attention.length?<div className="divide-y divide-slate-200 border-b border-slate-200">{attention.map(item=><div key={item.label} className="flex items-center justify-between gap-6 py-4"><div className="flex items-baseline gap-4"><span className="min-w-8 text-2xl font-semibold text-slate-950">{item.value}</span><span className="text-sm font-medium text-slate-700">{item.label}</span></div><Link href={item.href} className="text-sm font-semibold text-[#3156a3]">{item.action} →</Link></div>)}</div>:<div className="border-b border-slate-200 py-6"><p className="font-semibold text-slate-800">No urgent exceptions</p><p className="mt-1 text-sm text-slate-500">There are no missed collections, unassigned areas, driver alerts or unresolved reports requiring action.</p></div>}</section>}
 
-        <section className="grid gap-10 py-8 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid gap-10 xl:grid-cols-[1.35fr_0.65fr]">
           <div>
-            <div className="flex items-end justify-between border-b border-slate-200 pb-4">
-              <div>
-                <h2 className="text-2xl font-black text-slate-950">
-                  Current operating picture
-                </h2>
-                <p className="mt-2 text-sm text-slate-500">
-                  Live service delivery, capacity, coverage, and exceptions.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-6 grid gap-px overflow-hidden border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-3">
-              {metrics.map(([label, value]) => (
-                <div key={label} className="bg-white p-5">
-                  <p className="text-sm font-bold text-slate-500">{label}</p>
-                  <p className="mt-3 text-4xl font-black text-slate-950">{value}</p>
-                </div>
-              ))}
-            </div>
+            <div className="flex items-end justify-between border-b border-slate-300 pb-3"><div><h2 className="text-xl font-semibold text-slate-950">Today’s service delivery</h2><p className="mt-1 text-sm text-slate-500">A concise citywide view of work dispatched by licensed collectors.</p></div><Link href="/dashboard/waste" className="text-sm font-semibold text-[#3156a3]">Open live operations →</Link></div>
+            <div className="grid grid-cols-2 border-b border-slate-300 md:grid-cols-4">{[["Trips",summary.jobs_today],["In progress",summary.active_routes],["Completed",summary.completed_jobs],["Completion",`${summary.service_completion_percentage}%`]].map(([label,value])=><div key={label} className="border-r border-slate-200 py-5 last:border-r-0"><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-1 text-3xl font-semibold text-slate-950">{value}</p></div>)}</div>
 
             <div className="mt-8 border-t border-slate-200 pt-6">
-              <div className="flex items-center justify-between"><h2 className="text-2xl font-black text-slate-950">Route progress</h2><Link href="/dashboard/driver-mobile" className="text-sm font-black text-emerald-700">Open control view</Link></div>
+              <div className="flex items-center justify-between"><h2 className="text-xl font-semibold text-slate-950">Active trips</h2></div>
               <div className="mt-5 divide-y border-y border-slate-200">{summary.active_route_progress.length ? summary.active_route_progress.map((route)=>{
                 const percent = route.stop_count ? Math.round(route.completed_stop_count / route.stop_count * 100) : 0;
-                return <div key={route.id} className="py-4"><div className="flex justify-between gap-4"><div><p className="font-black text-slate-900">{route.name}</p><p className="mt-1 text-sm text-slate-500">{route.driver_name || "Driver not assigned"} · {route.completed_stop_count}/{route.stop_count} stops</p></div><span className="text-sm font-black text-emerald-700">{percent}%</span></div><div className="mt-3 h-2 bg-slate-200"><div className="h-full bg-emerald-600" style={{width:`${percent}%`}} /></div></div>;
-              }) : <EmptyState title="No routes need monitoring" description="Active route progress will appear here after dispatch."/>}</div>
-            </div>
-
-            <div className="mt-8 border-t border-slate-200 pt-6">
-              <h2 className="text-2xl font-black text-slate-950">
-                Unresolved citizen issues
-              </h2>
-
-              <div className="mt-5 divide-y divide-slate-200 border-y border-slate-200">
-                {summary.recent_unresolved_issues.length ? (
-                  summary.recent_unresolved_issues.map((issue) => (
-                    <div key={issue.id} className="flex items-start justify-between gap-5 py-4">
-                      <div>
-                        <p className="font-bold text-slate-800">{issue.title}</p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          {issue.address || "Location not supplied"}
-                          {issue.assigned_organization_name
-                            ? ` · ${issue.assigned_organization_name}`
-                            : " · Unassigned"}
-                        </p>
-                      </div>
-                      <span className="text-xs font-black uppercase tracking-[0.14em] text-amber-700">
-                        {issue.status.replaceAll("_", " ")}
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <EmptyState title="No unresolved issues" description="New citizen reports will appear here when action is needed."/>
-                )}
-              </div>
+                return <div key={route.id} className="py-4"><div className="flex justify-between gap-4"><div><p className="font-semibold text-slate-900">{route.name}</p><p className="mt-1 text-sm text-slate-500">{route.driver_name || "Driver not assigned"} · {route.completed_stop_count}/{route.stop_count} stops</p></div><span className="text-sm font-semibold text-[#3156a3]">{percent}%</span></div><div className="mt-3 h-1 bg-slate-200"><div className="h-full bg-[#3156a3]" style={{width:`${percent}%`}} /></div></div>;
+              }) : <div className="py-6"><p className="font-semibold text-slate-800">No active trips</p><p className="mt-1 text-sm text-slate-500">Trips will appear when a collector dispatches a driver.</p></div>}</div>
             </div>
           </div>
 
           <aside className="border-l border-slate-200 pl-8">
+            <h2 className="border-b border-slate-300 pb-3 text-xl font-semibold text-slate-950">City readiness</h2>
+            <dl className="divide-y divide-slate-200 border-b border-slate-200">{[["Licensed collectors",organizations.filter(item=>item.is_active).length],["Zones covered",summary.zones_covered],["Customers served",summary.total_customers]].map(([label,value])=><div key={label} className="flex items-center justify-between py-4"><dt className="text-sm text-slate-600">{label}</dt><dd className="font-semibold text-slate-950">{value}</dd></div>)}</dl>
             {isCityController && <>
-            <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+            <div className="mt-8 flex items-center justify-between border-b border-slate-300 pb-3">
               <div>
-                <h2 className="text-2xl font-black text-slate-950">
-                  Recent partners
+                <h2 className="text-xl font-semibold text-slate-950">
+                  Licensed collectors
                 </h2>
                 <p className="mt-2 text-sm text-slate-500">
                   Latest organizations added.
@@ -212,7 +162,7 @@ export default function DashboardPage() {
 
               <Link
                 href="/dashboard/organizations"
-                className="text-sm font-black text-emerald-700 hover:text-emerald-900"
+                className="text-sm font-semibold text-[#3156a3]"
               >
                 Manage
               </Link>
@@ -230,7 +180,7 @@ export default function DashboardPage() {
               )}
             </div>
             </>}
-          </aside>
+          </aside></div>
         </section>
       </div>
     </AppShell>

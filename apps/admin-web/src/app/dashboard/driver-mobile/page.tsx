@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { AppShell } from "@/components/layout/AppShell";
 import { apiRequest } from "@/lib/api";
 import { OrganizationWorkspaceNav } from "@/components/layout/OrganizationWorkspaceNav";
+import {PageHeader} from "@/components/ui/System";
 
 type Driver = {
   id: string;
@@ -386,22 +387,7 @@ export default function DriverMobilePage() {
     <AppShell>
       <div className="mx-auto max-w-7xl">
         {!isDriverAccount&&<OrganizationWorkspaceNav/>}
-        <section className="border-b border-slate-200 pb-7">
-          <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#3156a3]">
-            {isDriverAccount?"Driver workspace":"Drivers and route control"}
-          </p>
-
-          <h1 className="mt-3 text-4xl font-black tracking-tight text-slate-950">
-            {isDriverAccount?"Today’s route":"Driver readiness and route execution"}
-          </h1>
-
-          <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-            Drivers can see assigned work, start and complete collection, record
-            collected weight, and report operational blockers to dispatch.
-          </p>
-        </section>
-
-        {storedRole==="company_admin"&&<section className="mt-7 grid border-y border-slate-300 md:grid-cols-4">{[["1","Prepare","Confirm staff access","/dashboard/team"],["2","Check vehicle","Confirm truck availability","/dashboard/fleet"],["3","Dispatch","Assign jobs and route","/dashboard/waste"],["4","Monitor","Follow execution here","/dashboard/driver-mobile"]].map(([n,title,note,href])=><a key={n} href={href} className={`border-b border-slate-200 py-4 pr-4 md:border-b-0 md:border-r ${n==="4"?"text-[#3156a3]":"text-slate-700"}`}><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Step {n}</p><p className="mt-1 font-semibold">{title}</p><p className="mt-1 text-xs text-slate-500">{note}</p></a>)}</section>}
+        <PageHeader eyebrow={isDriverAccount?"Driver workspace":"Field operations"} title={isDriverAccount?"Today’s route":"Trips & drivers"} description={isDriverAccount?"Follow the assigned route in order, record every collection outcome, and report blockers to dispatch.":"Check driver readiness, inspect assigned routes, and respond to operational blockers."}/>
 
         {error && (
           <div className="mt-6 border-l-4 border-red-600 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
@@ -421,6 +407,7 @@ export default function DriverMobilePage() {
             </div>
             <div className="mt-5 h-1 overflow-hidden bg-slate-200"><div className="h-full bg-[#3156a3]" style={{width:`${selectedRoute.stops.length ? Math.round(selectedRoute.stops.filter((stop)=>stop.status==="completed").length / selectedRoute.stops.length * 100) : 0}%`}} /></div>
             <p className="mt-2 text-xs font-bold text-slate-500">{selectedRoute.stops.filter((stop)=>stop.status==="completed").length} of {selectedRoute.stops.length} stops completed</p>
+            {isDriverAccount&&<div className="mt-5 grid border-y border-slate-200 text-sm sm:grid-cols-3"><div className={`px-4 py-3 ${["planned","dispatched"].includes(selectedRoute.status)?"border-l-2 border-[#3156a3] bg-blue-50":"text-slate-500"}`}><p className="text-xs font-semibold uppercase tracking-wide">1 · Begin</p><p className="mt-1 font-semibold">Start assigned route</p></div><div className={`border-t border-slate-200 px-4 py-3 sm:border-l sm:border-t-0 ${selectedRoute.status==="in_progress"?"border-l-2 border-[#3156a3] bg-blue-50":"text-slate-500"}`}><p className="text-xs font-semibold uppercase tracking-wide">2 · Collect</p><p className="mt-1 font-semibold">Arrive and record each pickup</p></div><div className="border-t border-slate-200 px-4 py-3 text-slate-500 sm:border-l sm:border-t-0"><p className="text-xs font-semibold uppercase tracking-wide">3 · Finish</p><p className="mt-1 font-semibold">Complete every route stop</p></div></div>}
             <div className="mt-5 divide-y border-y border-slate-200">{selectedRoute.stops.map((stop,index)=>{
               const previousComplete = index === 0 || ["completed","skipped"].includes(selectedRoute.stops[index-1].status);
               return <article key={stop.id} className={`grid gap-4 py-5 md:grid-cols-[48px_1fr_220px] ${!previousComplete && stop.status === "pending" ? "opacity-50" : ""}`}>
@@ -432,7 +419,7 @@ export default function DriverMobilePage() {
           </div>}
         </section>
 
-        <section className="mt-8 grid gap-6 lg:grid-cols-[320px_1fr]">
+        {!isDriverAccount && <section className="mt-8 grid gap-6 lg:grid-cols-[320px_1fr]">
           {!isDriverAccount && <aside className="border border-slate-200 bg-white p-5">
             <h2 className="text-lg font-black text-slate-950">Select driver</h2>
 
@@ -627,7 +614,7 @@ export default function DriverMobilePage() {
               </p>
             )}
           </main>
-        </section>
+        </section>}
 
         <section className="mt-8 border border-slate-200 bg-white">
           <div className="border-b border-slate-200 px-5 py-4">

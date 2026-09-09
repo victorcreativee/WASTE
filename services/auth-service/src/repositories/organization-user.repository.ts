@@ -124,7 +124,7 @@ export async function createOrganizationCustomerRecord(
   input: {
     organizationId: string; fullName: string; email: string; phone?: string;
     passwordHash: string; customerType: string; locationLabel: string;
-    address: string; latitude: number; longitude: number;
+    address: string; zoneId:string; latitude?: number; longitude?: number;
   }
 ) {
   const userResult = await client.query(
@@ -145,23 +145,18 @@ export async function createOrganizationCustomerRecord(
     [user.id, input.customerType]
   );
   const customer = customerResult.rows[0];
-  const zoneResult = await client.query(
-    `SELECT id FROM waste_zones
-     WHERE organization_id = $1::uuid AND is_active = true
-       AND boundary IS NOT NULL
-       AND ST_Covers(boundary, ST_SetSRID(ST_Point($2, $3), 4326))
-     ORDER BY id
-     LIMIT 1`,
-    [input.organizationId, input.longitude, input.latitude]
-  );
+  const zoneResult = await client.query(`SELECT id,ST_Y(center_point::geometry) latitude,ST_X(center_point::geometry) longitude FROM waste_zones WHERE id=$1::uuid AND organization_id=$2::uuid AND is_active=true`,[input.zoneId,input.organizationId]);
+  if(!zoneResult.rows[0])throw Object.assign(new Error("Choose an active service zone belonging to your organization"),{statusCode:400});
+  const latitude=input.latitude??Number(zoneResult.rows[0].latitude),longitude=input.longitude??Number(zoneResult.rows[0].longitude);
+  if(!Number.isFinite(latitude)||!Number.isFinite(longitude))throw Object.assign(new Error("This zone has no map location. Add its coordinates in Service Areas before onboarding customers."),{statusCode:409});
   const locationResult = await client.query(
     `INSERT INTO customer_service_locations
        (customer_id, zone_id, organization_id, label, address, location, is_primary)
      VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5,
        ST_SetSRID(ST_Point($6, $7), 4326)::geography, true)
      RETURNING id, zone_id, organization_id, label, address, is_primary`,
-    [customer.id, zoneResult.rows[0]?.id ?? null, input.organizationId,
-     input.locationLabel, input.address, input.longitude, input.latitude]
+    [customer.id, zoneResult.rows[0].id, input.organizationId,
+     input.locationLabel, input.address, longitude, latitude]
   );
   await client.query(`INSERT INTO customer_service_relationships(
     customer_id,service_location_id,organization_id,status,relationship_source,created_by

@@ -1,0 +1,3 @@
+import {z} from "zod";
+export const createTripSchema=z.object({serviceRouteId:z.string().uuid("Choose a valid route"),truckId:z.string().uuid("Choose a vehicle"),driverId:z.string().uuid("Choose a driver"),supervisorUserId:z.string().uuid("Choose a supervisor"),tripDate:z.string().date("Choose a valid trip date")});
+export const verifyTripWeightSchema=z.object({ticketNumber:z.string().trim().min(2,"Enter the weighbridge ticket number").max(100),facility:z.string().trim().min(2,"Enter the weighbridge facility").max(160),verifiedWeightKg:z.number().positive("Verified weight must be greater than zero").max(1000000)});

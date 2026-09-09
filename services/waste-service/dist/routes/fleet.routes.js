@@ -10,8 +10,13 @@ const run = (h) => async (r, s, n) => { try {
 catch (e) {
     n(e);
 } };
-const view = (0, auth_middleware_1.requireRoles)('company_admin', 'supervisor', 'kcca_admin', 'system_admin');
+const view = (0, auth_middleware_1.requireRoles)('company_admin', 'supervisor');
 const manage = (0, auth_middleware_1.requireRoles)('company_admin', 'supervisor');
+router.get('/fleet/live', (0, auth_middleware_1.requireRoles)('company_admin', 'supervisor', 'kcca_admin', 'system_admin'), run(fleet_controller_1.getLiveFleet));
+router.get('/fleet/live/:truckId/history', (0, auth_middleware_1.requireRoles)('company_admin', 'supervisor', 'kcca_admin', 'system_admin'), run(fleet_controller_1.getVehicleLocationHistory));
+router.get('/fleet/live/:truckId/alerts', (0, auth_middleware_1.requireRoles)('company_admin', 'supervisor', 'kcca_admin', 'system_admin'), run(fleet_controller_1.getLiveAlertHistory));
+router.post('/fleet/live/:truckId/alerts', manage, run(fleet_controller_1.reviewLiveAlert));
+router.post('/fleet/live/location', (0, auth_middleware_1.requireRoles)('driver'), run(fleet_controller_1.postDriverLocation));
 router.get('/fleet/overview', view, run(fleet_controller_1.getFleetOverview));
 router.get('/fleet/trucks/:truckId', view, run(fleet_controller_1.getFleetTruck));
 router.patch('/fleet/trucks/:truckId/status', manage, run(fleet_controller_1.patchTruck));

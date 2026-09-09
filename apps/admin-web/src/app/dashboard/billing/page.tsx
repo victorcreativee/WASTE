@@ -8,7 +8,7 @@ import {
 } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { apiRequest } from "@/lib/api";
-import { Modal, Status } from "@/components/ui/System";
+import { Feedback, Modal, PageHeader, Status } from "@/components/ui/System";
 import { Pagination, usePagination } from "@/components/ui/Pagination";
 import { FundingShortfall } from "@/components/ui/FundingShortfall";
 
@@ -555,20 +555,9 @@ export default function BillingPage() {
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl">
-        <header className="border-b border-slate-300 pb-7">
-          <p className="text-sm font-bold uppercase tracking-[.2em] text-[#3156a3]">
-            Organization revenue
-          </p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tight">
-            {isCustomer ? "Billing and payments" : "Income & billing"}
-          </h1>
-          <p className="mt-3 max-w-3xl leading-7 text-slate-600">
-            {isCustomer
-              ? "Understand your service fee, balance and payment status without hidden steps."
-              : "Manage packages, customer subscriptions, invoices, payments and operating expenses."}
-          </p>
+        <PageHeader eyebrow={isCustomer?"My service":"Organization revenue"} title={isCustomer?"Billing and payments":"Income & billing"} description={isCustomer?"Review your service fee, invoices, balance, and confirmed payments.":"Manage service packages, subscriptions, invoices, payments, and operating expenses."}/>
           {!isCustomer && (
-            <nav className="mt-7 flex gap-6">
+            <nav aria-label="Finance sections" className="flex gap-6 border-b border-slate-300 pt-5">
               <button
                 onClick={() => setFinanceTab("income")}
                 className={`border-b-2 pb-2 text-sm font-bold ${financeTab === "income" ? "border-[#3156a3] text-[#3156a3]" : "border-transparent text-slate-500"}`}
@@ -583,17 +572,9 @@ export default function BillingPage() {
               </button>
             </nav>
           )}
-        </header>
-        {error && (
-          <p className="mt-6 border-l-4 border-red-600 bg-red-50 p-4 text-sm font-semibold text-red-700">
-            {error}
-          </p>
-        )}
-        {message && (
-          <p className="mt-6 border-l-4 border-emerald-600 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
-            {message}
-          </p>
-        )}
+        {error&&<Feedback tone="error">{error}</Feedback>}
+        {message&&<Feedback tone="success">{message}</Feedback>}
+        {!loading&&isCompanyAdmin&&plans.length===0&&<section className="mt-8 border-y border-slate-300 py-6"><p className="text-xs font-semibold uppercase tracking-[.14em] text-[#3156a3]">Required before contracts</p><div className="mt-2 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h2 className="text-xl font-semibold">Create your first service package</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">A package defines the price, billing period, included collections and response target. Contracts can only use a package created here.</p></div><button onClick={openCreatePlan} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">Create service package</button></div></section>}
         {hasOrganizationContext && (
           <Modal
             open={balanceOpen}

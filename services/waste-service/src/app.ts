@@ -28,6 +28,9 @@ import regulatoryPublicRoutes from "./routes/regulatory-public.routes";
 import regulatoryRoutes from "./routes/regulatory.routes";
 import applicantOnboardingRoutes from "./routes/applicant-onboarding.routes";
 import platformOnboardingRoutes from "./routes/platform-onboarding.routes";
+import serviceRouteRoutes from "./routes/service-route.routes";
+import tripRoutes from "./routes/trip.routes";
+import weighbridgeRoutes from "./routes/weighbridge.routes";
 
 const app = express();
 
@@ -49,6 +52,9 @@ app.use("/api/waste", jobProblemRoutes);
 app.use("/api/waste", customerServiceRoutes);
 app.use("/api/waste", providerRequestRoutes);
 app.use("/api/waste", customerStopRoutes);
+app.use("/api/waste", serviceRouteRoutes);
+app.use("/api/waste", tripRoutes);
+app.use("/api/waste", weighbridgeRoutes);
 app.use("/api/waste", routeExecutionRoutes);
 app.use("/api/waste", billingRoutes);
 app.use("/api/waste", fleetRoutes);

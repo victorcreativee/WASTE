@@ -161,20 +161,47 @@ async function createPendingPayment(userId, input, providerReference) {
     return result.rows[0] ?? null;
 }
 async function confirmPayment(paymentId, organizationId, reference) {
+    // Confirmation is organization-private; a missing scope must never mean all tenants.
+    if (!organizationId)
+        return null;
     const client = await database_1.dbPool.connect();
     try {
         await client.query("BEGIN");
-        const payment = await client.query(`UPDATE customer_payments SET status='successful',provider_reference=COALESCE($3,provider_reference),confirmed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
-       WHERE id=$1::uuid AND status='pending' AND ($2::uuid IS NULL OR organization_id=$2::uuid) RETURNING *`, [paymentId, organizationId, reference ?? null]);
-        const row = payment.rows[0];
-        if (!row) {
+        // Serialize every receipt writer in this organization, including manual receipts.
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`finance:${organizationId}`]);
+        const found = await client.query(`SELECT * FROM customer_payments
+       WHERE id=$1::uuid AND organization_id=$2::uuid AND status='pending' FOR UPDATE`, [paymentId, organizationId]);
+        const payment = found.rows[0];
+        if (!payment) {
             await client.query("ROLLBACK");
             return null;
         }
-        const invoice = await client.query(`UPDATE customer_invoices SET balance_ugx=GREATEST(0,balance_ugx-$2),status=CASE WHEN balance_ugx-$2<=0 THEN 'paid' ELSE 'partially_paid' END,
-       paid_at=CASE WHEN balance_ugx-$2<=0 THEN CURRENT_TIMESTAMP ELSE paid_at END WHERE id=$1::uuid RETURNING *`, [row.invoice_id, row.amount_ugx]);
+        const providerReference = reference?.trim() || payment.provider_reference;
+        if (providerReference) {
+            const duplicate = await client.query(`SELECT 1 FROM customer_payments
+         WHERE organization_id=$1::uuid AND provider_reference=$2 AND status='successful' LIMIT 1`, [organizationId, providerReference]);
+            if (duplicate.rowCount) {
+                await client.query("ROLLBACK");
+                return null;
+            }
+        }
+        // This conditional UPDATE locks and rechecks the balance after concurrent writers.
+        // Reject stale/over-sized payments; never silently clamp a negative balance to zero.
+        const invoice = await client.query(`UPDATE customer_invoices SET balance_ugx=balance_ugx-$3,
+       status=CASE WHEN balance_ugx-$3=0 THEN 'paid' ELSE 'partially_paid' END,
+       paid_at=CASE WHEN balance_ugx-$3=0 THEN CURRENT_TIMESTAMP ELSE paid_at END
+       WHERE id=$1::uuid AND organization_id=$2::uuid AND customer_id=$4::uuid
+         AND status IN ('issued','partially_paid','overdue')
+         AND $3>0 AND balance_ugx>=$3 RETURNING *`, [payment.invoice_id, organizationId, payment.amount_ugx, payment.customer_id]);
+        if (!invoice.rows[0]) {
+            await client.query("ROLLBACK");
+            return null;
+        }
+        const updated = await client.query(`UPDATE customer_payments SET status='successful',provider_reference=$3,
+         confirmed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+       WHERE id=$1::uuid AND organization_id=$2::uuid AND status='pending' RETURNING *`, [paymentId, organizationId, providerReference ?? null]);
         await client.query("COMMIT");
-        return { payment: row, invoice: invoice.rows[0] };
+        return { payment: updated.rows[0], invoice: invoice.rows[0] };
     }
     catch (error) {
         await client.query("ROLLBACK");
@@ -185,9 +212,12 @@ async function confirmPayment(paymentId, organizationId, reference) {
     }
 }
 async function recordOrganizationPayment(organizationId, input) {
+    if (!organizationId || !Number.isSafeInteger(input.amountUgx) || input.amountUgx <= 0)
+        return null;
     const client = await database_1.dbPool.connect();
     try {
         await client.query("BEGIN");
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`finance:${organizationId}`]);
         const found = await client.query(`SELECT id,customer_id,organization_id,balance_ugx,status FROM customer_invoices
        WHERE id=$1::uuid AND organization_id=$2::uuid AND status IN ('issued','partially_paid','overdue')
        FOR UPDATE`, [input.invoiceId, organizationId]);

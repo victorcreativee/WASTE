@@ -10,7 +10,7 @@ const run = (handler) => async (req, res, next) => { try {
 catch (error) {
     next(error);
 } };
-const canView = (0, auth_middleware_1.requireRoles)("citizen", "company_admin", "supervisor", "kcca_admin", "system_admin");
+const canView = (0, auth_middleware_1.requireRoles)("citizen", "company_admin", "supervisor");
 router.get("/billing/plans", canView, run(billing_controller_1.getServicePlansHandler));
 router.post("/billing/plans", (0, auth_middleware_1.requireRoles)("company_admin"), run(billing_controller_1.createServicePlanHandler));
 router.put("/billing/plans/:planId", (0, auth_middleware_1.requireRoles)("company_admin"), run(billing_controller_1.updateServicePlanHandler));

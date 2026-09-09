@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getZones = getZones;
 exports.createZoneHandler = createZoneHandler;
+exports.updateZoneHandler = updateZoneHandler;
 exports.assignZoneServiceAreaHandler = assignZoneServiceAreaHandler;
 exports.getTrucks = getTrucks;
 exports.createTruckHandler = createTruckHandler;
@@ -21,14 +22,10 @@ exports.getCollectionRoutes = getCollectionRoutes;
 exports.createCollectionRouteHandler = createCollectionRouteHandler;
 exports.getCollectionRouteDetailsHandler = getCollectionRouteDetailsHandler;
 exports.generateCollectionRouteRoadRouteHandler = generateCollectionRouteRoadRouteHandler;
+const organization_scope_1 = require("../middlewares/organization-scope");
 const waste_validator_1 = require("../validators/waste.validator");
 const waste_service_1 = require("../services/waste.service");
-function organizationScope(req) {
-    const auth = req.auth;
-    return auth?.roles.some((role) => ["company_admin", "supervisor"].includes(role))
-        ? auth.organizationId
-        : null;
-}
+const organizationScope = organization_scope_1.operationalOrganizationScope;
 function driverUserScope(req) {
     const auth = req.auth;
     return auth?.roles.includes("driver") ? auth.userId : null;
@@ -53,6 +50,15 @@ async function createZoneHandler(req, res) {
         message: "Waste zone created successfully",
         data: zone,
     });
+}
+async function updateZoneHandler(req, res) {
+    const organizationId = organizationScope(req);
+    if (!organizationId)
+        return res.status(403).json({ success: false, message: "Only the responsible company can edit its zone" });
+    const input = waste_validator_1.updateZoneSchema.parse(req.body), zone = await (0, waste_service_1.editZone)(req.params.id, organizationId, input);
+    if (!zone)
+        return res.status(404).json({ success: false, message: "Zone not found" });
+    return res.json({ success: true, message: "Zone updated", data: zone });
 }
 async function assignZoneServiceAreaHandler(req, res) {
     const input = waste_validator_1.assignZoneServiceAreaSchema.parse(req.body);
@@ -177,6 +183,7 @@ async function generateCollectionJobsHandler(req, res) {
             createdJobs: result.jobs,
             createdCount: result.jobs.length,
             skippedExistingJobs: result.skipped,
+            customerStopsCreated: result.customerStopsCreated,
         },
     });
 }
@@ -187,7 +194,7 @@ async function assignCollectionJobHandler(req, res) {
     if (!job) {
         return res.status(400).json({
             success: false,
-            message: "Collection job cannot be assigned. It may not exist or may already be in progress, completed, or cancelled.",
+            message: "Collection job cannot be assigned. Check that the job is still open, the driver is active, and the vehicle is available with no expired compliance document.",
         });
     }
     return res.status(200).json({

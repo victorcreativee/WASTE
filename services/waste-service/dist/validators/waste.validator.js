@@ -1,9 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createCollectionRouteSchema = exports.generateCollectionJobsSchema = exports.assignCollectionJobSchema = exports.updateCollectionJobStatusSchema = exports.createCollectionJobSchema = exports.createPickupScheduleSchema = exports.createDriverSchema = exports.createTruckSchema = exports.assignZoneServiceAreaSchema = exports.createZoneSchema = void 0;
+exports.createCollectionRouteSchema = exports.generateCollectionJobsSchema = exports.assignCollectionJobSchema = exports.updateCollectionJobStatusSchema = exports.createCollectionJobSchema = exports.createPickupScheduleSchema = exports.createDriverSchema = exports.createTruckSchema = exports.assignZoneServiceAreaSchema = exports.updateZoneSchema = exports.createZoneSchema = void 0;
 const zod_1 = require("zod");
 exports.createZoneSchema = zod_1.z.object({
     organizationId: zod_1.z.string().uuid().optional(),
+    divisionId: zod_1.z.string().uuid("Choose a valid KCCA-authorized division").optional(),
+    catalogAreaId: zod_1.z.string().uuid("Choose a valid division area").optional(),
     name: zod_1.z.string().min(2, "Zone name is required"),
     description: zod_1.z.string().optional(),
     areaType: zod_1.z.enum([
@@ -19,6 +21,7 @@ exports.createZoneSchema = zod_1.z.object({
     latitude: zod_1.z.number().optional(),
     longitude: zod_1.z.number().optional(),
 });
+exports.updateZoneSchema = exports.createZoneSchema.omit({ organizationId: true, divisionId: true }).partial().refine(value => Object.keys(value).length > 0, "Add at least one change");
 exports.assignZoneServiceAreaSchema = zod_1.z.object({
     organizationId: zod_1.z.string().uuid("Select a valid waste collection company"),
     latitude: zod_1.z.number().min(-90).max(90).optional(),
@@ -47,8 +50,8 @@ exports.createPickupScheduleSchema = zod_1.z.object({
 exports.createCollectionJobSchema = zod_1.z.object({
     organizationId: zod_1.z.string().uuid().optional(),
     zoneId: zod_1.z.string().uuid("Valid zone ID is required"),
-    truckId: zod_1.z.string().uuid().optional(),
-    driverId: zod_1.z.string().uuid().optional(),
+    truckId: zod_1.z.string().uuid("Choose a route vehicle"),
+    driverId: zod_1.z.string().uuid("Choose a route driver"),
     scheduleId: zod_1.z.string().uuid().optional(),
     jobDate: zod_1.z.string().min(1, "Job date is required"),
     wasteType: zod_1.z
@@ -107,9 +110,12 @@ exports.generateCollectionJobsSchema = zod_1.z.object({
 exports.createCollectionRouteSchema = zod_1.z.object({
     organizationId: zod_1.z.string().uuid().optional(),
     name: zod_1.z.string().min(2, "Route name is required"),
-    truckId: zod_1.z.string().uuid().optional(),
-    driverId: zod_1.z.string().uuid().optional(),
+    truckId: zod_1.z.string().uuid("Choose a route vehicle"),
+    driverId: zod_1.z.string().uuid("Choose a route driver"),
     routeDate: zod_1.z.string().min(1, "Route date is required"),
-    jobIds: zod_1.z.array(zod_1.z.string().uuid()).min(1, "At least one job is required"),
+    jobIds: zod_1.z
+        .array(zod_1.z.string().uuid())
+        .min(1, "At least one job is required")
+        .refine((jobIds) => new Set(jobIds).size === jobIds.length, "Select each collection job only once"),
     notes: zod_1.z.string().optional(),
 });

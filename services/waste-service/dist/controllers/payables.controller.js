@@ -36,15 +36,16 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getPayables = getPayables;
 exports.postBill = postBill;
 exports.postPayment = postPayment;
+const organization_scope_1 = require("../middlewares/organization-scope");
 const repo = __importStar(require("../repositories/payables.repository"));
 const payables_validator_1 = require("../validators/payables.validator");
 const auth = (q) => q.auth;
-const scope = (q) => auth(q).roles.some(r => ['company_admin', 'supervisor'].includes(r)) ? auth(q).organizationId : null;
+const scope = organization_scope_1.requireOrganizationScope;
 const org = (q) => { const id = auth(q).organizationId; if (!id) {
     const e = new Error('Account is not linked to an organization');
     e.statusCode = 403;
     throw e;
 } return id; };
 async function getPayables(q, s) { return s.json({ success: true, message: 'Accounts payable fetched', data: await repo.findPayables(scope(q)) }); }
-async function postBill(q, s) { const data = await repo.createBill(org(q), auth(q).userId, payables_validator_1.supplierBillSchema.parse(q.body)); return data ? s.status(201).json({ success: true, message: 'Supplier bill recorded', data }) : s.status(409).json({ success: false, message: 'Supplier or received order is unavailable' }); }
-async function postPayment(q, s) { const data = await repo.payBill(org(q), auth(q).userId, q.params.billId, payables_validator_1.supplierPaymentSchema.parse(q.body)); return data ? s.status(201).json({ success: true, message: 'Supplier payment recorded', data }) : s.status(409).json({ success: false, message: 'Bill is unavailable, payment exceeds its balance, or the reference was already recorded' }); }
+async function postBill(q, s) { const data = await repo.createBill(org(q), auth(q).userId, payables_validator_1.supplierBillSchema.parse(q.body)); return data ? s.status(201).json({ success: true, message: 'Supplier bill recorded', data }) : s.status(409).json({ success: false, message: 'Bill cannot be recorded: supplier or received order is unavailable, or the bill exceeds funds available to commit' }); }
+async function postPayment(q, s) { const data = await repo.payBill(org(q), auth(q).userId, q.params.billId, payables_validator_1.supplierPaymentSchema.parse(q.body)); return data ? s.status(201).json({ success: true, message: 'Supplier payment recorded', data }) : s.status(409).json({ success: false, message: 'Payment cannot be recorded: the bill is unavailable, the amount exceeds the bill or cash balance, or the reference was already recorded' }); }

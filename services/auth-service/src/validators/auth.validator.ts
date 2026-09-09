@@ -38,11 +38,12 @@ export const createOrganizationCustomerSchema = z.object({
   phone: z.string().trim().max(50).optional(),
   password: z.string().min(8).max(128),
   customerType: z.enum(["residential", "commercial", "office_business", "industrial"]),
+  zoneId: z.string().uuid("Choose a valid service zone"),
   locationLabel: z.string().trim().min(2).max(100).default("Primary location"),
   address: z.string().trim().min(5).max(500),
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
-});
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+}).refine(value=>(value.latitude===undefined)===(value.longitude===undefined),{message:"Provide both latitude and longitude, or leave both empty",path:["latitude"]});
 
 export const updateOrganizationUserStatusSchema = z.object({
   status: z.enum(["active", "inactive", "suspended"]),

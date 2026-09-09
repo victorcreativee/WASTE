@@ -9,6 +9,7 @@ export async function getPublicPermitStatus(req:Request,res:Response){const inpu
 export async function postPermitInformation(req:Request,res:Response){return res.json({success:true,message:'Information sent to KCCA for review',data:await repo.providePermitInformation(permitInformationSchema.parse(req.body))});}
 export async function getPermits(req:Request,res:Response){return res.json({success:true,message:'Permit applications fetched',data:await repo.permits(typeof req.query.status==='string'?req.query.status:undefined)});}
 export async function getDivisions(req:Request,res:Response){return res.json({success:true,message:'Kampala divisions fetched',data:await repo.divisions()});}
+export async function getDivisionAuthorizations(_req:Request,res:Response){return res.json({success:true,message:'Division authorizations fetched',data:await repo.divisionAuthorizations()});}
 export async function getPlatformPackages(_req:Request,res:Response){return res.json({success:true,message:'Platform packages fetched',data:await repo.platformPackages()});}
 export async function getAllPlatformPackages(_req:Request,res:Response){return res.json({success:true,message:'Platform packages fetched',data:await repo.allPlatformPackages()});}
 export async function patchPlatformPackage(req:Request,res:Response){const auth=(req as AuthenticatedRequest).auth!;return res.json({success:true,message:'Platform package updated',data:await repo.updatePlatformPackage(req.params.id as string,auth.userId,platformPackageUpdateSchema.parse(req.body))});}

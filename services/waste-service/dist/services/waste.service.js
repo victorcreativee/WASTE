@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.listZones = listZones;
 exports.addZone = addZone;
+exports.editZone = editZone;
 exports.assignServiceArea = assignServiceArea;
 exports.listTrucks = listTrucks;
 exports.addTruck = addTruck;
@@ -22,6 +23,7 @@ exports.addCollectionRoute = addCollectionRoute;
 exports.getCollectionRouteDetails = getCollectionRouteDetails;
 exports.generateRoadRouteForCollectionRoute = generateRoadRouteForCollectionRoute;
 const waste_repository_1 = require("../repositories/waste.repository");
+const customer_stop_repository_1 = require("../repositories/customer-stop.repository");
 const routing_service_1 = require("./routing.service");
 async function requireOwnedResources(organizationId, checks) {
     if (!organizationId)
@@ -39,8 +41,13 @@ async function listZones(organizationId) {
     return (0, waste_repository_1.findZones)(organizationId);
 }
 async function addZone(input) {
+    if (input.organizationId && !input.divisionId) {
+        const error = Object.assign(new Error("Choose one of the divisions KCCA assigned to your organization"), { statusCode: 400 });
+        throw error;
+    }
     return (0, waste_repository_1.createZone)(input);
 }
+async function editZone(zoneId, organizationId, input) { return (0, waste_repository_1.updateZoneForOrganization)(zoneId, organizationId, input); }
 async function assignServiceArea(zoneId, input) {
     return (0, waste_repository_1.assignZoneServiceArea)(zoneId, input);
 }
@@ -90,10 +97,22 @@ async function generateJobsForPickupSchedule(scheduleId, input, organizationId) 
             { resource: "drivers", ids: [input.driverId], label: "Driver" },
         ]);
     }
-    return (0, waste_repository_1.generateCollectionJobsFromSchedule)(scheduleId, input, organizationId);
+    const result = await (0, waste_repository_1.generateCollectionJobsFromSchedule)(scheduleId, input, organizationId);
+    let customerStopsCreated = 0;
+    if (organizationId) {
+        for (const job of result.jobs) {
+            const planned = await (0, customer_stop_repository_1.generateCustomerStops)(job.id, organizationId);
+            customerStopsCreated += planned?.created ?? 0;
+        }
+    }
+    return { ...result, customerStopsCreated };
 }
 async function assignTruckAndDriverToJob(jobId, input, organizationId) {
-    return (0, waste_repository_1.assignCollectionJob)(jobId, input, organizationId);
+    const job = await (0, waste_repository_1.assignCollectionJob)(jobId, input, organizationId);
+    if (!job || !organizationId)
+        return job;
+    const planned = await (0, customer_stop_repository_1.generateCustomerStops)(job.id, organizationId);
+    return { ...job, customer_stops_created: planned?.created ?? 0, customer_stop_count: planned?.total ?? 0 };
 }
 async function listDriverJobs(driverId, organizationId, userId) {
     return (0, waste_repository_1.findJobsByDriverId)(driverId, organizationId, userId);

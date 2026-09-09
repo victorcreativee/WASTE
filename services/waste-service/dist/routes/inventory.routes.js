@@ -9,7 +9,7 @@ const r = (0, express_1.Router)(), run = (h) => async (q, s, n) => { try {
 catch (e) {
     n(e);
 } };
-const view = (0, auth_middleware_1.requireRoles)('company_admin', 'supervisor', 'kcca_admin', 'system_admin'), manage = (0, auth_middleware_1.requireRoles)('company_admin', 'supervisor'), approve = (0, auth_middleware_1.requireRoles)('company_admin');
+const view = (0, auth_middleware_1.requireRoles)('company_admin', 'supervisor'), manage = (0, auth_middleware_1.requireRoles)('company_admin', 'supervisor'), approve = (0, auth_middleware_1.requireRoles)('company_admin');
 r.get('/inventory', view, run(inventory_controller_1.getInventory));
 r.post('/inventory/items', manage, run(inventory_controller_1.postItem));
 r.post('/inventory/items/:itemId/movements', manage, run(inventory_controller_1.postMovement));

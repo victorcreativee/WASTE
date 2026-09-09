@@ -1,8 +1,7 @@
 "use client";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { OrganizationWorkspaceNav } from "@/components/layout/OrganizationWorkspaceNav";
-import {Modal,Status} from "@/components/ui/System";
+import {Feedback,Modal,PageHeader,Status} from "@/components/ui/System";
 import {Pagination,usePagination} from "@/components/ui/Pagination";
 import { apiRequest } from "@/lib/api";
 import { FundingShortfall } from "@/components/ui/FundingShortfall";
@@ -131,29 +130,10 @@ export default function PayrollPage() {
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl">
-        <OrganizationWorkspaceNav />
-        <header className="flex flex-col justify-between gap-5 border-b border-slate-300 pb-7 md:flex-row md:items-end">
-          <div>
-            <p className="text-sm font-bold uppercase tracking-[.2em] text-[#3156a3]">
-              Workforce finance
-            </p>
-            <h1 className="mt-3 text-4xl font-semibold tracking-tight">
-              Payroll
-            </h1>
-            <p className="mt-3 max-w-2xl leading-7 text-slate-600">
-              Prepare staff pay, review deductions, approve the period and
-              record payment.
-            </p>
-          </div>
-          <div className="flex items-center gap-4"><a href="/dashboard/team" className="text-sm font-bold text-[#3156a3]">Review staff & attendance →</a><button onClick={()=>setPeriodOpen(true)} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">New pay period</button></div>
-        </header>
-        {(error || message) && (
-          <p
-            className={`mt-6 border-l-4 p-4 text-sm font-bold ${error ? "border-red-600 bg-red-50 text-red-700" : "border-[#3156a3] bg-blue-50 text-[#3156a3]"}`}
-          >
-            {error || message}
-          </p>
-        )}
+        <PageHeader eyebrow="Workforce finance" title="Payroll" description="Prepare staff pay, review deductions, approve available funds, and record payment." action={<button onClick={()=>setPeriodOpen(true)} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">New pay period</button>}/>
+        <div className="mt-4 text-right"><a href="/dashboard/team" className="text-sm font-semibold text-[#3156a3]">Review staff and attendance →</a></div>
+        {error&&<Feedback tone="error">{error}</Feedback>}
+        {message&&<Feedback tone="success">{message}</Feedback>}
         <section className="mt-8 grid border-y border-slate-300 sm:grid-cols-3">
           <FinanceMetric label="Cash balance" value={money(position.cash_position_ugx)} />
           <FinanceMetric label="Already committed" value={money(position.committed_funds_ugx)} />

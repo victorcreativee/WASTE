@@ -12,7 +12,7 @@ router.get("/zones", async (req, res, next) => {
         next(error);
     }
 });
-router.post("/zones", (0, auth_middleware_1.requireRoles)("system_admin", "kcca_admin"), async (req, res, next) => {
+router.post("/zones", (0, auth_middleware_1.requireRoles)("system_admin", "kcca_admin", "company_admin"), async (req, res, next) => {
     try {
         await (0, waste_controller_1.createZoneHandler)(req, res);
     }
@@ -20,6 +20,12 @@ router.post("/zones", (0, auth_middleware_1.requireRoles)("system_admin", "kcca_
         next(error);
     }
 });
+router.patch("/zones/:id", (0, auth_middleware_1.requireRoles)("company_admin"), async (req, res, next) => { try {
+    await (0, waste_controller_1.updateZoneHandler)(req, res);
+}
+catch (error) {
+    next(error);
+} });
 router.patch("/zones/:id/service-assignment", (0, auth_middleware_1.requireRoles)("system_admin", "kcca_admin"), async (req, res, next) => {
     try {
         await (0, waste_controller_1.assignZoneServiceAreaHandler)(req, res);
@@ -124,7 +130,7 @@ router.get("/collection-routes", async (req, res, next) => {
         next(error);
     }
 });
-router.post("/collection-routes", async (req, res, next) => {
+router.post("/collection-routes", (0, auth_middleware_1.requireRoles)("company_admin", "supervisor"), async (req, res, next) => {
     try {
         await (0, waste_controller_1.createCollectionRouteHandler)(req, res);
     }

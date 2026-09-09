@@ -70,6 +70,7 @@ export default function TeamPage() {
       .finally(()=>{if(!cancelled)setLoading(false);});
     return()=>{cancelled=true;requestState.id++;};
   }, []);
+  useEffect(()=>{if(!canManage)return;const params=new URLSearchParams(window.location.search);if(params.get("action")==="add"){const requested=params.get("role");setForm(current=>({...current,role:requested==="supervisor"&&identity.isAdministrator?"supervisor":"driver"}));setTeamView("add")}},[canManage,identity.isAdministrator]);
 
   async function createStaff(event: FormEvent) {
     event.preventDefault();
@@ -86,6 +87,7 @@ export default function TeamPage() {
       setMessage(`${form.role === "driver" ? "Driver" : "Supervisor"} account created. They can now sign in with the email and password provided.`);
       setForm({ fullName: "", email: "", phone: "", password: "", role: "driver", licenseNumber: "" });
       await loadStaff();
+      setTeamView("people");
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Failed to create staff account");
     } finally { setSaving(false); }

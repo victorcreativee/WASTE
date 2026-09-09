@@ -38,10 +38,11 @@ exports.postExpense = postExpense;
 exports.patchExpense = patchExpense;
 exports.getFinancialPosition = getFinancialPosition;
 exports.putOpeningBalance = putOpeningBalance;
+const organization_scope_1 = require("../middlewares/organization-scope");
 const repo = __importStar(require("../repositories/expense.repository"));
 const expense_validator_1 = require("../validators/expense.validator");
 const auth = (r) => r.auth;
-const scope = (r) => auth(r).roles.some(x => ['company_admin', 'supervisor'].includes(x)) ? auth(r).organizationId : null;
+const scope = organization_scope_1.requireOrganizationScope;
 const org = (r) => { const id = auth(r).organizationId; if (!id) {
     const e = new Error('Account is not linked to an organization');
     e.statusCode = 403;

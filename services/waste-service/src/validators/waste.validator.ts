@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const createZoneSchema = z.object({
   organizationId: z.string().uuid().optional(),
+  divisionId: z.string().uuid("Choose a valid KCCA-authorized division").optional(),
+  catalogAreaId: z.string().uuid("Choose a valid division area").optional(),
   name: z.string().min(2, "Zone name is required"),
   description: z.string().optional(),
   areaType: z.enum([
@@ -17,6 +19,7 @@ export const createZoneSchema = z.object({
   latitude: z.number().optional(),
   longitude: z.number().optional(),
 });
+export const updateZoneSchema=createZoneSchema.omit({organizationId:true,divisionId:true}).partial().refine(value=>Object.keys(value).length>0,"Add at least one change");
 
 export const assignZoneServiceAreaSchema = z.object({
   organizationId: z.string().uuid("Select a valid waste collection company"),

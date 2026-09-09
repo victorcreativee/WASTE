@@ -8,21 +8,22 @@ import { usePathname } from "next/navigation";
 const cityNav:NavItem[] = [
   {group:"Overview",label:"Control room",href:"/dashboard"},
   {group:"Regulation",label:"Permit applications",href:"/dashboard/permits"},
-  {group:"City oversight",label:"Organizations",href:"/dashboard/organizations"},
-  {group:"City oversight",label:"City operations",href:"/dashboard/waste"},
-  {group:"City oversight",label:"Route control",href:"/dashboard/driver-mobile"},
-  {group:"City oversight",label:"Service issues",href:"/dashboard/citizen-issues"},
-  {group:"Coverage",label:"GIS coverage",href:"/dashboard/gis"},
+  {group:"City oversight",label:"Licensed collectors",href:"/dashboard/organizations"},
+  {group:"City oversight",label:"Live operations",href:"/dashboard/waste"},
+  {group:"City oversight",label:"Weighbridge operations",href:"/dashboard/weighbridge"},
+  {group:"City oversight",label:"Issues",href:"/dashboard/citizen-issues"},
+  {group:"City oversight",label:"Coverage map",href:"/dashboard/gis"},
 ];
 const systemNav:NavItem[]=[{group:"Platform",label:"Platform overview",href:"/dashboard"},{group:"Platform",label:"Account verification",href:"/dashboard/account-verification"},{group:"Platform",label:"Platform packages",href:"/dashboard/platform-packages"},{group:"Platform",label:"Platform users",href:"/dashboard/platform-users"},{group:"Platform",label:"Organizations",href:"/dashboard/organizations"},{group:"Reference",label:"KCCA permit register",href:"/dashboard/permits"}];
 type NavItem={label:string;href:string;group?:string};
 const companyNav:NavItem[] = [
   {group:"Overview",label:"Organization overview",href:"/dashboard/company"},
-  {group:"Operations",label:"Daily operations",href:"/dashboard/waste"},
-  {group:"Operations",label:"Fleet control",href:"/dashboard/fleet"},
-  {group:"Operations",label:"Drivers & routes",href:"/dashboard/driver-mobile"},
-  {group:"Operations",label:"Service issues",href:"/dashboard/citizen-issues"},
-  {group:"Operations",label:"Operational map",href:"/dashboard/gis"},
+  {group:"Service delivery",label:"Today’s operations",href:"/dashboard/waste"},
+  {group:"Service delivery",label:"Service areas & routes",href:"/dashboard/service-areas"},
+  {group:"Service delivery",label:"Fleet control",href:"/dashboard/fleet"},
+  {group:"Service delivery",label:"Trips & drivers",href:"/dashboard/driver-mobile"},
+  {group:"Service delivery",label:"Weighbridge",href:"/dashboard/weighbridge"},
+  {group:"Service delivery",label:"Service issues",href:"/dashboard/citizen-issues"},
   {group:"People & customers",label:"Staff management",href:"/dashboard/team"},
   {group:"People & customers",label:"Customer management",href:"/dashboard/customer-service"},
   {group:"Commercial",label:"Contracts & service levels",href:"/dashboard/contracts"},
@@ -38,10 +39,11 @@ const companyNav:NavItem[] = [
 const supervisorNav:NavItem[] = [
   {group:"Overview",label:"Operations overview",href:"/dashboard"},
   {group:"Operations",label:"Daily operations",href:"/dashboard/waste"},
+  {group:"Operations",label:"Service areas",href:"/dashboard/service-areas"},
   {group:"Operations",label:"Fleet control",href:"/dashboard/fleet"},
-  {group:"Operations",label:"Drivers & routes",href:"/dashboard/driver-mobile"},
+  {group:"Operations",label:"Trip monitoring",href:"/dashboard/driver-mobile"},
+  {group:"Operations",label:"Weighbridge",href:"/dashboard/weighbridge"},
   {group:"Operations",label:"Service issues",href:"/dashboard/citizen-issues"},
-  {group:"Operations",label:"Operational map",href:"/dashboard/gis"},
   {group:"Customers",label:"Customer management",href:"/dashboard/customer-service"},
   {group:"Customers",label:"Billing monitor",href:"/dashboard/billing"},
   {group:"Resources",label:"Inventory",href:"/dashboard/inventory"},
@@ -109,12 +111,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if(existing)existing.items.push(item);else groups.push({name,items:[item]});
     return groups;
   },[]);
-  const activeNavItem=visibleNavItems.find(item=>pathname===item.href||pathname.startsWith(`${item.href}/`));
+  const activeNavItem=[...visibleNavItems].sort((a,b)=>b.href.length-a.href.length).find(item=>pathname===item.href||pathname.startsWith(`${item.href}/`));
   const productName = currentUser?.roles?.includes("company_admin") ? "Organization Operations"
     : currentUser?.roles?.includes("supervisor") ? "Field Control"
     : currentUser?.roles?.includes("driver") ? "Driver Workspace"
     : currentUser?.roles?.includes("citizen") ? "Customer Services"
     : currentUser?.roles?.includes("system_admin") ? "Platform Administration" : "KCCA Control Centre";
+  const workspaceLabel=currentUser?.roles?.some(role=>["kcca_admin","system_admin"].includes(role))
+    ? "Kampala city workspace"
+    : currentUser?.roles?.includes("citizen") ? "Customer workspace" : "Organization workspace";
 
   useEffect(() => {
     const token = sessionStorage.getItem("accessToken");
@@ -141,10 +146,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <p className="mt-2 text-sm leading-6 text-slate-400">Kampala deployment</p>
         </div>
 
-        <nav aria-label="Primary navigation" className="mt-9 space-y-6 pb-8 text-sm">
-          {navGroups.map(group=><section key={group.name} aria-labelledby={`nav-${group.name.replaceAll(" ","-")}`}>
-            <h2 id={`nav-${group.name.replaceAll(" ","-")}`} className="mb-1 px-4 text-[10px] font-semibold uppercase tracking-[.12em] text-slate-500">{group.name}</h2>
-            <div className="space-y-0.5">{group.items.map((item) => {
+        <nav aria-label="Primary navigation" className="mt-8 space-y-1 pb-8 text-sm">
+          {navGroups.map(group=>{const groupActive=group.items.some(item=>item.href===activeNavItem?.href);return <details key={`${group.name}-${groupActive}`} open={groupActive||group.items.length===1} className="group border-b border-white/5 py-1">
+            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-2 text-[10px] font-semibold uppercase tracking-[.12em] text-slate-500 hover:text-slate-300"><span>{group.name}</span>{group.items.length>1&&<span aria-hidden="true" className="text-sm font-normal transition group-open:rotate-90">›</span>}</summary>
+            <div className="space-y-0.5 pb-2">{group.items.map((item) => {
             const isActive =
               item.href !== "#" &&
               (pathname === item.href || pathname.startsWith(`${item.href}/`));
@@ -164,7 +169,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {item.label}
               </Link>
             );
-          })}</div></section>)}
+          })}</div></details>})}
         </nav>
       </aside>
 
@@ -173,7 +178,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center justify-between gap-6">
             <div className="flex items-center gap-3">
               <span className="h-2 w-2 bg-[#c6842f]" aria-hidden="true" />
-              <div><p className="text-sm font-semibold text-slate-800">{activeNavItem?.label||productName}</p><p className="text-xs text-slate-500">{currentUser?.organizationId?"Organization workspace":"Kampala city workspace"}</p></div>
+              <div><p className="text-sm font-semibold text-slate-800">{activeNavItem?.label||productName}</p><p className="text-xs text-slate-500">{workspaceLabel}</p></div>
             </div>
 
             <div className="flex items-center gap-3 text-right">
@@ -202,7 +207,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span aria-hidden="true">Menu</span>
           </summary>
           <nav aria-label="Primary navigation" className="border-t border-slate-200 p-4">
-            {navGroups.map(group=><section key={group.name} className="mb-4"><h2 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{group.name}</h2><div className="grid grid-cols-2">{group.items.map((item)=><Link key={item.href} href={item.href} className={`border-l-2 px-3 py-2 text-sm font-medium ${pathname===item.href?"border-[#3156a3] bg-blue-50 text-[#3156a3]":"border-transparent text-slate-600"}`}>{item.label}</Link>)}</div></section>)}
+            {navGroups.map(group=>{const groupActive=group.items.some(item=>item.href===activeNavItem?.href);return <details key={`${group.name}-mobile-${groupActive}`} open={groupActive||group.items.length===1} className="border-b border-slate-200 py-2"><summary className="flex cursor-pointer list-none items-center justify-between py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500"><span>{group.name}</span>{group.items.length>1&&<span aria-hidden="true">›</span>}</summary><div>{group.items.map((item)=><Link key={item.href} href={item.href} className={`block border-l-2 px-3 py-2.5 text-sm font-medium ${pathname===item.href?"border-[#3156a3] bg-blue-50 text-[#3156a3]":"border-transparent text-slate-600"}`}>{item.label}</Link>)}</div></details>})}
           </nav>
         </details>
 

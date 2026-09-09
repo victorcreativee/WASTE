@@ -35,11 +35,12 @@ exports.createOrganizationCustomerSchema = zod_1.z.object({
     phone: zod_1.z.string().trim().max(50).optional(),
     password: zod_1.z.string().min(8).max(128),
     customerType: zod_1.z.enum(["residential", "commercial", "office_business", "industrial"]),
+    zoneId: zod_1.z.string().uuid("Choose a valid service zone"),
     locationLabel: zod_1.z.string().trim().min(2).max(100).default("Primary location"),
     address: zod_1.z.string().trim().min(5).max(500),
-    latitude: zod_1.z.number().min(-90).max(90),
-    longitude: zod_1.z.number().min(-180).max(180),
-});
+    latitude: zod_1.z.number().min(-90).max(90).optional(),
+    longitude: zod_1.z.number().min(-180).max(180).optional(),
+}).refine(value => (value.latitude === undefined) === (value.longitude === undefined), { message: "Provide both latitude and longitude, or leave both empty", path: ["latitude"] });
 exports.updateOrganizationUserStatusSchema = zod_1.z.object({
     status: zod_1.z.enum(["active", "inactive", "suspended"]),
 });

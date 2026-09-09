@@ -1,0 +1,14 @@
+import {NextFunction,Request,Response,Router} from "express";
+import {getAuthorizedDivisions,getDivisionAreaCatalog,getServiceRouteCustomers,getServiceRoutes,patchServiceRoute,postServiceRoute,putServiceRouteCustomers} from "../controllers/service-route.controller";
+import {requireRoles} from "../middlewares/auth.middleware";
+const router=Router();
+const run=(handler:(req:Request,res:Response)=>Promise<unknown>)=>async(req:Request,res:Response,next:NextFunction)=>{try{await handler(req,res);}catch(error){next(error);}};
+const view=requireRoles("company_admin","supervisor");
+router.get("/service-areas/divisions",view,run(getAuthorizedDivisions));
+router.get("/service-areas/catalog",view,run(getDivisionAreaCatalog));
+router.get("/service-routes",view,run(getServiceRoutes));
+router.post("/service-routes",requireRoles("company_admin"),run(postServiceRoute));
+router.patch("/service-routes/:id",requireRoles("company_admin"),run(patchServiceRoute));
+router.get("/service-routes/:id/customers",view,run(getServiceRouteCustomers));
+router.put("/service-routes/:id/customers",requireRoles("company_admin"),run(putServiceRouteCustomers));
+export default router;

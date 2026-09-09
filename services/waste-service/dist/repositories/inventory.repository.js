@@ -11,7 +11,7 @@ async function createItem(org, data) { const r = await database_1.dbPool.query(`
 async function recordMovement(org, user, itemId, data) { const client = await database_1.dbPool.connect(); try {
     await client.query('BEGIN');
     const delta = data.movementType === 'issue' ? -Math.abs(data.quantity) : data.quantity;
-    const item = await client.query(`UPDATE inventory_items SET quantity=quantity+$4,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid AND organization_id=$2::uuid AND quantity+$4>=0 RETURNING *`, [itemId, org, user, delta]);
+    const item = await client.query(`UPDATE inventory_items SET quantity=quantity+$3,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid AND organization_id=$2::uuid AND quantity+$3>=0 RETURNING *`, [itemId, org, delta]);
     if (!item.rows[0]) {
         await client.query('ROLLBACK');
         return null;

@@ -3,8 +3,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.findPayables = findPayables;
 exports.createBill = createBill;
 exports.payBill = payBill;
+const expense_repository_1 = require("./expense.repository");
 const database_1 = require("../config/database");
-async function findPayables(org) { await database_1.dbPool.query(`UPDATE supplier_bills SET status='overdue',updated_at=CURRENT_TIMESTAMP WHERE status IN ('open','partially_paid') AND due_on<CURRENT_DATE AND ($1::uuid IS NULL OR organization_id=$1::uuid)`, [org]); const bills = await database_1.dbPool.query(`SELECT b.*,s.name supplier_name,po.order_number,u.full_name created_by_name FROM supplier_bills b JOIN suppliers s ON s.id=b.supplier_id LEFT JOIN purchase_orders po ON po.id=b.purchase_order_id LEFT JOIN users u ON u.id=b.created_by WHERE ($1::uuid IS NULL OR b.organization_id=$1::uuid) ORDER BY b.due_on,b.created_at DESC`, [org]); const payments = await database_1.dbPool.query(`SELECT p.*,b.bill_number,s.name supplier_name,u.full_name recorded_by_name FROM supplier_payments p JOIN supplier_bills b ON b.id=p.bill_id JOIN suppliers s ON s.id=b.supplier_id LEFT JOIN users u ON u.id=p.recorded_by WHERE ($1::uuid IS NULL OR p.organization_id=$1::uuid) ORDER BY p.paid_on DESC,p.created_at DESC LIMIT 100`, [org]); const options = await database_1.dbPool.query(`SELECT s.id,s.name FROM suppliers s WHERE s.status='active' AND ($1::uuid IS NULL OR s.organization_id=$1::uuid) ORDER BY s.name`, [org]); const orders = await database_1.dbPool.query(`SELECT po.id,po.order_number,po.supplier_id,po.item_name,(po.quantity*po.unit_price_ugx)::bigint total_ugx FROM purchase_orders po WHERE po.status='received' AND ($1::uuid IS NULL OR po.organization_id=$1::uuid) AND NOT EXISTS(SELECT 1 FROM supplier_bills b WHERE b.purchase_order_id=po.id AND b.status<>'void') ORDER BY po.received_at DESC`, [org]); return { bills: bills.rows, payments: payments.rows, suppliers: options.rows, unbilledOrders: orders.rows }; }
+async function findPayables(org) { await database_1.dbPool.query(`UPDATE supplier_bills SET status='overdue',updated_at=CURRENT_TIMESTAMP WHERE status IN ('open','partially_paid') AND due_on<CURRENT_DATE AND ($1::uuid IS NULL OR organization_id=$1::uuid)`, [org]); const bills = await database_1.dbPool.query(`SELECT b.*,s.name supplier_name,po.order_number,u.full_name created_by_name FROM supplier_bills b JOIN suppliers s ON s.id=b.supplier_id LEFT JOIN purchase_orders po ON po.id=b.purchase_order_id LEFT JOIN users u ON u.id=b.created_by WHERE ($1::uuid IS NULL OR b.organization_id=$1::uuid) ORDER BY b.due_on,b.created_at DESC`, [org]); const payments = await database_1.dbPool.query(`SELECT p.*,b.bill_number,s.name supplier_name,u.full_name recorded_by_name FROM supplier_payments p JOIN supplier_bills b ON b.id=p.bill_id JOIN suppliers s ON s.id=b.supplier_id LEFT JOIN users u ON u.id=p.recorded_by WHERE ($1::uuid IS NULL OR p.organization_id=$1::uuid) ORDER BY p.paid_on DESC,p.created_at DESC LIMIT 100`, [org]); const options = await database_1.dbPool.query(`SELECT s.id,s.name FROM suppliers s WHERE s.status='active' AND ($1::uuid IS NULL OR s.organization_id=$1::uuid) ORDER BY s.name`, [org]); const orders = await database_1.dbPool.query(`SELECT po.id,po.order_number,po.supplier_id,po.item_name,(po.quantity*po.unit_price_ugx)::bigint total_ugx FROM purchase_orders po WHERE po.status='received' AND ($1::uuid IS NULL OR po.organization_id=$1::uuid) AND NOT EXISTS(SELECT 1 FROM supplier_bills b WHERE b.purchase_order_id=po.id AND b.status<>'void') ORDER BY po.received_at DESC`, [org]); return { funding: org ? await (0, expense_repository_1.findFinancialPosition)(org) : null, bills: bills.rows, payments: payments.rows, suppliers: options.rows, unbilledOrders: orders.rows }; }
 async function createBill(org, user, data) { const client = await database_1.dbPool.connect(); try {
     await client.query('BEGIN');
     await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`finance:${org}`]);
@@ -19,32 +20,43 @@ catch (e) {
 finally {
     client.release();
 } }
-async function payBill(org, user, billId, data) { const client = await database_1.dbPool.connect(); try {
-    await client.query('BEGIN');
-    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`finance:${org}`]);
-    const found = await client.query(`SELECT * FROM supplier_bills WHERE id=$1::uuid AND organization_id=$2::uuid AND status IN ('open','partially_paid','overdue') FOR UPDATE`, [billId, org]);
-    const current = found.rows[0];
-    const cash = await client.query(`SELECT organization_cash_position($1::uuid)::bigint amount`, [org]);
-    if (!current || data.amountUgx > Number(current.balance_ugx) || data.amountUgx > Number(cash.rows[0].amount)) {
-        await client.query('ROLLBACK');
-        return null;
-    }
-    if (data.reference) {
-        const duplicate = await client.query(`SELECT 1 FROM supplier_payments WHERE organization_id=$1::uuid AND reference=$2 LIMIT 1`, [org, data.reference]);
-        if (duplicate.rowCount) {
+async function payBill(org, user, billId, data) {
+    const client = await database_1.dbPool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`finance:${org}`]);
+        const found = await client.query(`SELECT * FROM supplier_bills WHERE id=$1::uuid AND organization_id=$2::uuid AND status IN ('open','partially_paid','overdue') FOR UPDATE`, [billId, org]);
+        const current = found.rows[0];
+        const dates = await client.query(`SELECT CURRENT_DATE::text today,COALESCE((SELECT as_of_date FROM organization_finance_settings WHERE organization_id=$1::uuid),DATE '1970-01-01')::text cutoff`, [org]);
+        if (!Number.isSafeInteger(data.amountUgx) || data.amountUgx <= 0) {
             await client.query('ROLLBACK');
             return null;
         }
+        if (data.paidOn < dates.rows[0].cutoff || data.paidOn > dates.rows[0].today) {
+            throw Object.assign(new Error('Payment date must be on or after the opening balance date and no later than today.'), { statusCode: 409 });
+        }
+        const cash = await client.query(`SELECT organization_cash_position($1::uuid)::bigint amount`, [org]);
+        if (!current || data.amountUgx > Number(current.balance_ugx) || data.amountUgx > Number(cash.rows[0].amount)) {
+            await client.query('ROLLBACK');
+            return null;
+        }
+        if (data.reference) {
+            const duplicate = await client.query(`SELECT 1 FROM supplier_payments WHERE organization_id=$1::uuid AND reference=$2 LIMIT 1`, [org, data.reference]);
+            if (duplicate.rowCount) {
+                await client.query('ROLLBACK');
+                return null;
+            }
+        }
+        const bill = await client.query(`UPDATE supplier_bills SET balance_ugx=balance_ugx-$3,status=CASE WHEN balance_ugx-$3=0 THEN 'paid' ELSE 'partially_paid' END,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid AND organization_id=$2::uuid RETURNING *`, [billId, org, data.amountUgx]);
+        const payment = await client.query(`INSERT INTO supplier_payments(organization_id,bill_id,amount_ugx,payment_method,reference,paid_on,notes,recorded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [org, billId, data.amountUgx, data.paymentMethod, data.reference ?? null, data.paidOn, data.notes ?? null, user]);
+        await client.query('COMMIT');
+        return { bill: bill.rows[0], payment: payment.rows[0] };
     }
-    const bill = await client.query(`UPDATE supplier_bills SET balance_ugx=balance_ugx-$3,status=CASE WHEN balance_ugx-$3=0 THEN 'paid' ELSE 'partially_paid' END,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid AND organization_id=$2::uuid RETURNING *`, [billId, org, data.amountUgx]);
-    const payment = await client.query(`INSERT INTO supplier_payments(organization_id,bill_id,amount_ugx,payment_method,reference,paid_on,notes,recorded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [org, billId, data.amountUgx, data.paymentMethod, data.reference ?? null, data.paidOn, data.notes ?? null, user]);
-    await client.query('COMMIT');
-    return { bill: bill.rows[0], payment: payment.rows[0] };
+    catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+    }
+    finally {
+        client.release();
+    }
 }
-catch (e) {
-    await client.query('ROLLBACK');
-    throw e;
-}
-finally {
-    client.release();
-} }

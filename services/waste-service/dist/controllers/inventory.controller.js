@@ -38,10 +38,11 @@ exports.postItem = postItem;
 exports.postMovement = postMovement;
 exports.postRequest = postRequest;
 exports.patchRequest = patchRequest;
+const organization_scope_1 = require("../middlewares/organization-scope");
 const repo = __importStar(require("../repositories/inventory.repository"));
 const inventory_validator_1 = require("../validators/inventory.validator");
 const auth = (q) => q.auth;
-const scope = (q) => auth(q).roles.some(r => ['company_admin', 'supervisor'].includes(r)) ? auth(q).organizationId : null;
+const scope = organization_scope_1.requireOrganizationScope;
 const org = (q) => { const id = auth(q).organizationId; if (!id) {
     const e = new Error('Account is not linked to an organization');
     e.statusCode = 403;

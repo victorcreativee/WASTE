@@ -36,10 +36,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getContracts = getContracts;
 exports.postContract = postContract;
 exports.patchContract = patchContract;
+const organization_scope_1 = require("../middlewares/organization-scope");
 const repo = __importStar(require("../repositories/contract.repository"));
 const contract_validator_1 = require("../validators/contract.validator");
 const auth = (q) => q.auth;
-const scope = (q) => auth(q).roles.some(r => ['company_admin', 'supervisor'].includes(r)) ? auth(q).organizationId : null;
+const scope = organization_scope_1.requireOrganizationScope;
 const org = (q) => { const id = auth(q).organizationId; if (!id) {
     const e = new Error('Account is not linked to an organization');
     e.statusCode = 403;

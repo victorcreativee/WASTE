@@ -1,0 +1,283 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.submitPermit = submitPermit;
+exports.submitAuthenticatedPermit = submitAuthenticatedPermit;
+exports.applicantPermits = applicantPermits;
+exports.applicantCertificate = applicantCertificate;
+exports.provideAuthenticatedPermitInformation = provideAuthenticatedPermitInformation;
+exports.submitAuthenticatedAccountApplication = submitAuthenticatedAccountApplication;
+exports.applicantAccountApplications = applicantAccountApplications;
+exports.permits = permits;
+exports.permitHasDocuments = permitHasDocuments;
+exports.permitStatusById = permitStatusById;
+exports.divisions = divisions;
+exports.divisionAuthorizations = divisionAuthorizations;
+exports.approvedPermitCertificate = approvedPermitCertificate;
+exports.organizationCertificate = organizationCertificate;
+exports.publicPermitStatus = publicPermitStatus;
+exports.providePermitInformation = providePermitInformation;
+exports.platformPackages = platformPackages;
+exports.allPlatformPackages = allPlatformPackages;
+exports.updatePlatformPackage = updatePlatformPackage;
+exports.submitAccountApplication = submitAccountApplication;
+exports.accountApplications = accountApplications;
+exports.accountApplicationCertificate = accountApplicationCertificate;
+exports.reviewAccountApplication = reviewAccountApplication;
+exports.reviewPermit = reviewPermit;
+exports.authorizeDivisions = authorizeDivisions;
+const crypto_1 = require("crypto");
+const database_1 = require("../config/database");
+const digest = (value) => (0, crypto_1.createHash)('sha256').update(value).digest('hex');
+async function submitPermit(data) { const c = await database_1.dbPool.connect(); try {
+    await c.query('BEGIN');
+    const n = `KCCA-${new Date().getFullYear()}-${Date.now()}`, accessToken = (0, crypto_1.randomBytes)(32).toString('hex');
+    const r = await c.query(`INSERT INTO organization_permit_applications(application_number,company_name,registration_number,contact_name,email,phone,address,service_description,status,submitted_at,applicant_access_token_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'submitted',CURRENT_TIMESTAMP,$9) RETURNING *`, [n, data.companyName, data.registrationNumber, data.contactName, data.email, data.phone, data.address, data.serviceDescription, digest(accessToken)]);
+    for (const d of data.documents)
+        await c.query('INSERT INTO organization_permit_documents(application_id,document_type,file_name,file_url) VALUES($1,$2,$3,$4)', [r.rows[0].id, d.documentType, d.fileName, d.fileUrl]);
+    await c.query(`INSERT INTO organization_permit_history(application_id,new_status,notes) VALUES($1,'submitted','Application submitted')`, [r.rows[0].id]);
+    await c.query('COMMIT');
+    const { applicant_access_token_hash: _, ...permit } = r.rows[0];
+    return { ...permit, accessToken };
+}
+catch (e) {
+    await c.query('ROLLBACK');
+    throw e;
+}
+finally {
+    c.release();
+} }
+async function submitAuthenticatedPermit(userId, data) { const c = await database_1.dbPool.connect(); try {
+    await c.query('BEGIN');
+    const applicant = (await c.query(`SELECT u.full_name,u.email,u.phone,p.company_name,p.registration_number FROM users u JOIN organization_applicant_profiles p ON p.user_id=u.id WHERE u.id=$1::uuid AND u.status='active' FOR UPDATE OF p`, [userId])).rows[0];
+    if (!applicant)
+        throw Object.assign(new Error('Organization applicant profile not found'), { statusCode: 404 });
+    const existing = await c.query(`SELECT 1 FROM organization_permit_applications WHERE applicant_user_id=$1::uuid AND status IN('submitted','under_review','information_required','approved','suspended')`, [userId]);
+    if (existing.rowCount)
+        throw Object.assign(new Error('This onboarding account already has an active permit application'), { statusCode: 409 });
+    const number = `KCCA-${new Date().getFullYear()}-${Date.now()}`, accessToken = (0, crypto_1.randomBytes)(32).toString('hex');
+    const permit = await c.query(`INSERT INTO organization_permit_applications(application_number,applicant_user_id,company_name,registration_number,contact_name,email,phone,address,service_description,status,submitted_at,applicant_access_token_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'submitted',CURRENT_TIMESTAMP,$10) RETURNING id,application_number,status,submitted_at`, [number, userId, applicant.company_name, applicant.registration_number, applicant.full_name, applicant.email, applicant.phone, data.address, data.serviceDescription, digest(accessToken)]);
+    await c.query(`INSERT INTO organization_permit_documents(application_id,document_type,file_name,file_url) VALUES($1,'company_registration',$2,$3)`, [permit.rows[0].id, data.document.fileName, data.document.dataUrl]);
+    await c.query(`INSERT INTO organization_permit_history(application_id,new_status,notes,changed_by) VALUES($1,'submitted','Authenticated organization applicant submitted permit evidence',$2)`, [permit.rows[0].id, userId]);
+    await c.query('COMMIT');
+    return permit.rows[0];
+}
+catch (e) {
+    await c.query('ROLLBACK');
+    throw e;
+}
+finally {
+    c.release();
+} }
+async function applicantPermits(userId) { return (await database_1.dbPool.query(`SELECT p.id,p.application_number,p.company_name,p.registration_number,p.status,p.review_notes,p.permit_number,p.valid_from,p.valid_until,p.certificate_issued_at,COUNT(d.id)::int document_count FROM organization_permit_applications p LEFT JOIN organization_permit_documents d ON d.application_id=p.id WHERE p.applicant_user_id=$1::uuid GROUP BY p.id ORDER BY p.created_at DESC`, [userId])).rows; }
+async function applicantCertificate(userId, id) { return (await database_1.dbPool.query(`SELECT p.id,p.application_number,p.company_name,p.registration_number,p.permit_number,p.valid_from,p.valid_until,p.certificate_issued_at,p.service_description,u.full_name approved_by_name FROM organization_permit_applications p LEFT JOIN users u ON u.id=p.reviewed_by WHERE p.id=$1::uuid AND p.applicant_user_id=$2::uuid AND p.status='approved' AND p.certificate_issued_at IS NOT NULL`, [id, userId])).rows[0] ?? null; }
+async function provideAuthenticatedPermitInformation(userId, data) { const c = await database_1.dbPool.connect(); try {
+    await c.query('BEGIN');
+    const permit = (await c.query(`SELECT id FROM organization_permit_applications WHERE id=$1::uuid AND applicant_user_id=$2::uuid AND status='information_required' FOR UPDATE`, [data.permitApplicationId, userId])).rows[0];
+    if (!permit)
+        throw Object.assign(new Error('No information request is open for this permit application'), { statusCode: 409 });
+    await c.query(`INSERT INTO organization_permit_documents(application_id,document_type,file_name,file_url) VALUES($1,'requested_information',$2,$3)`, [permit.id, data.document.fileName, data.document.dataUrl]);
+    await c.query(`UPDATE organization_permit_applications SET status='submitted',updated_at=CURRENT_TIMESTAMP WHERE id=$1`, [permit.id]);
+    await c.query(`INSERT INTO organization_permit_history(application_id,previous_status,new_status,notes,changed_by) VALUES($1,'information_required','submitted','Applicant supplied requested evidence',$2)`, [permit.id, userId]);
+    await c.query('COMMIT');
+    return { id: permit.id, status: 'submitted' };
+}
+catch (e) {
+    await c.query('ROLLBACK');
+    throw e;
+}
+finally {
+    c.release();
+} }
+async function submitAuthenticatedAccountApplication(userId, data) { const c = await database_1.dbPool.connect(); try {
+    await c.query('BEGIN');
+    const applicant = (await c.query(`SELECT u.full_name,u.email,u.phone,p.company_name,p.registration_number FROM users u JOIN organization_applicant_profiles p ON p.user_id=u.id WHERE u.id=$1::uuid AND u.status='active' FOR UPDATE OF p`, [userId])).rows[0];
+    if (!applicant)
+        throw Object.assign(new Error('Organization applicant profile not found'), { statusCode: 404 });
+    const permit = (await c.query(`SELECT id FROM organization_permit_applications WHERE id=$1::uuid AND applicant_user_id=$2::uuid AND status='approved' AND valid_until>=CURRENT_DATE AND organization_id IS NULL FOR UPDATE`, [data.permitApplicationId, userId])).rows[0];
+    if (!permit)
+        throw Object.assign(new Error('Choose your current approved KCCA permit'), { statusCode: 409 });
+    if (!(await c.query('SELECT 1 FROM platform_packages WHERE id=$1::uuid AND is_active', [data.packageId])).rowCount)
+        throw Object.assign(new Error('Choose an available platform package'), { statusCode: 400 });
+    const number = `ACCOUNT-${new Date().getFullYear()}-${Date.now()}`;
+    const result = await c.query(`INSERT INTO organization_account_applications(application_number,permit_application_id,applicant_user_id,requested_package_id,administrator_name,administrator_email,administrator_phone,certificate_file_name,certificate_mime_type,certificate_file_data) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,application_number,status,created_at`, [number, permit.id, userId, data.packageId, data.administratorName, applicant.email, data.administratorPhone, data.certificate.fileName, data.certificate.mimeType, data.certificate.dataUrl]);
+    await c.query('COMMIT');
+    return result.rows[0];
+}
+catch (e) {
+    await c.query('ROLLBACK');
+    if (e.code === '23505')
+        throw Object.assign(new Error('An active platform-access application already exists'), { statusCode: 409 });
+    throw e;
+}
+finally {
+    c.release();
+} }
+async function applicantAccountApplications(userId) { return (await database_1.dbPool.query(`SELECT a.id,a.application_number,a.status,a.review_notes,a.created_at,a.organization_id,pk.name package_name,p.permit_number FROM organization_account_applications a JOIN platform_packages pk ON pk.id=a.requested_package_id JOIN organization_permit_applications p ON p.id=a.permit_application_id WHERE a.applicant_user_id=$1::uuid ORDER BY a.created_at DESC`, [userId])).rows; }
+async function permits(status) { const r = await database_1.dbPool.query(`SELECT p.*,COALESCE(json_agg(d ORDER BY d.created_at) FILTER(WHERE d.id IS NOT NULL),'[]') documents FROM organization_permit_applications p LEFT JOIN organization_permit_documents d ON d.application_id=p.id WHERE ($1::text IS NULL OR p.status=$1) GROUP BY p.id ORDER BY p.created_at DESC`, [status || null]); return r.rows; }
+async function permitHasDocuments(id) { return !!(await database_1.dbPool.query('SELECT 1 FROM organization_permit_documents WHERE application_id=$1::uuid LIMIT 1', [id])).rowCount; }
+async function permitStatusById(id) { return (await database_1.dbPool.query('SELECT status FROM organization_permit_applications WHERE id=$1::uuid', [id])).rows[0]?.status ?? null; }
+async function divisions() { return (await database_1.dbPool.query('SELECT * FROM kampala_divisions WHERE is_active ORDER BY name')).rows; }
+async function divisionAuthorizations() {
+    return (await database_1.dbPool.query(`SELECT a.id,a.organization_id,a.division_id,a.permit_application_id,a.status,a.expires_on,
+  d.name division_name,o.name organization_name
+  FROM organization_division_authorizations a
+  JOIN kampala_divisions d ON d.id=a.division_id
+  JOIN organizations o ON o.id=a.organization_id
+  ORDER BY o.name,d.name`)).rows;
+}
+async function approvedPermitCertificate(id, accessToken) { return (await database_1.dbPool.query(`SELECT p.id,p.application_number,p.company_name,p.registration_number,p.permit_number,p.valid_from,p.valid_until,p.certificate_issued_at,p.service_description,u.full_name approved_by_name FROM organization_permit_applications p LEFT JOIN users u ON u.id=p.reviewed_by WHERE p.id=$1::uuid AND p.status='approved' AND p.permit_number IS NOT NULL AND p.certificate_issued_at IS NOT NULL AND p.applicant_access_token_hash=$2`, [id, digest(accessToken)])).rows[0] ?? null; }
+async function organizationCertificate(organizationId) { return (await database_1.dbPool.query(`SELECT p.id,p.application_number,p.company_name,p.registration_number,p.permit_number,p.valid_from,p.valid_until,p.certificate_issued_at,p.service_description,u.full_name approved_by_name FROM organization_permit_applications p LEFT JOIN users u ON u.id=p.reviewed_by WHERE p.organization_id=$1::uuid AND p.status='approved' AND p.permit_number IS NOT NULL AND p.certificate_issued_at IS NOT NULL ORDER BY p.valid_until DESC LIMIT 1`, [organizationId])).rows[0] ?? null; }
+async function publicPermitStatus(applicationNumber, accessToken) { return (await database_1.dbPool.query(`SELECT p.id,p.application_number,p.company_name,p.status,p.review_notes,p.permit_number,p.valid_until,COUNT(d.id)::int document_count FROM organization_permit_applications p LEFT JOIN organization_permit_documents d ON d.application_id=p.id WHERE p.application_number=$1 AND p.applicant_access_token_hash=$2 GROUP BY p.id`, [applicationNumber, digest(accessToken)])).rows[0] ?? null; }
+async function providePermitInformation(data) { const c = await database_1.dbPool.connect(); try {
+    await c.query('BEGIN');
+    const permit = (await c.query(`SELECT id,status FROM organization_permit_applications WHERE application_number=$1 AND applicant_access_token_hash=$2 FOR UPDATE`, [data.applicationNumber, digest(data.accessToken)])).rows[0];
+    if (!permit)
+        throw Object.assign(new Error('Application reference or access token is invalid'), { statusCode: 404 });
+    if (permit.status !== 'information_required')
+        throw Object.assign(new Error('Documents can only be added when KCCA has requested information'), { statusCode: 409 });
+    for (const d of data.documents)
+        await c.query('INSERT INTO organization_permit_documents(application_id,document_type,file_name,file_url) VALUES($1,$2,$3,$4)', [permit.id, d.documentType, d.fileName, d.fileUrl]);
+    await c.query(`UPDATE organization_permit_applications SET status='submitted',updated_at=CURRENT_TIMESTAMP WHERE id=$1`, [permit.id]);
+    await c.query(`INSERT INTO organization_permit_history(application_id,previous_status,new_status,notes) VALUES($1,'information_required','submitted','Applicant supplied requested documents')`, [permit.id]);
+    await c.query('COMMIT');
+    return { id: permit.id, status: 'submitted' };
+}
+catch (e) {
+    await c.query('ROLLBACK');
+    throw e;
+}
+finally {
+    c.release();
+} }
+async function platformPackages() { return (await database_1.dbPool.query('SELECT id,code,name,description,monthly_fee_ugx FROM platform_packages WHERE is_active ORDER BY monthly_fee_ugx,name')).rows; }
+async function allPlatformPackages() { return (await database_1.dbPool.query('SELECT id,code,name,description,monthly_fee_ugx,is_active,created_at FROM platform_packages ORDER BY created_at,name')).rows; }
+async function updatePlatformPackage(id, userId, data) { const c = await database_1.dbPool.connect(); try {
+    await c.query('BEGIN');
+    const old = (await c.query('SELECT * FROM platform_packages WHERE id=$1::uuid FOR UPDATE', [id])).rows[0];
+    if (!old)
+        throw Object.assign(new Error('Platform package not found'), { statusCode: 404 });
+    const result = await c.query(`UPDATE platform_packages SET name=$2,description=$3,monthly_fee_ugx=$4,is_active=$5 WHERE id=$1::uuid RETURNING id,code,name,description,monthly_fee_ugx,is_active`, [id, data.name, data.description, data.monthlyFeeUgx, data.isActive]);
+    await c.query(`INSERT INTO platform_administration_events(actor_id,action,details) VALUES($1,'platform_package_updated',$2::jsonb)`, [userId, JSON.stringify({ packageId: id, previous: old, current: result.rows[0] })]);
+    await c.query('COMMIT');
+    return result.rows[0];
+}
+catch (e) {
+    await c.query('ROLLBACK');
+    throw e;
+}
+finally {
+    c.release();
+} }
+async function submitAccountApplication(data) { const c = await database_1.dbPool.connect(); try {
+    await c.query('BEGIN');
+    const permit = (await c.query(`SELECT id FROM organization_permit_applications WHERE application_number=$1 AND applicant_access_token_hash=$2 AND status='approved' AND permit_number IS NOT NULL AND organization_id IS NULL AND valid_until>=CURRENT_DATE FOR UPDATE`, [data.permitApplicationNumber, digest(data.accessToken)])).rows[0];
+    if (!permit)
+        throw Object.assign(new Error('Use a current KCCA-approved permit and its private access token'), { statusCode: 409 });
+    const plan = await c.query('SELECT 1 FROM platform_packages WHERE id=$1::uuid AND is_active', [data.packageId]);
+    if (!plan.rowCount)
+        throw Object.assign(new Error('Select an available platform package'), { statusCode: 400 });
+    const number = `ACCOUNT-${new Date().getFullYear()}-${Date.now()}`;
+    const result = await c.query(`INSERT INTO organization_account_applications(application_number,permit_application_id,requested_package_id,administrator_name,administrator_email,administrator_phone) VALUES($1,$2,$3,$4,lower($5),$6) RETURNING id,application_number,status,created_at`, [number, permit.id, data.packageId, data.administratorName, data.administratorEmail, data.administratorPhone]);
+    await c.query('COMMIT');
+    return result.rows[0];
+}
+catch (e) {
+    await c.query('ROLLBACK');
+    if (e.code === '23505')
+        throw Object.assign(new Error('An account application already exists for this permit'), { statusCode: 409 });
+    throw e;
+}
+finally {
+    c.release();
+} }
+async function accountApplications() { return (await database_1.dbPool.query(`SELECT a.*,p.company_name,p.registration_number,p.permit_number,p.valid_until,pk.name package_name,pk.description package_description FROM organization_account_applications a JOIN organization_permit_applications p ON p.id=a.permit_application_id JOIN platform_packages pk ON pk.id=a.requested_package_id ORDER BY a.created_at DESC`)).rows; }
+async function accountApplicationCertificate(id) { return (await database_1.dbPool.query(`SELECT certificate_file_name,certificate_mime_type,certificate_file_data FROM organization_account_applications WHERE id=$1::uuid`, [id])).rows[0] ?? null; }
+async function reviewAccountApplication(id, userId, data) {
+    const c = await database_1.dbPool.connect();
+    try {
+        await c.query('BEGIN');
+        const application = (await c.query(`SELECT a.*,p.company_name,p.email company_email,p.phone company_phone,p.address,p.status permit_status,p.valid_until FROM organization_account_applications a JOIN organization_permit_applications p ON p.id=a.permit_application_id WHERE a.id=$1::uuid FOR UPDATE`, [id])).rows[0];
+        if (!application)
+            throw Object.assign(new Error('Account application not found'), { statusCode: 404 });
+        const allowed = { submitted: ['start_review', 'approve', 'reject'], under_review: ['approve', 'reject'] };
+        if (!(allowed[application.status] || []).includes(data.action))
+            throw Object.assign(new Error(`Cannot ${data.action.replaceAll('_', ' ')} this ${application.status.replaceAll('_', ' ')} application`), { statusCode: 409 });
+        let organizationId = null, accountActivated = false;
+        if (data.action === 'approve') {
+            if (application.permit_status !== 'approved' || application.valid_until < new Date().toISOString().slice(0, 10))
+                throw Object.assign(new Error('The KCCA permit is no longer valid'), { statusCode: 409 });
+            const org = await c.query(`INSERT INTO organizations(name,type,email,phone,address,platform_package_id,is_active) VALUES($1,'waste_collection_company',$2,$3,$4,$5,true) RETURNING id`, [application.company_name, application.company_email, application.company_phone, application.address, application.requested_package_id]);
+            organizationId = org.rows[0].id;
+            await c.query('UPDATE organization_permit_applications SET organization_id=$2,updated_at=CURRENT_TIMESTAMP WHERE id=$1', [application.permit_application_id, organizationId]);
+            await c.query(`UPDATE organization_account_applications SET status='approved',organization_id=$2,review_notes=$3,reviewed_by=$4,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=$1`, [id, organizationId, data.notes, userId]);
+            if (application.applicant_user_id) {
+                const roles = await c.query("SELECT id,name FROM roles WHERE name IN ('organization_applicant','company_admin')");
+                const applicantRole = roles.rows.find((role) => role.name === 'organization_applicant')?.id, adminRole = roles.rows.find((role) => role.name === 'company_admin')?.id;
+                if (!adminRole)
+                    throw Object.assign(new Error('Company Administrator role is not configured'), { statusCode: 503 });
+                await c.query("UPDATE users SET organization_id=$2::uuid,full_name=$3,phone=$4,status='active',updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid", [application.applicant_user_id, organizationId, application.administrator_name, application.administrator_phone]);
+                if (applicantRole)
+                    await c.query('DELETE FROM user_roles WHERE user_id=$1::uuid AND role_id=$2::uuid', [application.applicant_user_id, applicantRole]);
+                await c.query('INSERT INTO user_roles(user_id,role_id) VALUES($1::uuid,$2::uuid) ON CONFLICT DO NOTHING', [application.applicant_user_id, adminRole]);
+                accountActivated = true;
+            }
+        }
+        else
+            await c.query(`UPDATE organization_account_applications SET status=$2,review_notes=$3,reviewed_by=$4,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=$1`, [id, data.action === 'start_review' ? 'under_review' : 'rejected', data.notes, userId]);
+        await c.query('COMMIT');
+        return { id, status: data.action === 'start_review' ? 'under_review' : data.action, organizationId, accountActivated };
+    }
+    catch (e) {
+        await c.query('ROLLBACK');
+        throw e;
+    }
+    finally {
+        c.release();
+    }
+}
+async function reviewPermit(id, userId, data) { const next = { start_review: 'under_review', request_information: 'information_required', approve: 'approved', reject: 'rejected', suspend: 'suspended', renew: 'approved' }; const c = await database_1.dbPool.connect(); try {
+    await c.query('BEGIN');
+    const old = (await c.query('SELECT * FROM organization_permit_applications WHERE id=$1 FOR UPDATE', [id])).rows[0];
+    if (!old) {
+        await c.query('ROLLBACK');
+        return null;
+    }
+    const allowed = { submitted: ['start_review'], under_review: ['request_information', 'approve', 'reject'], information_required: ['start_review'], approved: ['suspend', 'renew'], expired: ['renew'] };
+    if (!(allowed[old.status] || []).includes(data.action))
+        throw Object.assign(new Error(`Cannot ${data.action.replaceAll('_', ' ')} an application in ${old.status.replaceAll('_', ' ')}`), { statusCode: 409 });
+    if (['approve', 'renew'].includes(data.action) && !data.validUntil)
+        throw Object.assign(new Error('Permit validity date is required'), { statusCode: 400 });
+    const permit = old.permit_number || `PERMIT-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`;
+    const r = await c.query(`UPDATE organization_permit_applications SET status=$2,review_notes=$3,reviewed_by=$4,reviewed_at=CURRENT_TIMESTAMP,permit_number=CASE WHEN $2='approved' THEN $5 ELSE permit_number END,valid_from=CASE WHEN $2='approved' THEN CURRENT_DATE ELSE valid_from END,valid_until=CASE WHEN $2='approved' THEN $6::date ELSE valid_until END,updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *`, [id, next[data.action], data.notes, userId, permit, data.validUntil || null]);
+    await c.query('INSERT INTO organization_permit_history(application_id,previous_status,new_status,notes,changed_by) VALUES($1,$2,$3,$4,$5)', [id, old.status, next[data.action], data.notes, userId]);
+    await c.query('COMMIT');
+    return r.rows[0];
+}
+catch (e) {
+    await c.query('ROLLBACK');
+    throw e;
+}
+finally {
+    c.release();
+} }
+async function authorizeDivisions(userId, data) { const c = await database_1.dbPool.connect(); try {
+    await c.query('BEGIN');
+    const valid = await c.query(`SELECT 1 FROM organization_permit_applications WHERE id=$1 AND organization_id=$2 AND status='approved' AND (valid_until IS NULL OR valid_until>=CURRENT_DATE)`, [data.permitApplicationId, data.organizationId]);
+    if (!valid.rowCount)
+        throw Object.assign(new Error('Select an approved permit linked to this organization'), { statusCode: 409 });
+    await c.query(`UPDATE organization_division_authorizations SET status='suspended' WHERE organization_id=$1::uuid AND NOT(division_id=ANY($2::uuid[]))`, [data.organizationId, data.divisionIds]);
+    const rows = [];
+    for (const divisionId of data.divisionIds) {
+        const r = await c.query(`INSERT INTO organization_division_authorizations(organization_id,division_id,permit_application_id,authorized_by,expires_on) VALUES($1,$2,$3,$4,$5) ON CONFLICT(organization_id,division_id) DO UPDATE SET permit_application_id=EXCLUDED.permit_application_id,status='active',authorized_by=EXCLUDED.authorized_by,authorized_at=CURRENT_TIMESTAMP,expires_on=EXCLUDED.expires_on RETURNING *`, [data.organizationId, divisionId, data.permitApplicationId, userId, data.expiresOn || null]);
+        rows.push(r.rows[0]);
+    }
+    await c.query('COMMIT');
+    return rows;
+}
+catch (e) {
+    await c.query('ROLLBACK');
+    throw e;
+}
+finally {
+    c.release();
+} }

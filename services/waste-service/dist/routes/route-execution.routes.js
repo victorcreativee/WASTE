@@ -16,6 +16,8 @@ const canMonitor = (0, auth_middleware_1.requireRoles)("driver", "company_admin"
 router.get("/driver/routes", canMonitor, run(route_execution_controller_1.getDriverRoutesHandler));
 router.get("/drivers/:driverId/routes", canMonitor, run(route_execution_controller_1.getDriverRoutesHandler));
 router.get("/driver-routes/:routeId", canMonitor, run(route_execution_controller_1.getDriverRouteDetailsHandler));
+router.patch("/collection-routes/:routeId/dispatch", (0, auth_middleware_1.requireRoles)("company_admin", "supervisor"), run(route_execution_controller_1.dispatchCollectionRouteHandler));
+router.patch("/collection-routes/:routeId/cancel", (0, auth_middleware_1.requireRoles)("company_admin", "supervisor"), run(route_execution_controller_1.cancelCollectionRouteHandler));
 router.patch("/driver-routes/:routeId/start", (0, auth_middleware_1.requireRoles)("driver"), run(route_execution_controller_1.startDriverRouteHandler));
 router.patch("/driver-route-stops/:stopId/arrive", (0, auth_middleware_1.requireRoles)("driver"), run(route_execution_controller_1.arriveAtRouteStopHandler));
 router.patch("/driver-route-stops/:stopId/complete", (0, auth_middleware_1.requireRoles)("driver"), run(route_execution_controller_1.completeRouteStopHandler));

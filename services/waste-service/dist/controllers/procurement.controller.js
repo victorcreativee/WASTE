@@ -37,10 +37,11 @@ exports.getProcurement = getProcurement;
 exports.postSupplier = postSupplier;
 exports.postOrder = postOrder;
 exports.patchOrder = patchOrder;
+const organization_scope_1 = require("../middlewares/organization-scope");
 const repo = __importStar(require("../repositories/procurement.repository"));
 const procurement_validator_1 = require("../validators/procurement.validator");
 const auth = (q) => q.auth;
-const scope = (q) => auth(q).roles.some(r => ['company_admin', 'supervisor'].includes(r)) ? auth(q).organizationId : null;
+const scope = organization_scope_1.requireOrganizationScope;
 const org = (q) => { const id = auth(q).organizationId; if (!id) {
     const e = new Error('Account is not linked to an organization');
     e.statusCode = 403;
@@ -49,4 +50,4 @@ const org = (q) => { const id = auth(q).organizationId; if (!id) {
 async function getProcurement(q, s) { return s.json({ success: true, message: 'Procurement fetched', data: await repo.findProcurement(scope(q)) }); }
 async function postSupplier(q, s) { return s.status(201).json({ success: true, message: 'Supplier added', data: await repo.createSupplier(org(q), procurement_validator_1.supplierSchema.parse(q.body)) }); }
 async function postOrder(q, s) { const data = await repo.createOrder(org(q), auth(q).userId, procurement_validator_1.orderSchema.parse(q.body)); return data ? s.status(201).json({ success: true, message: 'Purchase order created', data }) : s.status(409).json({ success: false, message: 'Supplier or approved request is unavailable' }); }
-async function patchOrder(q, s) { const status = procurement_validator_1.orderStatusSchema.parse(q.body).status; const data = await repo.changeOrder(org(q), auth(q).userId, q.params.id, status); const message = status === 'received' ? (data?.inventory_item_id ? 'Order received and inventory updated' : 'Standalone order received; record any stock movement from Inventory') : 'Purchase order updated'; return data ? s.json({ success: true, message, data }) : s.status(409).json({ success: false, message: 'Order cannot move to that status' }); }
+async function patchOrder(q, s) { const status = procurement_validator_1.orderStatusSchema.parse(q.body).status; const data = await repo.changeOrder(org(q), auth(q).userId, q.params.id, status); const message = status === 'received' ? (data?.inventory_item_id ? 'Order received and inventory updated' : 'Standalone order received; record any stock movement from Inventory') : 'Purchase order updated'; return data ? s.json({ success: true, message, data }) : s.status(409).json({ success: false, message: 'Order cannot move to that status. Issuing an order also requires enough funds available to commit' }); }
