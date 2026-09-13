@@ -5,7 +5,7 @@ exports.verifyTripWeight = verifyTripWeight;
 exports.createTrip = createTrip;
 const database_1 = require("../config/database");
 async function findTrips(organizationId) {
-    const result = await database_1.dbPool.query(`SELECT trip.id,trip.organization_id,trip.trip_number,trip.route_date,trip.status,trip.started_at,trip.completed_at,trip.weighbridge_ticket_number,trip.weighbridge_facility,trip.verified_weight_kg,trip.weight_verified_at,
+    const result = await database_1.dbPool.query(`SELECT trip.id,trip.organization_id,trip.trip_number,trip.truck_id,trip.driver_id,trip.route_date,trip.status,trip.started_at,trip.completed_at,trip.weighbridge_ticket_number,trip.weighbridge_facility,trip.verified_weight_kg,trip.weight_verified_at,
   service.name route_name,zone.name zone_name,division.name division_name,organization.name organization_name,
   truck.plate_number,driver.full_name driver_name,supervisor.full_name supervisor_name,
   COUNT(stops.id)::int customer_count,COUNT(stops.id) FILTER(WHERE stops.status='completed')::int collected_count,

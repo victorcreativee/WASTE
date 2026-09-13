@@ -17,4 +17,6 @@ exports.createOrganizationSchema = zod_1.z.object({
     email: zod_1.z.string().email().optional(),
     phone: zod_1.z.string().optional(),
     address: zod_1.z.string().optional(),
-});
+    approvedPermitId: zod_1.z.string().uuid().optional(),
+}).superRefine((value, ctx) => { if (value.type === 'waste_collection_company' && !value.approvedPermitId)
+    ctx.addIssue({ code: 'custom', path: ['approvedPermitId'], message: 'Select a KCCA-approved permit' }); });

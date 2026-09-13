@@ -42,7 +42,13 @@ async function findOrganizationById(id, organizationId) {
     return result.rows[0] ?? null;
 }
 async function createOrganization(data) {
-    const result = await database_1.dbPool.query(`
+    const client = await database_1.dbPool.connect();
+    try {
+        await client.query('BEGIN');
+        if (data.type === 'waste_collection_company') {
+            throw Object.assign(new Error('Waste-collection companies must be created by approving a company account application'), { statusCode: 409 });
+        }
+        const result = await client.query(`
     INSERT INTO organizations (
       name,
       type,
@@ -62,11 +68,20 @@ async function createOrganization(data) {
       created_at,
       updated_at
     `, [
-        data.name,
-        data.type,
-        data.email ?? null,
-        data.phone ?? null,
-        data.address ?? null,
-    ]);
-    return result.rows[0];
+            data.name,
+            data.type,
+            data.email ?? null,
+            data.phone ?? null,
+            data.address ?? null,
+        ]);
+        await client.query('COMMIT');
+        return result.rows[0];
+    }
+    catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    }
+    finally {
+        client.release();
+    }
 }

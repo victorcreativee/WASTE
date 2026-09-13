@@ -64,7 +64,7 @@ async function createOrganizationHandler(req, res) {
         });
     }
     catch (error) {
-        return res.status(400).json({
+        return res.status(error.statusCode || 400).json({
             success: false,
             message: error instanceof Error
                 ? error.message

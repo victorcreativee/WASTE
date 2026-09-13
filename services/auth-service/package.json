@@ -11,6 +11,8 @@
     "bootstrap:system-admin": "node scripts/bootstrap-system-admin.cjs",
     "migrate:platform-users:check": "node scripts/migrate-platform-user-administration.cjs",
     "migrate:platform-users": "node scripts/migrate-platform-user-administration.cjs --apply",
+    "migrate:weighbridge-operator:check": "node scripts/migrate-weighbridge-operator.cjs",
+    "migrate:weighbridge-operator": "node scripts/migrate-weighbridge-operator.cjs --apply",
     "start": "node dist/server.js"
   },
   "keywords": [],

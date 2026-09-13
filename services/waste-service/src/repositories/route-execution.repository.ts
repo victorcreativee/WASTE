@@ -170,7 +170,8 @@ export async function findDriverRouteDetails(routeId: string, organizationId: st
   );
   const household = stops.rows.length ? await dbPool.query(
     `SELECT cs.id,cs.collection_job_id,cs.status,cs.stop_order,cs.arrived_at,cs.completed_at,
-       cs.collected_weight_kg,u.full_name customer_name,l.address
+       cs.collected_weight_kg,cs.completion_notes,cs.evidence_url,cs.exception_reason,cs.exception_notes,
+       cs.exception_review_status,u.full_name customer_name,l.address
      FROM customer_collection_stops cs JOIN customer_profiles cp ON cp.id=cs.customer_id
      JOIN users u ON u.id=cp.user_id JOIN customer_service_locations l ON l.id=cs.service_location_id
      WHERE cs.collection_job_id=ANY($1::uuid[]) ORDER BY cs.collection_job_id,cs.stop_order`,

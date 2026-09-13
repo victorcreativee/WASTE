@@ -26,7 +26,7 @@ function operationalOrganizationScope(req) {
             return auth.organizationId;
         throw Object.assign(new Error("An organization context is required"), { statusCode: 403 });
     }
-    if (auth.roles.some(role => ["kcca_admin", "system_admin"].includes(role)))
+    if (auth.roles.some(role => ["kcca_admin", "system_admin", "weighbridge_operator"].includes(role)))
         return null;
     throw Object.assign(new Error("Operational access is not permitted"), { statusCode: 403 });
 }

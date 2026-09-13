@@ -13,8 +13,10 @@ const cityNav:NavItem[] = [
   {group:"City oversight",label:"Weighbridge operations",href:"/dashboard/weighbridge"},
   {group:"City oversight",label:"Issues",href:"/dashboard/citizen-issues"},
   {group:"City oversight",label:"Coverage map",href:"/dashboard/gis"},
+  {group:"City oversight",label:"Collector performance",href:"/dashboard/city-reports"},
+  {group:"City oversight",label:"Compliance cases",href:"/dashboard/compliance"},
 ];
-const systemNav:NavItem[]=[{group:"Platform",label:"Platform overview",href:"/dashboard"},{group:"Platform",label:"Account verification",href:"/dashboard/account-verification"},{group:"Platform",label:"Platform packages",href:"/dashboard/platform-packages"},{group:"Platform",label:"Platform users",href:"/dashboard/platform-users"},{group:"Platform",label:"Organizations",href:"/dashboard/organizations"},{group:"Reference",label:"KCCA permit register",href:"/dashboard/permits"}];
+const systemNav:NavItem[]=[{group:"Platform",label:"Platform overview",href:"/dashboard"},{group:"Platform",label:"Account verification",href:"/dashboard/account-verification"},{group:"Platform",label:"Platform packages",href:"/dashboard/platform-packages"},{group:"Platform",label:"Platform users",href:"/dashboard/platform-users"},{group:"Platform",label:"Weighbridge workers",href:"/dashboard/weighbridge-workers"},{group:"Platform",label:"Organizations",href:"/dashboard/organizations"},{group:"Reference",label:"KCCA permit register",href:"/dashboard/permits"},{group:"Reference",label:"Collector performance",href:"/dashboard/city-reports"}];
 type NavItem={label:string;href:string;group?:string};
 const companyNav:NavItem[] = [
   {group:"Overview",label:"Organization overview",href:"/dashboard/company"},
@@ -22,7 +24,7 @@ const companyNav:NavItem[] = [
   {group:"Service delivery",label:"Service areas & routes",href:"/dashboard/service-areas"},
   {group:"Service delivery",label:"Fleet control",href:"/dashboard/fleet"},
   {group:"Service delivery",label:"Trips & drivers",href:"/dashboard/driver-mobile"},
-  {group:"Service delivery",label:"Weighbridge",href:"/dashboard/weighbridge"},
+  {group:"Service delivery",label:"Daily tonnage",href:"/dashboard/tonnage"},
   {group:"Service delivery",label:"Service issues",href:"/dashboard/citizen-issues"},
   {group:"People & customers",label:"Staff management",href:"/dashboard/team"},
   {group:"People & customers",label:"Customer management",href:"/dashboard/customer-service"},
@@ -33,6 +35,7 @@ const companyNav:NavItem[] = [
   {group:"Supply",label:"Inventory",href:"/dashboard/inventory"},
   {group:"Supply",label:"Procurement",href:"/dashboard/procurement"},
   {group:"Insights",label:"Reports",href:"/dashboard/reports"},
+  {group:"Insights",label:"KCCA compliance",href:"/dashboard/compliance"},
   {group:"Administration",label:"Access & permissions",href:"/dashboard/access"},
   {group:"Administration",label:"Company settings",href:"/dashboard/company-settings"},
 ];
@@ -42,7 +45,7 @@ const supervisorNav:NavItem[] = [
   {group:"Operations",label:"Service areas",href:"/dashboard/service-areas"},
   {group:"Operations",label:"Fleet control",href:"/dashboard/fleet"},
   {group:"Operations",label:"Trip monitoring",href:"/dashboard/driver-mobile"},
-  {group:"Operations",label:"Weighbridge",href:"/dashboard/weighbridge"},
+  {group:"Operations",label:"Daily tonnage",href:"/dashboard/tonnage"},
   {group:"Operations",label:"Service issues",href:"/dashboard/citizen-issues"},
   {group:"Customers",label:"Customer management",href:"/dashboard/customer-service"},
   {group:"Customers",label:"Billing monitor",href:"/dashboard/billing"},
@@ -55,6 +58,7 @@ const customerNav:NavItem[] = [
   {group:"Support",label:"Requests & issues",href:"/dashboard/citizen-issues"},
 ];
 const driverNav:NavItem[] = [{group:"Today",label:"My route & jobs",href:"/dashboard/driver-mobile"}];
+const weighbridgeNav:NavItem[] = [{group:"Facility operations",label:"Record vehicle",href:"/dashboard/weighbridge/operations"},{group:"Facility operations",label:"Transaction records",href:"/dashboard/weighbridge"}];
 
 type CurrentUser = {
   fullName: string;
@@ -95,7 +99,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }).catch(()=>{if(!cancelled)setAccessUser(null);});
     return()=>{cancelled=true;};
   },[currentUser,storedUser,pathname]);
-  const primaryNavItems = currentUser?.roles?.includes("driver") ? driverNav
+  const primaryNavItems = currentUser?.roles?.includes("weighbridge_operator") ? weighbridgeNav
+    : currentUser?.roles?.includes("driver") ? driverNav
     : currentUser?.roles?.includes("citizen") ? customerNav
     : currentUser?.roles?.includes("company_admin") ? companyNav
     : currentUser?.roles?.includes("supervisor") ? supervisorNav
@@ -112,12 +117,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return groups;
   },[]);
   const activeNavItem=[...visibleNavItems].sort((a,b)=>b.href.length-a.href.length).find(item=>pathname===item.href||pathname.startsWith(`${item.href}/`));
-  const productName = currentUser?.roles?.includes("company_admin") ? "Organization Operations"
+  const productName = currentUser?.roles?.includes("weighbridge_operator") ? "KCCA Weighbridge"
+    : currentUser?.roles?.includes("company_admin") ? "Organization Operations"
     : currentUser?.roles?.includes("supervisor") ? "Field Control"
     : currentUser?.roles?.includes("driver") ? "Driver Workspace"
     : currentUser?.roles?.includes("citizen") ? "Customer Services"
     : currentUser?.roles?.includes("system_admin") ? "Platform Administration" : "KCCA Control Centre";
-  const workspaceLabel=currentUser?.roles?.some(role=>["kcca_admin","system_admin"].includes(role))
+  const workspaceLabel=currentUser?.roles?.some(role=>["kcca_admin","system_admin","weighbridge_operator"].includes(role))
     ? "Kampala city workspace"
     : currentUser?.roles?.includes("citizen") ? "Customer workspace" : "Organization workspace";
 

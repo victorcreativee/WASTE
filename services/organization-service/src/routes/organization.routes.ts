@@ -12,6 +12,7 @@ const canReadOrganizations = requireRoles(
   "kcca_admin",
   "company_admin"
   , "supervisor"
+  , "weighbridge_operator"
 );
 const canCreateOrganizations = requireRoles("system_admin");
 

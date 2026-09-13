@@ -1,5 +1,5 @@
 import {dbPool} from "../config/database";
-export async function findTrips(organizationId:string|null){const result=await dbPool.query(`SELECT trip.id,trip.organization_id,trip.trip_number,trip.route_date,trip.status,trip.started_at,trip.completed_at,trip.weighbridge_ticket_number,trip.weighbridge_facility,trip.verified_weight_kg,trip.weight_verified_at,
+export async function findTrips(organizationId:string|null){const result=await dbPool.query(`SELECT trip.id,trip.organization_id,trip.trip_number,trip.truck_id,trip.driver_id,trip.route_date,trip.status,trip.started_at,trip.completed_at,trip.weighbridge_ticket_number,trip.weighbridge_facility,trip.verified_weight_kg,trip.weight_verified_at,
   service.name route_name,zone.name zone_name,division.name division_name,organization.name organization_name,
   truck.plate_number,driver.full_name driver_name,supervisor.full_name supervisor_name,
   COUNT(stops.id)::int customer_count,COUNT(stops.id) FILTER(WHERE stops.status='completed')::int collected_count,

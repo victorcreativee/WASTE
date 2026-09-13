@@ -61,7 +61,10 @@ export default function LoginPage() {
       const isCitizen = response.data.roles.some((role) => role.name === "citizen");
       const isCompany = response.data.roles.some((role) => role.name === "company_admin");
       const isApplicant = response.data.roles.some((role) => role.name === "organization_applicant");
-      window.location.href = isDriver
+      const isWeighbridgeWorker = response.data.roles.some((role) => role.name === "weighbridge_operator");
+      window.location.href = isWeighbridgeWorker
+        ? "/dashboard/weighbridge/operations"
+        : isDriver
         ? "/dashboard/driver-mobile"
         : isCitizen
         ? "/dashboard/citizen-issues"

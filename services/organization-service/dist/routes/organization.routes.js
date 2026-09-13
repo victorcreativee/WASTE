@@ -4,8 +4,8 @@ const express_1 = require("express");
 const organization_controller_1 = require("../controllers/organization.controller");
 const auth_middleware_1 = require("../middlewares/auth.middleware");
 const router = (0, express_1.Router)();
-const canReadOrganizations = (0, auth_middleware_1.requireRoles)("system_admin", "kcca_admin", "company_admin", "supervisor");
-const canCreateOrganizations = (0, auth_middleware_1.requireRoles)("system_admin", "kcca_admin");
+const canReadOrganizations = (0, auth_middleware_1.requireRoles)("system_admin", "kcca_admin", "company_admin", "supervisor", "weighbridge_operator");
+const canCreateOrganizations = (0, auth_middleware_1.requireRoles)("system_admin");
 router.get("/", canReadOrganizations, async (req, res, next) => {
     try {
         await (0, organization_controller_1.getOrganizations)(req, res);

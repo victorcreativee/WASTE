@@ -91,7 +91,9 @@ app.use((error, req, res, next) => {
             ? "An active permit application already exists for this company registration number"
             : constraint === "one_open_account_application_per_admin_email"
                 ? "This administrator email is already connected to an active account application"
-                : "This information is already registered";
+                : constraint === "one_active_weighbridge_ticket_per_trip"
+                    ? "This trip already has an active weighbridge ticket"
+                    : "This information is already registered";
         return res.status(409).json({ success: false, message });
     }
     return res.status(error.statusCode || 400).json({

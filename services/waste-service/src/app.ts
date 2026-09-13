@@ -31,6 +31,7 @@ import platformOnboardingRoutes from "./routes/platform-onboarding.routes";
 import serviceRouteRoutes from "./routes/service-route.routes";
 import tripRoutes from "./routes/trip.routes";
 import weighbridgeRoutes from "./routes/weighbridge.routes";
+import complianceRoutes from "./routes/compliance.routes";
 
 const app = express();
 
@@ -55,6 +56,7 @@ app.use("/api/waste", customerStopRoutes);
 app.use("/api/waste", serviceRouteRoutes);
 app.use("/api/waste", tripRoutes);
 app.use("/api/waste", weighbridgeRoutes);
+app.use("/api/waste", complianceRoutes);
 app.use("/api/waste", routeExecutionRoutes);
 app.use("/api/waste", billingRoutes);
 app.use("/api/waste", fleetRoutes);
@@ -101,6 +103,8 @@ app.use(
         ? "An active permit application already exists for this company registration number"
         : constraint === "one_open_account_application_per_admin_email"
           ? "This administrator email is already connected to an active account application"
+          : constraint === "one_active_weighbridge_ticket_per_trip"
+            ? "This trip already has an active weighbridge ticket"
           : "This information is already registered";
       return res.status(409).json({ success: false, message });
     }

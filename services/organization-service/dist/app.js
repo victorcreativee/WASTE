@@ -9,6 +9,7 @@ const helmet_1 = __importDefault(require("helmet"));
 const morgan_1 = __importDefault(require("morgan"));
 const health_routes_1 = __importDefault(require("./routes/health.routes"));
 const organization_routes_1 = __importDefault(require("./routes/organization.routes"));
+const workspace_routes_1 = __importDefault(require("./routes/workspace.routes"));
 const auth_middleware_1 = require("./middlewares/auth.middleware");
 const app = (0, express_1.default)();
 app.use((0, helmet_1.default)());
@@ -18,6 +19,7 @@ app.use(express_1.default.urlencoded({ extended: true }));
 app.use((0, morgan_1.default)("dev"));
 app.use("/api/organizations", health_routes_1.default);
 app.use("/api/organizations", auth_middleware_1.requireAuth);
+app.use("/api/organizations", workspace_routes_1.default);
 app.use("/api/organizations", organization_routes_1.default);
 app.use((req, res) => {
     return res.status(404).json({
