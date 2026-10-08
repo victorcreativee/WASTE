@@ -14,6 +14,7 @@ const run = (handler) => async (req, res, next) => {
 };
 const canMonitor = (0, auth_middleware_1.requireRoles)("driver", "company_admin", "supervisor", "kcca_admin", "system_admin");
 router.get("/driver/routes", canMonitor, run(route_execution_controller_1.getDriverRoutesHandler));
+router.get("/driver/dashboard", (0, auth_middleware_1.requireRoles)("driver"), run(route_execution_controller_1.getDriverDashboardHandler));
 router.get("/drivers/:driverId/routes", canMonitor, run(route_execution_controller_1.getDriverRoutesHandler));
 router.get("/driver-routes/:routeId", canMonitor, run(route_execution_controller_1.getDriverRouteDetailsHandler));
 router.patch("/collection-routes/:routeId/dispatch", (0, auth_middleware_1.requireRoles)("company_admin", "supervisor"), run(route_execution_controller_1.dispatchCollectionRouteHandler));

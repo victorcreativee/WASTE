@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { apiRequest } from "@/lib/api";
 import { usePathname } from "next/navigation";
+import { WeighbridgeReconciliation } from "@/components/weighbridge/WeighbridgeReconciliation";
 
 const cityNav:NavItem[] = [
   {group:"Overview",label:"Control room",href:"/dashboard"},
   {group:"Regulation",label:"Permit applications",href:"/dashboard/permits"},
-  {group:"City oversight",label:"Licensed collectors",href:"/dashboard/organizations"},
+  {group:"City oversight",label:"Licensed operators",href:"/dashboard/organizations"},
   {group:"City oversight",label:"Live operations",href:"/dashboard/waste"},
   {group:"City oversight",label:"Weighbridge operations",href:"/dashboard/weighbridge"},
   {group:"City oversight",label:"Issues",href:"/dashboard/citizen-issues"},
@@ -16,7 +17,7 @@ const cityNav:NavItem[] = [
   {group:"City oversight",label:"Collector performance",href:"/dashboard/city-reports"},
   {group:"City oversight",label:"Compliance cases",href:"/dashboard/compliance"},
 ];
-const systemNav:NavItem[]=[{group:"Platform",label:"Platform overview",href:"/dashboard"},{group:"Platform",label:"Account verification",href:"/dashboard/account-verification"},{group:"Platform",label:"Platform packages",href:"/dashboard/platform-packages"},{group:"Platform",label:"Platform users",href:"/dashboard/platform-users"},{group:"Platform",label:"Weighbridge workers",href:"/dashboard/weighbridge-workers"},{group:"Platform",label:"Organizations",href:"/dashboard/organizations"},{group:"Reference",label:"KCCA permit register",href:"/dashboard/permits"},{group:"Reference",label:"Collector performance",href:"/dashboard/city-reports"}];
+const systemNav:NavItem[]=[{group:"Platform",label:"Platform overview",href:"/dashboard"},{group:"Platform",label:"Company applications",href:"/dashboard/account-applications"},{group:"Platform",label:"Account verification",href:"/dashboard/account-verification"},{group:"Platform",label:"Platform packages",href:"/dashboard/platform-packages"},{group:"Platform",label:"Platform users",href:"/dashboard/platform-users"},{group:"Platform",label:"Weighbridge workers",href:"/dashboard/weighbridge-workers"},{group:"Platform",label:"Organizations",href:"/dashboard/organizations"},{group:"Reference",label:"KCCA permit register",href:"/dashboard/permits"},{group:"Reference",label:"Collector performance",href:"/dashboard/city-reports"}];
 type NavItem={label:string;href:string;group?:string};
 const companyNav:NavItem[] = [
   {group:"Overview",label:"Organization overview",href:"/dashboard/company"},
@@ -52,6 +53,19 @@ const supervisorNav:NavItem[] = [
   {group:"Resources",label:"Inventory",href:"/dashboard/inventory"},
   {group:"Insights",label:"Reports",href:"/dashboard/reports"},
 ];
+const recyclingCompanyNav:NavItem[]=[
+  {group:"Overview",label:"Materials & sales",href:"/dashboard/recycling"},
+  {group:"People",label:"Staff management",href:"/dashboard/team"},
+  {group:"Finance",label:"Finance",href:"/dashboard/billing"},
+  {group:"Finance",label:"Payroll",href:"/dashboard/payroll"},
+  {group:"Finance",label:"Accounts payable",href:"/dashboard/accounts-payable"},
+  {group:"Supply",label:"Inventory",href:"/dashboard/inventory"},
+  {group:"Supply",label:"Procurement",href:"/dashboard/procurement"},
+  {group:"Insights",label:"Reports",href:"/dashboard/reports"},
+  {group:"Insights",label:"KCCA compliance",href:"/dashboard/compliance"},
+  {group:"Administration",label:"Access & permissions",href:"/dashboard/access"},
+  {group:"Administration",label:"Company settings",href:"/dashboard/company-settings"},
+];
 const customerNav:NavItem[] = [
   {group:"My service",label:"Service & collections",href:"/dashboard/customer-service"},
   {group:"My service",label:"Billing & payments",href:"/dashboard/billing"},
@@ -59,6 +73,7 @@ const customerNav:NavItem[] = [
 ];
 const driverNav:NavItem[] = [{group:"Today",label:"My route & jobs",href:"/dashboard/driver-mobile"}];
 const weighbridgeNav:NavItem[] = [{group:"Facility operations",label:"Record vehicle",href:"/dashboard/weighbridge/operations"},{group:"Facility operations",label:"Transaction records",href:"/dashboard/weighbridge"}];
+const recyclingWorkerNav:NavItem[] = [{group:"Daily work",label:"Materials & sales",href:"/dashboard/recycling"}];
 
 type CurrentUser = {
   fullName: string;
@@ -91,19 +106,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [storedUser]);
   const [accessUser,setAccessUser]=useState<{user:string;permissions:string[]}|null>(null);
+  const [organizationType,setOrganizationType]=useState("");
   useEffect(()=>{
     let cancelled=false;
-    if(!currentUser?.roles?.some(r=>["company_admin","supervisor","driver","iot_operator"].includes(r)))return;
-    apiRequest<{data:{permissions:string[]}}>("/api/auth/organization-access/me").then(result=>{
+    if(!currentUser?.roles?.some(r=>["company_admin","supervisor","driver","iot_operator","recycling_collector","recycling_sales"].includes(r)))return;
+    if(currentUser.roles.some(r=>["company_admin","supervisor","driver","iot_operator"].includes(r)))apiRequest<{data:{permissions:string[]}}>("/api/auth/organization-access/me").then(result=>{
       if(!cancelled)setAccessUser({user:storedUser,permissions:result.data.permissions});
     }).catch(()=>{if(!cancelled)setAccessUser(null);});
+    apiRequest<{data:{organization:{type:string}}}>("/api/waste/recycling").then(result=>{if(!cancelled)setOrganizationType(result.data.organization.type)}).catch(()=>{if(!cancelled)setOrganizationType("")});
     return()=>{cancelled=true;};
   },[currentUser,storedUser,pathname]);
+  const recyclingWorkspace=organizationType==="recycling_company";
   const primaryNavItems = currentUser?.roles?.includes("weighbridge_operator") ? weighbridgeNav
     : currentUser?.roles?.includes("driver") ? driverNav
     : currentUser?.roles?.includes("citizen") ? customerNav
-    : currentUser?.roles?.includes("company_admin") ? companyNav
-    : currentUser?.roles?.includes("supervisor") ? supervisorNav
+    : currentUser?.roles?.some(role=>["recycling_collector","recycling_sales"].includes(role)) ? recyclingWorkerNav
+    : currentUser?.roles?.includes("company_admin") ? (recyclingWorkspace?recyclingCompanyNav:companyNav)
+    : currentUser?.roles?.includes("supervisor") ? (recyclingWorkspace?recyclingCompanyNav:supervisorNav)
     : currentUser?.roles?.includes("system_admin") ? systemNav : cityNav;
   const grants=accessUser?.user===storedUser?accessUser.permissions:[];
   const visibleNavItems:NavItem[]=primaryNavItems.filter(item=>
@@ -118,7 +137,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   },[]);
   const activeNavItem=[...visibleNavItems].sort((a,b)=>b.href.length-a.href.length).find(item=>pathname===item.href||pathname.startsWith(`${item.href}/`));
   const productName = currentUser?.roles?.includes("weighbridge_operator") ? "KCCA Weighbridge"
-    : currentUser?.roles?.includes("company_admin") ? "Organization Operations"
+    : currentUser?.roles?.includes("recycling_collector") ? "Material Collection"
+    : currentUser?.roles?.includes("recycling_sales") ? "Industrial Sales"
+    : recyclingWorkspace ? "Recycling Operations"
+    : currentUser?.roles?.includes("company_admin") ? "Waste Collection Operations"
     : currentUser?.roles?.includes("supervisor") ? "Field Control"
     : currentUser?.roles?.includes("driver") ? "Driver Workspace"
     : currentUser?.roles?.includes("citizen") ? "Customer Services"
@@ -217,7 +239,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
         </details>
 
-        <section className="p-4 md:p-8">{children}</section>
+        <section className="p-4 md:p-8">{children}{pathname==="/dashboard/weighbridge"&&<WeighbridgeReconciliation roles={currentUser?.roles||[]}/>}</section>
       </main>
     </div>
   );

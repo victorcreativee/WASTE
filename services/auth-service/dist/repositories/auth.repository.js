@@ -65,7 +65,7 @@ async function createOrganizationApplicant(data, passwordHash) {
         const role = await client.query("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='organization_applicant' RETURNING user_id", [user.rows[0].id]);
         if (!role.rowCount)
             throw Object.assign(new Error("Applicant registration is not configured"), { statusCode: 503 });
-        await client.query("INSERT INTO organization_applicant_profiles(user_id,company_name,registration_number) VALUES($1,$2,$3)", [user.rows[0].id, data.companyName, data.registrationNumber]);
+        await client.query("INSERT INTO organization_applicant_profiles(user_id,company_name,registration_number,company_type) VALUES($1,$2,$3,$4)", [user.rows[0].id, data.companyName, data.registrationNumber, data.companyType]);
         await client.query("COMMIT");
         return user.rows[0];
     }

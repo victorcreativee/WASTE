@@ -1,5 +1,34 @@
 import { dbPool } from "../config/database";
 
+export async function findDriverDashboard(userId:string){
+  const driver=(await dbPool.query(`SELECT d.id,d.full_name,d.status FROM drivers d WHERE d.user_id=$1::uuid`,[userId])).rows[0];
+  if(!driver)return null;
+  const [routes,households,problems,recent]=await Promise.all([
+    dbPool.query(`SELECT COUNT(*)::int total_trips,COUNT(*) FILTER(WHERE route_date=CURRENT_DATE)::int trips_today,
+      COUNT(*) FILTER(WHERE status='in_progress')::int in_progress,
+      COUNT(*) FILTER(WHERE status='completed')::int completed_trips,
+      COALESCE(SUM(verified_weight_kg) FILTER(WHERE status='completed'),0)::numeric verified_weight_kg
+      FROM collection_routes WHERE driver_id=$1::uuid`,[driver.id]),
+    dbPool.query(`SELECT COUNT(cs.id)::int total_households,
+      COUNT(cs.id) FILTER(WHERE cs.status='completed')::int collected_households,
+      COUNT(cs.id) FILTER(WHERE cs.status='skipped')::int not_collected_households
+      FROM collection_routes cr LEFT JOIN collection_route_jobs crj ON crj.route_id=cr.id
+      LEFT JOIN customer_collection_stops cs ON cs.collection_job_id=crj.job_id WHERE cr.driver_id=$1::uuid`,[driver.id]),
+    dbPool.query(`SELECT COUNT(*)::int open_problems FROM driver_job_problems p
+      JOIN collection_jobs j ON j.id=p.job_id WHERE j.driver_id=$1::uuid AND p.status<>'resolved'`,[driver.id]),
+    dbPool.query(`SELECT cr.id,cr.trip_number,cr.name route_name,cr.route_date::text route_date,cr.status,
+      wt.plate_number,cr.verified_weight_kg,
+      COUNT(cs.id)::int customer_count,COUNT(cs.id) FILTER(WHERE cs.status='completed')::int collected_count,
+      COUNT(cs.id) FILTER(WHERE cs.status='skipped')::int not_collected_count
+      FROM collection_routes cr LEFT JOIN waste_trucks wt ON wt.id=cr.truck_id
+      LEFT JOIN collection_route_jobs crj ON crj.route_id=cr.id
+      LEFT JOIN customer_collection_stops cs ON cs.collection_job_id=crj.job_id
+      WHERE cr.driver_id=$1::uuid GROUP BY cr.id,wt.plate_number
+      ORDER BY cr.route_date DESC,cr.created_at DESC LIMIT 10`,[driver.id])
+  ]);
+  return{driver,summary:{...routes.rows[0],...households.rows[0],...problems.rows[0]},recent_trips:recent.rows};
+}
+
 export async function dispatchCollectionRoute(routeId: string, organizationId: string) {
   const client = await dbPool.connect();
   try {
@@ -128,12 +157,15 @@ export async function findDriverRoutes(driverId: string, organizationId: string 
        cr.estimated_duration_minutes, cr.started_at, cr.completed_at,cr.cancelled_at,
        cr.cancellation_reason,cr.cancellation_notes,
        wt.plate_number, wt.truck_name, d.full_name AS driver_name,
-       COUNT(crj.id)::int AS stop_count,
-       COUNT(crj.id) FILTER (WHERE crj.status = 'completed')::int AS completed_stop_count
+       COUNT(DISTINCT crj.id)::int AS stop_count,
+       COUNT(DISTINCT crj.id) FILTER (WHERE crj.status = 'completed')::int AS completed_stop_count,
+       COUNT(customer_stop.id)::int AS customer_count,
+       COUNT(customer_stop.id) FILTER (WHERE customer_stop.status = 'completed')::int AS collected_customer_count
      FROM collection_routes cr
      JOIN drivers d ON d.id = cr.driver_id
      LEFT JOIN waste_trucks wt ON wt.id = cr.truck_id
      LEFT JOIN collection_route_jobs crj ON crj.route_id = cr.id
+     LEFT JOIN customer_collection_stops customer_stop ON customer_stop.collection_job_id=crj.job_id
      WHERE ($1::uuid IS NULL OR cr.organization_id = $1::uuid)
        AND ($2::uuid IS NULL OR d.user_id = $2::uuid)
        AND ($2::uuid IS NOT NULL OR cr.driver_id = NULLIF($3, '')::uuid)
@@ -245,7 +277,28 @@ export async function completeRouteStop(
       [stopId, userId, input.collectedWeightKg ?? null, input.completionNotes ?? null, input.evidenceUrl ?? null]
     );
     const stop = result.rows[0];
-    if (!stop) { await client.query("ROLLBACK"); return null; }
+    if (!stop) {
+      const blocked = await client.query(
+        `SELECT crj.status,
+           COUNT(cs.id) FILTER (WHERE cs.status NOT IN ('completed','skipped','cancelled'))::int AS unresolved_customers
+         FROM collection_route_jobs crj
+         JOIN collection_routes cr ON cr.id=crj.route_id
+         JOIN drivers d ON d.id=cr.driver_id
+         LEFT JOIN customer_collection_stops cs ON cs.collection_job_id=crj.job_id
+         WHERE crj.id=$1::uuid AND d.user_id=$2::uuid AND cr.status='in_progress'
+         GROUP BY crj.status`,
+        [stopId, userId]
+      );
+      const reason = blocked.rows[0];
+      await client.query("ROLLBACK");
+      if (reason?.unresolved_customers > 0) {
+        throw Object.assign(
+          new Error(`Record an outcome for all ${reason.unresolved_customers} remaining customer ${reason.unresolved_customers === 1 ? "pickup" : "pickups"} before completing this stop`),
+          { statusCode: 409 }
+        );
+      }
+      return null;
+    }
     await client.query(
       `UPDATE collection_jobs SET status = 'completed', collected_weight_kg = COALESCE($2, collected_weight_kg),
        completed_at = CURRENT_TIMESTAMP, notes = COALESCE($3, notes), updated_at = CURRENT_TIMESTAMP
@@ -260,6 +313,13 @@ export async function completeRouteStop(
       await client.query(
         `UPDATE collection_routes SET status = 'completed', completed_at = CURRENT_TIMESTAMP,
          updated_at = CURRENT_TIMESTAMP WHERE id = $1::uuid`, [stop.route_id]
+      );
+      await client.query(
+        `UPDATE collection_routes route SET weighbridge_ticket_number=w.ticket_number,
+         weighbridge_facility=w.facility,verified_weight_kg=w.net_kg,
+         weight_verified_at=COALESCE(w.departure_at,w.updated_at),weight_verified_by=w.updated_by,
+         updated_at=CURRENT_TIMESTAMP FROM weighbridge_transactions w
+         WHERE route.id=$1::uuid AND w.trip_id=route.id AND w.status='completed'`, [stop.route_id]
       );
       await client.query(
         `UPDATE waste_trucks wt SET status='available',updated_at=CURRENT_TIMESTAMP

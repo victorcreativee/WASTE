@@ -13,5 +13,6 @@ r.get("/weighbridge/transactions", (0, auth_middleware_1.requireRoles)("company_
 r.get("/weighbridge/vehicles", (0, auth_middleware_1.requireRoles)("weighbridge_operator"), run(weighbridge_controller_1.getWeighbridgeVehicles));
 r.post("/weighbridge/transactions", (0, auth_middleware_1.requireRoles)("weighbridge_operator"), run(weighbridge_controller_1.postWeighbridge));
 r.patch("/weighbridge/transactions/:id/complete", (0, auth_middleware_1.requireRoles)("weighbridge_operator"), run(weighbridge_controller_1.patchWeighbridgeComplete));
+r.patch("/weighbridge/transactions/:id/link-trip", (0, auth_middleware_1.requireRoles)("kcca_admin", "weighbridge_operator"), run(weighbridge_controller_1.patchWeighbridgeLinkTrip));
 r.patch("/weighbridge/transactions/:id/void", (0, auth_middleware_1.requireRoles)("weighbridge_operator"), run(weighbridge_controller_1.patchWeighbridgeVoid));
 exports.default = r;

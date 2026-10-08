@@ -35,6 +35,8 @@ const platform_onboarding_routes_1 = __importDefault(require("./routes/platform-
 const service_route_routes_1 = __importDefault(require("./routes/service-route.routes"));
 const trip_routes_1 = __importDefault(require("./routes/trip.routes"));
 const weighbridge_routes_1 = __importDefault(require("./routes/weighbridge.routes"));
+const compliance_routes_1 = __importDefault(require("./routes/compliance.routes"));
+const recycling_routes_1 = __importDefault(require("./routes/recycling.routes"));
 const app = (0, express_1.default)();
 app.use((0, helmet_1.default)());
 app.use((0, cors_1.default)());
@@ -56,6 +58,8 @@ app.use("/api/waste", customer_stop_routes_1.default);
 app.use("/api/waste", service_route_routes_1.default);
 app.use("/api/waste", trip_routes_1.default);
 app.use("/api/waste", weighbridge_routes_1.default);
+app.use("/api/waste", compliance_routes_1.default);
+app.use("/api/waste", recycling_routes_1.default);
 app.use("/api/waste", route_execution_routes_1.default);
 app.use("/api/waste", billing_routes_1.default);
 app.use("/api/waste", fleet_routes_1.default);
@@ -95,6 +99,12 @@ app.use((error, req, res, next) => {
                     ? "This trip already has an active weighbridge ticket"
                     : "This information is already registered";
         return res.status(409).json({ success: false, message });
+    }
+    if (["22P02", "23502", "23514", "42P08"].includes(error.code || "")) {
+        return res.status(400).json({
+            success: false,
+            message: "This record could not be saved. Check the entered values and try again.",
+        });
     }
     return res.status(error.statusCode || 400).json({
         success: false,

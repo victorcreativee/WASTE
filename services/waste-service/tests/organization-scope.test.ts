@@ -22,6 +22,12 @@ for (const role of ["company_admin", "supervisor"]) {
     assert.throws(() => requireOrganizationScope(request(role, null)), { statusCode: 403 });
   });
 }
+for (const role of ["recycling_collector", "recycling_sales"]) {
+  test(`${role} is restricted to its recycling company`, () => {
+    assert.equal(requireOrganizationScope(request(role, "recycling-tenant")), "recycling-tenant");
+    assert.throws(() => requireOrganizationScope(request(role, null)), { statusCode: 403 });
+  });
+}
 for (const role of ["kcca_admin", "system_admin"]) {
   test(`${role} has explicit city scope but no default private scope`, () => {
     assert.equal(operationalOrganizationScope(request(role, null)), null);

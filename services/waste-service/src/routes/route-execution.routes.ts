@@ -4,6 +4,7 @@ import {
   cancelCollectionRouteHandler,
   completeRouteStopHandler,
   dispatchCollectionRouteHandler,
+  getDriverDashboardHandler,
   getDriverRouteDetailsHandler,
   getDriverRoutesHandler,
   startDriverRouteHandler,
@@ -17,6 +18,7 @@ const run = (handler: (req: Request, res: Response) => Promise<unknown>) => asyn
 const canMonitor = requireRoles("driver", "company_admin", "supervisor", "kcca_admin", "system_admin");
 
 router.get("/driver/routes", canMonitor, run(getDriverRoutesHandler));
+router.get("/driver/dashboard", requireRoles("driver"), run(getDriverDashboardHandler));
 router.get("/drivers/:driverId/routes", canMonitor, run(getDriverRoutesHandler));
 router.get("/driver-routes/:routeId", canMonitor, run(getDriverRouteDetailsHandler));
 router.patch("/collection-routes/:routeId/dispatch", requireRoles("company_admin", "supervisor"), run(dispatchCollectionRouteHandler));

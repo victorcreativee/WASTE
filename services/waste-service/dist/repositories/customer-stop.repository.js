@@ -71,7 +71,7 @@ async function updateCustomerStop(id, userId, input) {
         }
         if (!['in_progress'].includes(stop.job_status))
             throw Object.assign(new Error('Start the assigned collection job before updating household stops'), { statusCode: 409 });
-        const valid = input.action === 'arrive' && stop.route_stop_status === 'arrived' && stop.status === 'pending' || input.action === 'complete' && stop.route_stop_status === 'arrived' && stop.status === 'arrived' || input.action === 'skip' && stop.route_stop_status === 'arrived' && ['pending', 'arrived'].includes(stop.status);
+        const valid = input.action === 'arrive' && stop.route_stop_status === 'arrived' && stop.status === 'pending' || input.action === 'complete' && stop.route_stop_status === 'arrived' && ['pending', 'arrived'].includes(stop.status) || input.action === 'skip' && stop.route_stop_status === 'arrived' && ['pending', 'arrived'].includes(stop.status);
         if (!valid)
             throw Object.assign(new Error('Household stop action is not valid from its current status'), { statusCode: 409 });
         const status = input.action === 'arrive' ? 'arrived' : input.action === 'complete' ? 'completed' : 'skipped';

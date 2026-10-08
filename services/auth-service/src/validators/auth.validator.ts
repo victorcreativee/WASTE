@@ -14,6 +14,7 @@ export const loginSchema = z.object({
 });
 
 export const organizationApplicantRegisterSchema = z.object({
+  companyType: z.enum(["waste_collection_company", "recycling_company"]),
   companyName: z.string().trim().min(2).max(150),
   registrationNumber: z.string().trim().toUpperCase().min(3).max(50).regex(/^[A-Z0-9][A-Z0-9 .\/-]*$/, "Use a valid company registration number"),
   fullName: z.string().trim().min(2).max(150).regex(/^[\p{L}][\p{L} .'-]*$/u, "Enter a valid contact name"),
@@ -28,7 +29,7 @@ export const createOrganizationUserSchema = z.object({
   email: z.string().email(),
   phone: z.string().trim().max(50).optional(),
   password: z.string().min(8).max(128),
-  role: z.enum(["supervisor", "driver"]),
+  role: z.enum(["supervisor", "driver", "recycling_collector", "recycling_sales"]),
   licenseNumber: z.string().trim().max(100).optional(),
 });
 

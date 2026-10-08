@@ -73,6 +73,8 @@ type Expense = {
   expense_date: string;
   status: string;
   reference: string | null;
+  read_only?: boolean;
+  source_type?: string;
 };
 type Expenses = {
   summary: {
@@ -96,6 +98,16 @@ type FinancialPosition = {
   cash_position_ugx: string;
   committed_funds_ugx: string;
   available_to_commit_ugx: string;
+  service_receipts_ugx?: string;
+  recycling_receipts_ugx?: string;
+  recycling_receivables_ugx?: string;
+  recycling_purchase_payments_ugx?: string;
+  recycling_float_spent_ugx?: string;
+  recycling_processing_payments_ugx?: string;
+  recycling_sale_cost_payments_ugx?: string;
+  recycling_payables_ugx?: string;
+  recycling_overdue_receivables_ugx?: string;
+  recycling_overdue_payables_ugx?: string;
 };
 type Response<T> = { data: T; message: string };
 function roles() {
@@ -160,6 +172,7 @@ export default function BillingPage() {
     available_to_commit_ugx: "0",
   });
   const [balanceOpen, setBalanceOpen] = useState(false);
+  const [organizationType, setOrganizationType] = useState("");
   const [financeTab, setFinanceTab] = useState<"income" | "expenses">("income");
   const [planForm, setPlanForm] = useState({
     name: "",
@@ -196,6 +209,12 @@ export default function BillingPage() {
     setPlans(p.data);
     setOverview(o.data);
     if (!isCustomer) {
+      if (hasOrganizationContext) {
+        const context = await apiRequest<{ data: { organization: { type: string } } }>(
+          "/api/waste/recycling",
+        );
+        setOrganizationType(context.data.organization.type);
+      }
       const x = await apiRequest<Response<Expenses>>(
         "/api/waste/finance/expenses",
       );
@@ -505,6 +524,7 @@ export default function BillingPage() {
     () => overview.invoices.reduce((sum, i) => sum + Number(i.balance_ugx), 0),
     [overview.invoices],
   );
+  const isRecycling = organizationType === "recycling_company";
   const dueSubscriptions = useMemo(() => {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
@@ -555,14 +575,14 @@ export default function BillingPage() {
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl">
-        <PageHeader eyebrow={isCustomer?"My service":"Organization revenue"} title={isCustomer?"Billing and payments":"Income & billing"} description={isCustomer?"Review your service fee, invoices, balance, and confirmed payments.":"Manage service packages, subscriptions, invoices, payments, and operating expenses."}/>
+        <PageHeader eyebrow={isCustomer?"My service":isRecycling?"Organization finance":"Organization revenue"} title={isCustomer?"Billing and payments":isRecycling?"Finance":"Income & billing"} description={isCustomer?"Review your service fee, invoices, balance, and confirmed payments.":isRecycling?"Track industrial sales, received income, material purchases, operating expenses, receivables and payables from one connected ledger.":"Manage service packages, subscriptions, invoices, payments, and operating expenses."}/>
           {!isCustomer && (
             <nav aria-label="Finance sections" className="flex gap-6 border-b border-slate-300 pt-5">
               <button
                 onClick={() => setFinanceTab("income")}
                 className={`border-b-2 pb-2 text-sm font-bold ${financeTab === "income" ? "border-[#3156a3] text-[#3156a3]" : "border-transparent text-slate-500"}`}
               >
-                Income & billing
+                {isRecycling ? "Income & receivables" : "Income & billing"}
               </button>
               <button
                 onClick={() => setFinanceTab("expenses")}
@@ -574,7 +594,7 @@ export default function BillingPage() {
           )}
         {error&&<Feedback tone="error">{error}</Feedback>}
         {message&&<Feedback tone="success">{message}</Feedback>}
-        {!loading&&isCompanyAdmin&&plans.length===0&&<section className="mt-8 border-y border-slate-300 py-6"><p className="text-xs font-semibold uppercase tracking-[.14em] text-[#3156a3]">Required before contracts</p><div className="mt-2 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h2 className="text-xl font-semibold">Create your first service package</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">A package defines the price, billing period, included collections and response target. Contracts can only use a package created here.</p></div><button onClick={openCreatePlan} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">Create service package</button></div></section>}
+        {!loading&&!isRecycling&&isCompanyAdmin&&plans.length===0&&<section className="mt-8 border-y border-slate-300 py-6"><p className="text-xs font-semibold uppercase tracking-[.14em] text-[#3156a3]">Required before contracts</p><div className="mt-2 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h2 className="text-xl font-semibold">Create your first service package</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">A package defines the price, billing period, included collections and response target. Contracts can only use a package created here.</p></div><button onClick={openCreatePlan} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">Create service package</button></div></section>}
         {hasOrganizationContext && (
           <Modal
             open={balanceOpen}
@@ -671,7 +691,7 @@ export default function BillingPage() {
                     value={money(position.committed_funds_ugx)}
                   />
                   <Metric
-                    label="Customer receivables"
+                    label={isRecycling ? "Trade receivables" : "Customer receivables"}
                     value={money(position.receivables_ugx)}
                   />
                 </div>
@@ -680,14 +700,17 @@ export default function BillingPage() {
                   opening + {money(position.customer_receipts_ugx)} received −{" "}
                   {money(position.operating_payments_ugx)} operating/payroll −{" "}
                   {money(position.supplier_payments_ugx)} supplier payments.
-                  {" "}Committed funds include approved expenses and payroll,
-                  supplier bills, and issued purchase orders not yet billed.
+                  {" "}Committed funds include approved expenses, payroll,
+                  supplier bills, issued purchase orders, and unpaid recycling material purchases.
                 </p>
                 {Number(position.cash_position_ugx)<0&&<p className="border-l-4 border-red-600 bg-red-50 p-4 text-sm text-red-800"><strong>Cash deficit:</strong> recorded payments since the opening date exceed the opening balance and received income by {money(Math.abs(Number(position.cash_position_ugx)))}. New approvals and payments are blocked until the balance is corrected with verified funds or the underlying records are corrected.</p>}
                 {Number(position.cash_position_ugx)>=0&&Number(position.available_to_commit_ugx)<0&&<p className="border-l-4 border-amber-500 bg-amber-50 p-4 text-sm text-amber-900"><strong>Overcommitted:</strong> approved obligations exceed cash by {money(Math.abs(Number(position.available_to_commit_ugx)))}. New approvals are blocked until commitments are voided, paid from additional verified funds, or the balance is corrected.</p>}
               </section>
             )}
-            {financeTab === "income" && (
+            {financeTab === "income" && isRecycling && (
+              <RecyclingFinanceSummary position={position} />
+            )}
+            {financeTab === "income" && !isRecycling && (
               <>
                 <section className="grid gap-px border-y border-slate-300 bg-slate-300 sm:grid-cols-3 mt-8">
                   {[
@@ -1560,6 +1583,63 @@ export default function BillingPage() {
   );
 }
 
+function RecyclingFinanceSummary({ position }: { position: FinancialPosition }) {
+  const operating =
+    Number(position.recycling_purchase_payments_ugx || 0) +
+    Number(position.recycling_float_spent_ugx || 0) +
+    Number(position.recycling_processing_payments_ugx || 0) +
+    Number(position.recycling_sale_cost_payments_ugx || 0);
+  return (
+    <div className="py-8">
+      <div className="border-b pb-3">
+        <p className="text-xs font-semibold uppercase tracking-[.14em] text-[#3156a3]">
+          Recycling trade ledger
+        </p>
+        <h2 className="mt-1 text-xl font-semibold">Industrial income and costs</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          These totals come directly from Materials & sales. Do not enter them again as manual income or expenses.
+        </p>
+      </div>
+      <section className="grid border-b border-slate-300 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric label="Sales income received" value={money(position.recycling_receipts_ugx || 0)} />
+        <Metric label="Industrial receivables" value={money(position.recycling_receivables_ugx || 0)} />
+        <Metric label="Paid recycling costs" value={money(operating)} />
+        <Metric label="Material purchases payable" value={money(position.recycling_payables_ugx || 0)} />
+      </section>
+      {(Number(position.recycling_overdue_receivables_ugx || 0) > 0 || Number(position.recycling_overdue_payables_ugx || 0) > 0) && (
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <div className="border-l-2 border-red-600 bg-red-50 p-4 text-sm"><strong>Overdue industrial invoices:</strong> {money(position.recycling_overdue_receivables_ugx || 0)}</div>
+          <div className="border-l-2 border-[#c6842f] bg-amber-50 p-4 text-sm"><strong>Overdue supplier purchases:</strong> {money(position.recycling_overdue_payables_ugx || 0)}</div>
+        </div>
+      )}
+      <div className="mt-7 grid gap-5 lg:grid-cols-2">
+        <section className="border border-slate-200 p-5">
+          <h3 className="font-semibold">Cash inflow</h3>
+          <p className="mt-1 text-sm text-slate-500">Only industrial sales marked paid are included in cash.</p>
+          <div className="mt-4 border-t pt-3">
+            <FinanceRow label="Paid industrial sales" value={position.recycling_receipts_ugx || 0} />
+            <FinanceRow label="Still to collect" value={position.recycling_receivables_ugx || 0} />
+          </div>
+        </section>
+        <section className="border border-slate-200 p-5">
+          <h3 className="font-semibold">Cash outflow</h3>
+          <p className="mt-1 text-sm text-slate-500">Automatically connected to the expense register and cash position.</p>
+          <div className="mt-4 border-t pt-3">
+            <FinanceRow label="Material purchases paid" value={position.recycling_purchase_payments_ugx || 0} />
+            <FinanceRow label="Manager float spent" value={position.recycling_float_spent_ugx || 0} />
+            <FinanceRow label="Sorting and processing" value={position.recycling_processing_payments_ugx || 0} />
+            <FinanceRow label="Industrial sale costs" value={position.recycling_sale_cost_payments_ugx || 0} />
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function FinanceRow({ label: rowLabel, value }: { label: string; value: string | number }) {
+  return <div className="flex justify-between gap-4 border-b py-3 text-sm last:border-0"><span className="text-slate-600">{rowLabel}</span><strong>{money(value)}</strong></div>;
+}
+
 function ExpenseWorkspace({
   data,
   canApprove,
@@ -1742,7 +1822,7 @@ function ExpenseWorkspace({
                 </thead>
                 <tbody>
                   {pages.paged.map((x) => (
-                    <tr key={x.id}>
+                    <tr key={`${x.source_type || "expense"}-${x.id}`}>
                       <td>
                         <p className="table-primary">
                           {new Date(x.expense_date).toLocaleDateString("en-GB")}
@@ -1762,8 +1842,9 @@ function ExpenseWorkspace({
                       </td>
                       <td>
                         <Status value={x.status} />
+                        {x.read_only && <p className="table-secondary mt-1">Automatic</p>}
                       </td>
-                      {canApprove && (
+                      {canApprove && !x.read_only && (
                         <td>
                           <div className="table-actions">
                             {x.status === "draft" && (
@@ -1812,6 +1893,7 @@ function ExpenseWorkspace({
                           </div>
                         </td>
                       )}
+                      {canApprove && x.read_only && <td className="text-right text-xs text-slate-500">Managed from Materials & sales</td>}
                     </tr>
                   ))}
                 </tbody>

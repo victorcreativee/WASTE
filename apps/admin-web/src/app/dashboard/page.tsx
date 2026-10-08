@@ -148,12 +148,12 @@ export default function DashboardPage() {
 
           <aside className="border-l border-slate-200 pl-8">
             <h2 className="border-b border-slate-300 pb-3 text-xl font-semibold text-slate-950">City readiness</h2>
-            <dl className="divide-y divide-slate-200 border-b border-slate-200">{[["Licensed collectors",organizations.filter(item=>item.is_active).length],["Zones covered",summary.zones_covered],["Customers served",summary.total_customers]].map(([label,value])=><div key={label} className="flex items-center justify-between py-4"><dt className="text-sm text-slate-600">{label}</dt><dd className="font-semibold text-slate-950">{value}</dd></div>)}</dl>
+            <dl className="divide-y divide-slate-200 border-b border-slate-200">{[["Licensed operators",organizations.filter(item=>item.is_active&&["waste_collection_company","recycling_company"].includes(item.type)).length],["Waste collectors",organizations.filter(item=>item.is_active&&item.type==="waste_collection_company").length],["Recycling companies",organizations.filter(item=>item.is_active&&item.type==="recycling_company").length],["Zones covered",summary.zones_covered],["Customers served",summary.total_customers]].map(([label,value])=><div key={label} className="flex items-center justify-between py-4"><dt className="text-sm text-slate-600">{label}</dt><dd className="font-semibold text-slate-950">{value}</dd></div>)}</dl>
             {isCityController && <>
             <div className="mt-8 flex items-center justify-between border-b border-slate-300 pb-3">
               <div>
                 <h2 className="text-xl font-semibold text-slate-950">
-                  Licensed collectors
+                  Licensed operators
                 </h2>
                 <p className="mt-2 text-sm text-slate-500">
                   Latest organizations added.

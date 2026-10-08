@@ -5,6 +5,7 @@ import {
   cancelCollectionRoute,
   completeRouteStop,
   dispatchCollectionRoute,
+  findDriverDashboard,
   findDriverRouteDetails,
   findDriverRoutes,
   startDriverRoute,
@@ -17,6 +18,12 @@ function scope(req: Request) {
   return auth.roles.some((role) => ["company_admin", "supervisor"].includes(role)) ? auth.organizationId : null;
 }
 function driverUserId(req: Request) { return identity(req).roles.includes("driver") ? identity(req).userId : null; }
+
+export async function getDriverDashboardHandler(req:Request,res:Response){
+  const data=await findDriverDashboard(identity(req).userId);
+  if(!data)return res.status(404).json({success:false,message:"Driver profile is not connected to this account"});
+  return res.json({success:true,message:"Driver dashboard fetched",data});
+}
 
 export async function dispatchCollectionRouteHandler(req: Request, res: Response) {
   const organizationId = identity(req).organizationId!;

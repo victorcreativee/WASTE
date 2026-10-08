@@ -22,6 +22,7 @@ type Issue = {
 type Organization = { id: string; name: string; type: string };
 type CollectionException={id:string;customer_name:string;address:string;zone_id:string;zone_name:string;scheduled_date:string;exception_reason:string;exception_notes:string|null;exception_review_status:string};
 type CollectionJob={id:string;zone_id:string;zone_name:string;job_date:string;status:string};
+type DriverProblem={id:string;category:string;description:string;status:string;zone_name:string|null;driver_name:string;plate_number:string|null};
 type ListResponse<T> = { data: T[] };
 
 function storedRoles() {
@@ -43,6 +44,7 @@ export default function CitizenIssuesPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [exceptions,setExceptions]=useState<CollectionException[]>([]),[reviewing,setReviewing]=useState<CollectionException|null>(null);
   const [collectionJobs,setCollectionJobs]=useState<CollectionJob[]>([]);
+  const [driverProblems,setDriverProblems]=useState<DriverProblem[]>([]);
   const [exceptionAction,setExceptionAction]=useState<"resolve"|"reschedule">("reschedule");
   const [targetJobId,setTargetJobId]=useState("");
   const [assignments, setAssignments] = useState<Record<string, string>>({});
@@ -73,7 +75,8 @@ export default function CitizenIssuesPage() {
     }
     if(isCompany)requests.push(
       apiRequest<ListResponse<CollectionException>>("/api/waste/customer-collection-stops").then(response=>setExceptions(response.data.filter(item=>item.exception_review_status==="pending"))),
-      apiRequest<ListResponse<CollectionJob>>("/api/waste/collection-jobs").then(response=>setCollectionJobs(response.data))
+      apiRequest<ListResponse<CollectionJob>>("/api/waste/collection-jobs").then(response=>setCollectionJobs(response.data)),
+      apiRequest<ListResponse<DriverProblem>>("/api/waste/driver-job-problems").then(response=>setDriverProblems(response.data))
     );
     Promise.all(requests)
       .catch((error: unknown) => setError(error instanceof Error ? error.message : "Failed to load citizen issues"))
@@ -116,6 +119,12 @@ export default function CitizenIssuesPage() {
     finally { setSaving(false); }
   }
 
+  async function updateDriverProblem(problemId:string,status:"acknowledged"|"resolved"){
+    try{setSaving(true);setError("");setMessage("");await apiRequest(`/api/waste/driver-job-problems/${problemId}`,{method:"PATCH",body:JSON.stringify({status})});setDriverProblems(current=>current.map(item=>item.id===problemId?{...item,status}:item));setMessage(status==="resolved"?"Driver problem resolved.":"Driver problem acknowledged for follow-up.");}
+    catch(error){setError(error instanceof Error?error.message:"Could not update driver problem");}
+    finally{setSaving(false)}
+  }
+
   async function reviewCollectionException(event:FormEvent<HTMLFormElement>){event.preventDefault();if(!reviewing||exceptionAction==="reschedule"&&!targetJobId)return;const form=new FormData(event.currentTarget);try{setSaving(true);setError("");await apiRequest(`/api/waste/customer-collection-stops/${reviewing.id}/exception`,{method:"PATCH",body:JSON.stringify({action:exceptionAction,reviewNotes:form.get("reviewNotes"),...(exceptionAction==="reschedule"?{targetJobId}:{})})});setMessage(exceptionAction==="reschedule"?"Missed collection assigned to the selected future job.":"Missed collection reviewed and closed.");setExceptions(current=>current.filter(item=>item.id!==reviewing.id));closeExceptionReview();}catch(error){setError(error instanceof Error?error.message:"Could not update the collection exception")}finally{setSaving(false)}}
 
   function openExceptionReview(item:CollectionException){setReviewing(item);setExceptionAction("reschedule");setTargetJobId("");setError("");}
@@ -124,8 +133,10 @@ export default function CitizenIssuesPage() {
 
   return <AppShell><div className="mx-auto max-w-7xl">
     <OrganizationWorkspaceNav/>
-    <PageHeader eyebrow="Citizen service" title="Issues and pickup requests" description={isCitizen?"Report a waste problem and follow what happens next.":"Prioritize reports, assign responsibility and keep residents informed."}/>
+    <PageHeader eyebrow={isCitizen?"Citizen service":"Operations follow-up"} title={isCitizen?"Issues and pickup requests":"Service issues"} description={isCitizen?"Report a waste problem and follow what happens next.":isCompany?"Review citizen requests, driver blockers and missed pickups in one operational queue.":"Prioritize reports, assign responsibility and keep residents informed."}/>
     {error&&<Feedback tone="error">{error}</Feedback>}{message&&<Feedback tone="success">{message}</Feedback>}
+
+    {isCompany&&<section className="mt-7 grid border-y border-slate-300 sm:grid-cols-3"><Metric label="Citizen reports" value={issues.filter(item=>item.status!=="resolved").length}/><Metric label="Driver problems" value={driverProblems.filter(item=>item.status!=="resolved").length}/><Metric label="Missed pickups" value={exceptions.length}/></section>}
 
     <div className={`grid gap-8 py-8 ${isCitizen ? "lg:grid-cols-[380px_1fr]" : ""}`}>
       {isCitizen && <form onSubmit={submitIssue} className="h-fit border border-slate-200 bg-white p-6">
@@ -154,7 +165,8 @@ export default function CitizenIssuesPage() {
           </tr>)}</tbody></table></div>}
       </section>
     </div>
-    {isCompany&&<section className="mb-8"><div className="border-b border-slate-300 pb-4"><h2 className="text-xl font-semibold">Missed collection review</h2><p className="mt-1 text-sm text-slate-500">Driver-reported collection failures stay here until operations records the follow-up.</p></div>{exceptions.length?<div className="table-wrap"><table className="min-w-[760px] text-left"><thead><tr><th>Customer</th><th>Service area</th><th>Reason</th><th>Date</th><th className="text-right">Action</th></tr></thead><tbody>{exceptions.map(item=><tr key={item.id}><td><p className="table-primary">{item.customer_name}</p><p className="table-secondary">{item.address}</p></td><td>{item.zone_name}</td><td><p className="capitalize">{label(item.exception_reason)}</p><p className="table-secondary">{item.exception_notes||"No driver note"}</p></td><td>{new Date(item.scheduled_date).toLocaleDateString("en-GB")}</td><td className="text-right"><button type="button" onClick={()=>openExceptionReview(item)} className="border border-[#3156a3] px-3 py-2 text-xs font-semibold text-[#3156a3]">Review</button></td></tr>)}</tbody></table></div>:<EmptyState title="No missed collections awaiting review" description="Driver exceptions will appear here automatically."/>}</section>}
+    {isCompany&&<section className="mb-8"><div className="border-b border-slate-300 pb-4"><h2 className="text-xl font-semibold">Driver problems</h2><p className="mt-1 text-sm text-slate-500">Operational blockers reported from active trips.</p></div>{driverProblems.length?<div className="table-wrap"><table className="min-w-[820px] text-left"><thead><tr><th>Problem</th><th>Service area</th><th>Driver / vehicle</th><th>Status</th><th className="text-right">Action</th></tr></thead><tbody>{driverProblems.map(item=><tr key={item.id}><td><p className="table-primary capitalize">{label(item.category)}</p><p className="table-secondary">{item.description}</p></td><td>{item.zone_name||"Not recorded"}</td><td>{item.driver_name} · {item.plate_number||"No vehicle"}</td><td><Status value={item.status}/></td><td><div className="table-actions">{item.status==="open"&&<button disabled={saving} onClick={()=>void updateDriverProblem(item.id,"acknowledged")} className="border px-3 py-2 text-xs font-semibold">Acknowledge</button>}{item.status!=="resolved"&&<button disabled={saving} onClick={()=>void updateDriverProblem(item.id,"resolved")} className="bg-[#3156a3] px-3 py-2 text-xs font-semibold text-white">Resolve</button>}</div></td></tr>)}</tbody></table></div>:<EmptyState title="No driver problems" description="Blocked access, vehicle faults and unsafe-site reports will appear here."/>}</section>}
+    {isCompany&&<section className="mb-8"><div className="border-b border-slate-300 pb-4"><h2 className="text-xl font-semibold">Missed collection review</h2><p className="mt-1 text-sm text-slate-500">Customer collection failures stay here until operations records the follow-up.</p></div>{exceptions.length?<div className="table-wrap"><table className="min-w-[760px] text-left"><thead><tr><th>Customer</th><th>Service area</th><th>Reason</th><th>Date</th><th className="text-right">Action</th></tr></thead><tbody>{exceptions.map(item=><tr key={item.id}><td><p className="table-primary">{item.customer_name}</p><p className="table-secondary">{item.address}</p></td><td>{item.zone_name}</td><td><p className="capitalize">{label(item.exception_reason)}</p><p className="table-secondary">{item.exception_notes||"No driver note"}</p></td><td>{new Date(item.scheduled_date).toLocaleDateString("en-GB")}</td><td className="text-right"><button type="button" onClick={()=>openExceptionReview(item)} className="border border-[#3156a3] px-3 py-2 text-xs font-semibold text-[#3156a3]">Review</button></td></tr>)}</tbody></table></div>:<EmptyState title="No missed collections awaiting review" description="Customer exceptions will appear here automatically."/>}</section>}
     <Modal open={Boolean(reviewing)} onClose={()=>!saving&&closeExceptionReview()} title="Review missed collection" description={reviewing?`Choose the next operational step for ${reviewing.customer_name}.`:""}>
       <form onSubmit={reviewCollectionException} className="space-y-5">
         <fieldset><legend className="text-sm font-semibold">Outcome</legend><div className="mt-2 grid grid-cols-2 border border-slate-300"><label className={`cursor-pointer p-3 text-sm ${exceptionAction==="reschedule"?"bg-[#eef3ff] font-semibold text-[#3156a3]":""}`}><input type="radio" className="mr-2" checked={exceptionAction==="reschedule"} onChange={()=>{setExceptionAction("reschedule");setTargetJobId("");}}/>Reschedule pickup</label><label className={`cursor-pointer border-l border-slate-300 p-3 text-sm ${exceptionAction==="resolve"?"bg-[#eef3ff] font-semibold text-[#3156a3]":""}`}><input type="radio" className="mr-2" checked={exceptionAction==="resolve"} onChange={()=>setExceptionAction("resolve")}/>Close without pickup</label></div></fieldset>
@@ -165,3 +177,5 @@ export default function CitizenIssuesPage() {
     </Modal>
   </div></AppShell>;
 }
+
+function Metric({label,value}:{label:string;value:number}){return <div className="border-b py-4 pr-4 sm:border-b-0 sm:border-r"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p></div>}

@@ -32,6 +32,7 @@ import serviceRouteRoutes from "./routes/service-route.routes";
 import tripRoutes from "./routes/trip.routes";
 import weighbridgeRoutes from "./routes/weighbridge.routes";
 import complianceRoutes from "./routes/compliance.routes";
+import recyclingRoutes from "./routes/recycling.routes";
 
 const app = express();
 
@@ -57,6 +58,7 @@ app.use("/api/waste", serviceRouteRoutes);
 app.use("/api/waste", tripRoutes);
 app.use("/api/waste", weighbridgeRoutes);
 app.use("/api/waste", complianceRoutes);
+app.use("/api/waste", recyclingRoutes);
 app.use("/api/waste", routeExecutionRoutes);
 app.use("/api/waste", billingRoutes);
 app.use("/api/waste", fleetRoutes);
@@ -107,6 +109,12 @@ app.use(
             ? "This trip already has an active weighbridge ticket"
           : "This information is already registered";
       return res.status(409).json({ success: false, message });
+    }
+    if (["22P02", "23502", "23514", "42P08"].includes((error as { code?: string }).code || "")) {
+      return res.status(400).json({
+        success: false,
+        message: "This record could not be saved. Check the entered values and try again.",
+      });
     }
     return res.status((error as any).statusCode || 400).json({
       success: false,

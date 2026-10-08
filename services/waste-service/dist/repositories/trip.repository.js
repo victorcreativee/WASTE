@@ -1,11 +1,20 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.findOperationalSupervisors = findOperationalSupervisors;
 exports.findTrips = findTrips;
 exports.verifyTripWeight = verifyTripWeight;
 exports.createTrip = createTrip;
 const database_1 = require("../config/database");
+async function findOperationalSupervisors(organizationId) {
+    const result = await database_1.dbPool.query(`SELECT u.id,u.full_name,u.status,m.status membership_status,ARRAY['supervisor']::text[] roles
+  FROM users u JOIN organization_memberships m ON m.user_id=u.id AND m.organization_id=u.organization_id
+  WHERE u.organization_id=$1::uuid AND u.status='active' AND m.status='active'
+    AND EXISTS(SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=u.id AND r.name='supervisor')
+  ORDER BY u.full_name`, [organizationId]);
+    return result.rows;
+}
 async function findTrips(organizationId) {
-    const result = await database_1.dbPool.query(`SELECT trip.id,trip.organization_id,trip.trip_number,trip.truck_id,trip.driver_id,trip.route_date,trip.status,trip.started_at,trip.completed_at,trip.weighbridge_ticket_number,trip.weighbridge_facility,trip.verified_weight_kg,trip.weight_verified_at,
+    const result = await database_1.dbPool.query(`SELECT trip.id,trip.organization_id,trip.service_route_id,trip.trip_number,trip.truck_id,trip.driver_id,trip.route_date,trip.status,trip.started_at,trip.completed_at,trip.weighbridge_ticket_number,trip.weighbridge_facility,trip.verified_weight_kg,trip.weight_verified_at,
   service.name route_name,zone.name zone_name,division.name division_name,organization.name organization_name,
   truck.plate_number,driver.full_name driver_name,supervisor.full_name supervisor_name,
   COUNT(stops.id)::int customer_count,COUNT(stops.id) FILTER(WHERE stops.status='completed')::int collected_count,
@@ -27,9 +36,10 @@ async function createTrip(organizationId, userId, input) {
     try {
         await client.query("BEGIN");
         const ready = await client.query(`SELECT route.id,route.name,route.zone_id,route.division_id FROM service_routes route
-  WHERE route.id=$1::uuid AND route.organization_id=$2::uuid AND route.is_active FOR UPDATE`, [input.serviceRouteId, organizationId]);
+  WHERE route.id=$1::uuid AND route.organization_id=$2::uuid AND route.is_active
+    AND EXTRACT(ISODOW FROM $3::date)::smallint=ANY(route.operating_days) FOR UPDATE`, [input.serviceRouteId, organizationId, input.tripDate]);
         if (!ready.rows[0])
-            throw Object.assign(new Error("Choose an active route from your Service Areas"), { statusCode: 400 });
+            throw Object.assign(new Error("Choose an active route scheduled to operate on the selected date"), { statusCode: 400 });
         const service = ready.rows[0];
         const resources = await client.query(`SELECT
   EXISTS(SELECT 1 FROM waste_trucks WHERE id=$1::uuid AND organization_id=$4::uuid AND status='available') truck_ready,

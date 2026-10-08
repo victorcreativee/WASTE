@@ -13,6 +13,8 @@
     "migrate:platform-users": "node scripts/migrate-platform-user-administration.cjs --apply",
     "migrate:weighbridge-operator:check": "node scripts/migrate-weighbridge-operator.cjs",
     "migrate:weighbridge-operator": "node scripts/migrate-weighbridge-operator.cjs --apply",
+    "migrate:recycling-roles:check": "node scripts/migrate-recycling-operational-roles.cjs",
+    "migrate:recycling-roles": "node scripts/migrate-recycling-operational-roles.cjs --apply",
     "start": "node dist/server.js"
   },
   "keywords": [],

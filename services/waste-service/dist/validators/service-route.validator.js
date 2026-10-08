@@ -12,6 +12,7 @@ exports.createServiceRouteSchema = zod_1.z.object({
     defaultSupervisorUserId: zod_1.z.string().uuid().optional(),
     estimatedDurationMinutes: zod_1.z.number().int().positive().optional(),
     estimatedDistanceKm: zod_1.z.number().nonnegative().optional(),
+    operatingDays: zod_1.z.array(zod_1.z.number().int().min(1).max(7)).min(1, "Choose at least one operating day").max(7).refine(days => new Set(days).size === days.length, "Choose each operating day once").optional(),
 });
 exports.assignServiceRouteCustomersSchema = zod_1.z.object({
     serviceLocationIds: zod_1.z.array(zod_1.z.string().uuid()).max(1000)
@@ -21,4 +22,5 @@ exports.updateServiceRouteSchema = zod_1.z.object({
     name: zod_1.z.string().trim().min(2).max(150).optional(), code: zod_1.z.string().trim().min(2).max(50).nullable().optional(),
     isActive: zod_1.z.boolean().optional(), estimatedDurationMinutes: zod_1.z.number().int().positive().nullable().optional(),
     estimatedDistanceKm: zod_1.z.number().nonnegative().nullable().optional(),
+    operatingDays: zod_1.z.array(zod_1.z.number().int().min(1).max(7)).min(1, "Choose at least one operating day").max(7).refine(days => new Set(days).size === days.length, "Choose each operating day once").optional(),
 }).refine(value => Object.keys(value).length > 0, "Add at least one change");

@@ -14,6 +14,7 @@ exports.loginSchema = zod_1.z.object({
     password: zod_1.z.string().min(1, "Password is required"),
 });
 exports.organizationApplicantRegisterSchema = zod_1.z.object({
+    companyType: zod_1.z.enum(["waste_collection_company", "recycling_company"]),
     companyName: zod_1.z.string().trim().min(2).max(150),
     registrationNumber: zod_1.z.string().trim().toUpperCase().min(3).max(50).regex(/^[A-Z0-9][A-Z0-9 .\/-]*$/, "Use a valid company registration number"),
     fullName: zod_1.z.string().trim().min(2).max(150).regex(/^[\p{L}][\p{L} .'-]*$/u, "Enter a valid contact name"),
@@ -26,7 +27,7 @@ exports.createOrganizationUserSchema = zod_1.z.object({
     email: zod_1.z.string().email(),
     phone: zod_1.z.string().trim().max(50).optional(),
     password: zod_1.z.string().min(8).max(128),
-    role: zod_1.z.enum(["supervisor", "driver"]),
+    role: zod_1.z.enum(["supervisor", "driver", "recycling_collector", "recycling_sales"]),
     licenseNumber: zod_1.z.string().trim().max(100).optional(),
 });
 exports.createOrganizationCustomerSchema = zod_1.z.object({

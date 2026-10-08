@@ -22,7 +22,7 @@ async function createOrganizationUser(organizationId, input, actorId) {
         await client.query("BEGIN");
         const actor = await (0, staff_authorization_1.authorizeStaffWrite)(client, organizationId, actorId);
         if (!actor.isAdministrator && input.role !== "driver")
-            (0, staff_authorization_1.protectedStaff)("Only company administrators can create supervisor accounts");
+            (0, staff_authorization_1.protectedStaff)("Only company administrators can create supervisory or specialist accounts");
         const result = await (0, organization_user_repository_1.createOrganizationStaffRecord)(client, {
             organizationId,
             fullName: input.fullName,

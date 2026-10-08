@@ -10,6 +10,7 @@ catch (error) {
     next(error);
 } };
 const applicantOnly = (0, auth_middleware_1.requireRoles)('organization_applicant');
+router.get('/applicant/profile', applicantOnly, run(regulatory_controller_1.getApplicantProfile));
 router.post('/applicant/permit-information', applicantOnly, run(regulatory_controller_1.postApplicantInformation));
 router.get('/applicant/account-applications', applicantOnly, run(regulatory_controller_1.getApplicantAccountApplications));
 router.post('/applicant/account-applications', applicantOnly, run(regulatory_controller_1.postApplicantAccountApplication));

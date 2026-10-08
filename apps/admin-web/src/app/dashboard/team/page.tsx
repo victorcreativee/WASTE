@@ -27,6 +27,7 @@ type Attendance={id:string;user_id:string;full_name:string;roles:string[];work_d
 export default function TeamPage() {
   const [permissions,setPermissions]=useState<string[]>([]);
   const [identity,setIdentity]=useState({currentUserId:"",isAdministrator:false});
+  const [recyclingCompany,setRecyclingCompany]=useState(false);
   const [driverSearch,setDriverSearch]=useState(""),[driverPage,setDriverPage]=useState(1),[driverPageSize,setDriverPageSize]=useState(10);
   const [search,setSearch]=useState(""),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(10);
   const [attendanceLoading,setAttendanceLoading]=useState(false);
@@ -64,8 +65,8 @@ export default function TeamPage() {
   useEffect(() => {
     let cancelled=false;
     const requestState=attendanceRequest.current;
-    Promise.all([apiRequest<ListResponse>("/api/auth/organization-users"),apiRequest<{data:{permissions:string[];currentUserId:string;isAdministrator:boolean}}>("/api/auth/organization-access/me")])
-      .then(([response,access])=>{if(!cancelled){setStaff(response.data);setPermissions(access.data.permissions);setIdentity(access.data);}})
+    Promise.all([apiRequest<ListResponse>("/api/auth/organization-users"),apiRequest<{data:{permissions:string[];currentUserId:string;isAdministrator:boolean}}>("/api/auth/organization-access/me"),apiRequest<{data:{organization:{type:string}}}>("/api/waste/recycling").catch(()=>null)])
+      .then(([response,access,recycling])=>{if(!cancelled){setStaff(response.data);setPermissions(access.data.permissions);setIdentity(access.data);setRecyclingCompany(recycling?.data.organization.type==="recycling_company");}})
       .catch((loadError:unknown)=>{if(!cancelled)setError(loadError instanceof Error?loadError.message:"Could not load staff.");})
       .finally(()=>{if(!cancelled)setLoading(false);});
     return()=>{cancelled=true;requestState.id++;};
@@ -84,7 +85,8 @@ export default function TeamPage() {
           licenseNumber: form.role === "driver" && form.licenseNumber ? form.licenseNumber : undefined,
         }),
       });
-      setMessage(`${form.role === "driver" ? "Driver" : "Supervisor"} account created. They can now sign in with the email and password provided.`);
+      const roleLabel=form.role==="driver"?"Driver":form.role==="supervisor"?"Supervisor":form.role==="recycling_collector"?"Collection and purchasing worker":"Industrial sales worker";
+      setMessage(`${roleLabel} account created. They can now sign in with the email and password provided.`);
       setForm({ fullName: "", email: "", phone: "", password: "", role: "driver", licenseNumber: "" });
       await loadStaff();
       setTeamView("people");
@@ -146,8 +148,8 @@ export default function TeamPage() {
     <div className="py-8">
       {canManage&&<form onSubmit={createStaff} className={`${teamView==="add"?"block":"hidden"} max-w-2xl border-t-2 border-[#3156a3] bg-white p-6`}>
         <h2 className="text-xl font-black">Add a team member</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-500">Drivers receive the mobile job workspace. Only company administrators can create supervisors with organization-wide dispatch visibility.</p>
-        <label className="mt-5 block text-sm font-bold">Role<select value={form.role} onChange={(event)=>setForm({...form,role:event.target.value})} className="mt-2 w-full border p-3"><option value="driver">Driver</option>{identity.isAdministrator&&<option value="supervisor">Supervisor</option>}</select></label>
+        <p className="mt-2 text-sm leading-6 text-slate-500">Choose the worker&apos;s actual responsibility. Restricted recycling workers see only the operational tools required for their job.</p>
+        <label className="mt-5 block text-sm font-bold">Role<select value={form.role} onChange={(event)=>setForm({...form,role:event.target.value})} className="mt-2 w-full border p-3"><option value="driver">Driver</option>{identity.isAdministrator&&<option value="supervisor">Supervisor</option>}{identity.isAdministrator&&recyclingCompany&&<><option value="recycling_collector">Collection & purchasing worker</option><option value="recycling_sales">Industrial sales worker</option></>}</select></label>
         <label className="mt-4 block text-sm font-bold">Full name<input required minLength={2} value={form.fullName} onChange={(event)=>setForm({...form,fullName:event.target.value})} className="mt-2 w-full border p-3" /></label>
         <label className="mt-4 block text-sm font-bold">Email address<input required type="email" value={form.email} onChange={(event)=>setForm({...form,email:event.target.value})} className="mt-2 w-full border p-3" /></label>
         <label className="mt-4 block text-sm font-bold">Phone number<input value={form.phone} onChange={(event)=>setForm({...form,phone:event.target.value})} className="mt-2 w-full border p-3" /></label>

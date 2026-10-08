@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.findWeighbridgeTransactions = findWeighbridgeTransactions;
 exports.findWeighbridgeVehicles = findWeighbridgeVehicles;
+exports.linkWeighbridgeTrip = linkWeighbridgeTrip;
 exports.createWeighbridgeTransaction = createWeighbridgeTransaction;
 exports.completeWeighbridgeTransaction = completeWeighbridgeTransaction;
 exports.voidWeighbridgeTransaction = voidWeighbridgeTransaction;
@@ -10,6 +11,31 @@ async function findWeighbridgeTransactions(org) { return (await database_1.dbPoo
 async function findWeighbridgeVehicles(organizationId) { return (await database_1.dbPool.query(`SELECT id,organization_id,plate_number,truck_name,capacity_tons,status FROM waste_trucks WHERE organization_id=$1::uuid AND status IN ('available','assigned') ORDER BY plate_number`, [organizationId])).rows; }
 async function syncTrip(client, row, userId) { if (row.status !== "completed" || !row.trip_id)
     return; await client.query(`UPDATE collection_routes SET weighbridge_ticket_number=$3,weighbridge_facility=$4,verified_weight_kg=$5,weight_verified_at=CURRENT_TIMESTAMP,weight_verified_by=$2::uuid,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid AND organization_id=$6::uuid AND status='completed'`, [row.trip_id, userId, row.ticket_number, row.facility, row.net_kg, row.organization_id]); }
+async function linkWeighbridgeTrip(id, tripId, userId) { const client = await database_1.dbPool.connect(); try {
+    await client.query("BEGIN");
+    const ticket = (await client.query(`SELECT * FROM weighbridge_transactions WHERE id=$1::uuid AND status<>'voided' FOR UPDATE`, [id])).rows[0];
+    if (!ticket)
+        throw Object.assign(new Error("Weighbridge ticket was not found"), { statusCode: 404 });
+    if (ticket.trip_id)
+        throw Object.assign(new Error("This ticket is already linked to a trip"), { statusCode: 400 });
+    const trip = (await client.query(`SELECT r.id,r.organization_id,r.truck_id,t.plate_number FROM collection_routes r JOIN waste_trucks t ON t.id=r.truck_id WHERE r.id=$1::uuid AND r.organization_id=$2::uuid AND r.status IN ('planned','dispatched','in_progress','completed')`, [tripId, ticket.organization_id])).rows[0];
+    if (!trip)
+        throw Object.assign(new Error("Choose a trip belonging to the responsible company"), { statusCode: 400 });
+    const normalized = String(trip.plate_number).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (normalized !== ticket.normalized_registration)
+        throw Object.assign(new Error("The trip vehicle does not match the weighbridge registration"), { statusCode: 400 });
+    const row = (await client.query(`UPDATE weighbridge_transactions SET trip_id=$2::uuid,vehicle_id=$3::uuid,vehicle_matched=true,updated_by=$4::uuid,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid RETURNING *`, [id, tripId, trip.truck_id, userId])).rows[0];
+    await syncTrip(client, row, userId);
+    await client.query("COMMIT");
+    return row;
+}
+catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+}
+finally {
+    client.release();
+} }
 async function createWeighbridgeTransaction(userId, input) {
     const org = input.organizationId, client = await database_1.dbPool.connect();
     try {

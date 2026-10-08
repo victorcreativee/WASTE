@@ -26,7 +26,7 @@ export async function findServiceRoutes(organizationId:string){
       route.default_truck_id,truck.plate_number default_truck_plate,
       route.default_driver_id,driver.full_name default_driver_name,
       route.default_supervisor_user_id,supervisor.full_name default_supervisor_name,
-      route.estimated_duration_minutes,route.estimated_distance_km,
+      route.estimated_duration_minutes,route.estimated_distance_km,route.operating_days,
       COUNT(assignment.id) FILTER(WHERE assignment.is_active)::int customer_count
     FROM service_routes route
     JOIN kampala_divisions division ON division.id=route.division_id
@@ -44,22 +44,24 @@ export async function findServiceRoutes(organizationId:string){
 export async function insertServiceRoute(organizationId:string,userId:string,input:CreateServiceRouteInput){
   const result=await dbPool.query(`INSERT INTO service_routes(organization_id,division_id,zone_id,name,code,
       default_truck_id,default_driver_id,default_supervisor_user_id,estimated_duration_minutes,
-      estimated_distance_km,created_by)
-    VALUES($1::uuid,$2::uuid,$3::uuid,$4,$5,$6::uuid,$7::uuid,$8::uuid,$9,$10,$11::uuid)
+      estimated_distance_km,operating_days,created_by)
+    VALUES($1::uuid,$2::uuid,$3::uuid,$4,$5,$6::uuid,$7::uuid,$8::uuid,$9,$10,$11::smallint[],$12::uuid)
     RETURNING *`,[organizationId,input.divisionId,input.zoneId,input.name,input.code??null,
       input.defaultTruckId??null,input.defaultDriverId??null,input.defaultSupervisorUserId??null,
-      input.estimatedDurationMinutes??null,input.estimatedDistanceKm??null,userId]);
+      input.estimatedDurationMinutes??null,input.estimatedDistanceKm??null,input.operatingDays??[1,2,3,4,5,6,7],userId]);
   return result.rows[0];
 }
 export async function updateServiceRoute(organizationId:string,routeId:string,input:any){
   const result=await dbPool.query(`UPDATE service_routes SET
     name=COALESCE($3,name),code=CASE WHEN $4::boolean THEN $5 ELSE code END,
     is_active=COALESCE($6,is_active),estimated_duration_minutes=CASE WHEN $7::boolean THEN $8 ELSE estimated_duration_minutes END,
-    estimated_distance_km=CASE WHEN $9::boolean THEN $10 ELSE estimated_distance_km END,updated_at=CURRENT_TIMESTAMP
+    estimated_distance_km=CASE WHEN $9::boolean THEN $10 ELSE estimated_distance_km END,
+    operating_days=CASE WHEN $11::boolean THEN $12::smallint[] ELSE operating_days END,updated_at=CURRENT_TIMESTAMP
     WHERE id=$1::uuid AND organization_id=$2::uuid RETURNING *`,[routeId,organizationId,input.name??null,
       Object.prototype.hasOwnProperty.call(input,"code"),input.code??null,input.isActive??null,
       Object.prototype.hasOwnProperty.call(input,"estimatedDurationMinutes"),input.estimatedDurationMinutes??null,
-      Object.prototype.hasOwnProperty.call(input,"estimatedDistanceKm"),input.estimatedDistanceKm??null]);
+      Object.prototype.hasOwnProperty.call(input,"estimatedDistanceKm"),input.estimatedDistanceKm??null,
+      Object.prototype.hasOwnProperty.call(input,"operatingDays"),input.operatingDays??null]);
   return result.rows[0]??null;
 }
 

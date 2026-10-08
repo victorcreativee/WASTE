@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.getDriverDashboardHandler = getDriverDashboardHandler;
 exports.dispatchCollectionRouteHandler = dispatchCollectionRouteHandler;
 exports.cancelCollectionRouteHandler = cancelCollectionRouteHandler;
 exports.getDriverRoutesHandler = getDriverRoutesHandler;
@@ -15,6 +16,12 @@ function scope(req) {
     return auth.roles.some((role) => ["company_admin", "supervisor"].includes(role)) ? auth.organizationId : null;
 }
 function driverUserId(req) { return identity(req).roles.includes("driver") ? identity(req).userId : null; }
+async function getDriverDashboardHandler(req, res) {
+    const data = await (0, route_execution_repository_1.findDriverDashboard)(identity(req).userId);
+    if (!data)
+        return res.status(404).json({ success: false, message: "Driver profile is not connected to this account" });
+    return res.json({ success: true, message: "Driver dashboard fetched", data });
+}
 async function dispatchCollectionRouteHandler(req, res) {
     const organizationId = identity(req).organizationId;
     const route = await (0, route_execution_repository_1.dispatchCollectionRoute)(req.params.routeId, organizationId);

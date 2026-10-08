@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.postPermit = postPermit;
 exports.postApplicantPermit = postApplicantPermit;
 exports.getApplicantPermits = getApplicantPermits;
+exports.getApplicantProfile = getApplicantProfile;
 exports.postApplicantInformation = postApplicantInformation;
 exports.postApplicantAccountApplication = postApplicantAccountApplication;
 exports.getApplicantAccountApplications = getApplicantAccountApplications;
@@ -46,6 +47,7 @@ exports.getDivisions = getDivisions;
 exports.getDivisionAuthorizations = getDivisionAuthorizations;
 exports.getPlatformPackages = getPlatformPackages;
 exports.getAllPlatformPackages = getAllPlatformPackages;
+exports.postPlatformPackage = postPlatformPackage;
 exports.patchPlatformPackage = patchPlatformPackage;
 exports.postAccountApplication = postAccountApplication;
 exports.getAccountApplications = getAccountApplications;
@@ -62,6 +64,7 @@ const regulatory_validator_1 = require("../validators/regulatory.validator");
 async function postPermit(req, res) { return res.status(201).json({ success: true, message: 'Permit application submitted to KCCA', data: await repo.submitPermit(regulatory_validator_1.permitApplicationSchema.parse(req.body)) }); }
 async function postApplicantPermit(req, res) { const auth = req.auth; return res.status(201).json({ success: true, message: 'Permit application submitted to KCCA', data: await repo.submitAuthenticatedPermit(auth.userId, regulatory_validator_1.applicantPermitSubmissionSchema.parse(req.body)) }); }
 async function getApplicantPermits(req, res) { const auth = req.auth; return res.json({ success: true, message: 'Applicant permits fetched', data: await repo.applicantPermits(auth.userId) }); }
+async function getApplicantProfile(req, res) { const auth = req.auth, data = await repo.applicantProfile(auth.userId); return data ? res.json({ success: true, message: 'Applicant profile fetched', data }) : res.status(404).json({ success: false, message: 'Applicant profile not found' }); }
 async function postApplicantInformation(req, res) { const auth = req.auth; return res.json({ success: true, message: 'Requested evidence sent to KCCA', data: await repo.provideAuthenticatedPermitInformation(auth.userId, regulatory_validator_1.applicantInformationSubmissionSchema.parse(req.body)) }); }
 async function postApplicantAccountApplication(req, res) { const auth = req.auth; return res.status(201).json({ success: true, message: 'Platform-access application submitted', data: await repo.submitAuthenticatedAccountApplication(auth.userId, regulatory_validator_1.applicantAccountSubmissionSchema.parse(req.body)) }); }
 async function getApplicantAccountApplications(req, res) { const auth = req.auth; return res.json({ success: true, message: 'Platform-access applications fetched', data: await repo.applicantAccountApplications(auth.userId) }); }
@@ -70,8 +73,9 @@ async function postPermitInformation(req, res) { return res.json({ success: true
 async function getPermits(req, res) { return res.json({ success: true, message: 'Permit applications fetched', data: await repo.permits(typeof req.query.status === 'string' ? req.query.status : undefined) }); }
 async function getDivisions(req, res) { return res.json({ success: true, message: 'Kampala divisions fetched', data: await repo.divisions() }); }
 async function getDivisionAuthorizations(_req, res) { return res.json({ success: true, message: 'Division authorizations fetched', data: await repo.divisionAuthorizations() }); }
-async function getPlatformPackages(_req, res) { return res.json({ success: true, message: 'Platform packages fetched', data: await repo.platformPackages() }); }
+async function getPlatformPackages(req, res) { const type = typeof req.query.organizationType === 'string' ? req.query.organizationType : undefined; return res.json({ success: true, message: 'Platform packages fetched', data: await repo.platformPackages(type) }); }
 async function getAllPlatformPackages(_req, res) { return res.json({ success: true, message: 'Platform packages fetched', data: await repo.allPlatformPackages() }); }
+async function postPlatformPackage(req, res) { const auth = req.auth; return res.status(201).json({ success: true, message: 'Platform package created', data: await repo.createPlatformPackage(auth.userId, regulatory_validator_1.platformPackageCreateSchema.parse(req.body)) }); }
 async function patchPlatformPackage(req, res) { const auth = req.auth; return res.json({ success: true, message: 'Platform package updated', data: await repo.updatePlatformPackage(req.params.id, auth.userId, regulatory_validator_1.platformPackageUpdateSchema.parse(req.body)) }); }
 async function postAccountApplication(req, res) { return res.status(201).json({ success: true, message: 'Account application submitted for System Admin approval', data: await repo.submitAccountApplication(regulatory_validator_1.accountApplicationSchema.parse(req.body)) }); }
 async function getAccountApplications(_req, res) { return res.json({ success: true, message: 'Account applications fetched', data: await repo.accountApplications() }); }

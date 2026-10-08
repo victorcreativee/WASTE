@@ -1,10 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.voidWeighbridgeSchema = exports.completeWeighbridgeSchema = exports.createWeighbridgeSchema = void 0;
+exports.voidWeighbridgeSchema = exports.linkWeighbridgeTripSchema = exports.completeWeighbridgeSchema = exports.createWeighbridgeSchema = void 0;
 const zod_1 = require("zod");
 const base = zod_1.z.object({ organizationId: zod_1.z.string().uuid("Choose the responsible waste company"), tripId: zod_1.z.string().uuid().optional(), vehicleId: zod_1.z.string().uuid().optional(), driverId: zod_1.z.string().uuid().optional(), ticketNumber: zod_1.z.string().trim().min(2).max(100).optional(), facility: zod_1.z.string().trim().min(2).max(160), facilityCode: zod_1.z.string().trim().min(2).max(20).default("BUYALA"), shift: zod_1.z.string().trim().max(50).optional(), registration: zod_1.z.string().trim().min(2).max(50), vehicleType: zod_1.z.string().trim().max(100).optional(), originArea: zod_1.z.string().trim().max(120).optional(), operatorCategory: zod_1.z.string().trim().max(80).optional(), division: zod_1.z.string().trim().max(80).optional(), driverName: zod_1.z.string().trim().min(2).max(150), driverPhone: zod_1.z.string().trim().max(30).optional(), routeSource: zod_1.z.string().trim().min(2).max(200), operationDate: zod_1.z.string().date(), arrivalAt: zod_1.z.string().datetime(), grossKg: zod_1.z.number().positive().max(1000000), tareCaptureMode: zod_1.z.enum(["stored_vehicle_tare", "second_weighing", "unconfirmed"]).default("second_weighing") });
 exports.createWeighbridgeSchema = base.extend({ status: zod_1.z.enum(["open", "completed"]), departureAt: zod_1.z.string().datetime().optional(), tareKg: zod_1.z.number().positive().max(1000000).optional() }).superRefine((v, c) => { if (v.status === "completed" && (!v.tareKg || !v.departureAt))
     c.addIssue({ code: "custom", message: "Completed transactions require tare weight and departure time" }); if (v.tareKg && v.tareKg >= v.grossKg)
     c.addIssue({ code: "custom", message: "Tare weight must be less than gross weight", path: ["tareKg"] }); });
 exports.completeWeighbridgeSchema = zod_1.z.object({ tareKg: zod_1.z.number().positive().max(1000000), departureAt: zod_1.z.string().datetime() });
+exports.linkWeighbridgeTripSchema = zod_1.z.object({ tripId: zod_1.z.string().uuid("Choose a valid company trip") });
 exports.voidWeighbridgeSchema = zod_1.z.object({ reason: zod_1.z.string().trim().min(10, "Explain why this ticket is being voided").max(500) });

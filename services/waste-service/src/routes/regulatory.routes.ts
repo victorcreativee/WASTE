@@ -12,6 +12,7 @@ import {
   patchAccountApplication,
   patchPermit,
   patchPlatformPackage,
+  postPlatformPackage,
   postApplicantPermit,
   postAuthorizations,
 } from "../controllers/regulatory.controller";
@@ -45,6 +46,11 @@ r.get(
   "/platform-packages",
   requireRoles("system_admin"),
   run(getAllPlatformPackages),
+);
+r.post(
+  "/platform-packages",
+  requireRoles("system_admin"),
+  run(postPlatformPackage),
 );
 r.patch(
   "/platform-packages/:id",

@@ -2,11 +2,12 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.customerStopExceptionReviewSchema = exports.customerStopActionSchema = void 0;
 const zod_1 = require("zod");
+const collectionEvidence = zod_1.z.string().max(2_800_000, 'Collection proof image must be 2 MB or smaller').refine(value => /^https?:\/\//i.test(value) || /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/i.test(value), 'Collection proof must be a JPG, PNG or WebP image');
 exports.customerStopActionSchema = zod_1.z.object({
     action: zod_1.z.enum(['arrive', 'complete', 'skip']),
     collectedWeightKg: zod_1.z.number().min(0).optional(),
     notes: zod_1.z.string().trim().max(1000).optional(),
-    evidenceUrl: zod_1.z.string().url().max(1000).optional(),
+    evidenceUrl: collectionEvidence.optional(),
     exceptionReason: zod_1.z.enum(['blocked_access', 'customer_unavailable', 'waste_not_ready', 'unsafe_conditions', 'vehicle_access', 'other']).optional(),
     exceptionNotes: zod_1.z.string().trim().min(3).max(1000).optional()
 }).superRefine((value, ctx) => {

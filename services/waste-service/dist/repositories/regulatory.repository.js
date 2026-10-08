@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.submitPermit = submitPermit;
 exports.submitAuthenticatedPermit = submitAuthenticatedPermit;
 exports.applicantPermits = applicantPermits;
+exports.applicantProfile = applicantProfile;
 exports.applicantCertificate = applicantCertificate;
 exports.provideAuthenticatedPermitInformation = provideAuthenticatedPermitInformation;
 exports.submitAuthenticatedAccountApplication = submitAuthenticatedAccountApplication;
@@ -18,6 +19,7 @@ exports.publicPermitStatus = publicPermitStatus;
 exports.providePermitInformation = providePermitInformation;
 exports.platformPackages = platformPackages;
 exports.allPlatformPackages = allPlatformPackages;
+exports.createPlatformPackage = createPlatformPackage;
 exports.updatePlatformPackage = updatePlatformPackage;
 exports.submitAccountApplication = submitAccountApplication;
 exports.accountApplications = accountApplications;
@@ -48,9 +50,11 @@ finally {
 } }
 async function submitAuthenticatedPermit(userId, data) { const c = await database_1.dbPool.connect(); try {
     await c.query('BEGIN');
-    const applicant = (await c.query(`SELECT u.full_name,u.email,u.phone,p.company_name,p.registration_number FROM users u JOIN organization_applicant_profiles p ON p.user_id=u.id WHERE u.id=$1::uuid AND u.status='active' FOR UPDATE OF p`, [userId])).rows[0];
+    const applicant = (await c.query(`SELECT u.full_name,u.email,u.phone,p.company_name,p.registration_number,p.company_type FROM users u JOIN organization_applicant_profiles p ON p.user_id=u.id WHERE u.id=$1::uuid AND u.status='active' FOR UPDATE OF p`, [userId])).rows[0];
     if (!applicant)
         throw Object.assign(new Error('Organization applicant profile not found'), { statusCode: 404 });
+    if (applicant.company_type === 'recycling_company')
+        throw Object.assign(new Error('Recycling companies request platform access with their registration document; KCCA licensing follows after activation'), { statusCode: 409 });
     const existing = await c.query(`SELECT 1 FROM organization_permit_applications WHERE applicant_user_id=$1::uuid AND status IN('submitted','under_review','information_required','approved','suspended')`, [userId]);
     if (existing.rowCount)
         throw Object.assign(new Error('This onboarding account already has an active permit application'), { statusCode: 409 });
@@ -69,6 +73,7 @@ finally {
     c.release();
 } }
 async function applicantPermits(userId) { return (await database_1.dbPool.query(`SELECT p.id,p.application_number,p.company_name,p.registration_number,p.status,p.review_notes,p.permit_number,p.valid_from,p.valid_until,p.certificate_issued_at,COUNT(d.id)::int document_count FROM organization_permit_applications p LEFT JOIN organization_permit_documents d ON d.application_id=p.id WHERE p.applicant_user_id=$1::uuid GROUP BY p.id ORDER BY p.created_at DESC`, [userId])).rows; }
+async function applicantProfile(userId) { return (await database_1.dbPool.query(`SELECT company_name,registration_number,company_type FROM organization_applicant_profiles WHERE user_id=$1::uuid`, [userId])).rows[0] ?? null; }
 async function applicantCertificate(userId, id) { return (await database_1.dbPool.query(`SELECT p.id,p.application_number,p.company_name,p.registration_number,p.permit_number,p.valid_from,p.valid_until,p.certificate_issued_at,p.service_description,u.full_name approved_by_name FROM organization_permit_applications p LEFT JOIN users u ON u.id=p.reviewed_by WHERE p.id=$1::uuid AND p.applicant_user_id=$2::uuid AND p.status='approved' AND p.certificate_issued_at IS NOT NULL`, [id, userId])).rows[0] ?? null; }
 async function provideAuthenticatedPermitInformation(userId, data) { const c = await database_1.dbPool.connect(); try {
     await c.query('BEGIN');
@@ -90,16 +95,22 @@ finally {
 } }
 async function submitAuthenticatedAccountApplication(userId, data) { const c = await database_1.dbPool.connect(); try {
     await c.query('BEGIN');
-    const applicant = (await c.query(`SELECT u.full_name,u.email,u.phone,p.company_name,p.registration_number FROM users u JOIN organization_applicant_profiles p ON p.user_id=u.id WHERE u.id=$1::uuid AND u.status='active' FOR UPDATE OF p`, [userId])).rows[0];
+    const applicant = (await c.query(`SELECT u.full_name,u.email,u.phone,p.company_name,p.registration_number,p.company_type FROM users u JOIN organization_applicant_profiles p ON p.user_id=u.id WHERE u.id=$1::uuid AND u.status='active' FOR UPDATE OF p`, [userId])).rows[0];
     if (!applicant)
         throw Object.assign(new Error('Organization applicant profile not found'), { statusCode: 404 });
-    const permit = (await c.query(`SELECT id FROM organization_permit_applications WHERE id=$1::uuid AND applicant_user_id=$2::uuid AND status='approved' AND valid_until>=CURRENT_DATE AND organization_id IS NULL FOR UPDATE`, [data.permitApplicationId, userId])).rows[0];
-    if (!permit)
-        throw Object.assign(new Error('Choose your current approved KCCA permit'), { statusCode: 409 });
-    if (!(await c.query('SELECT 1 FROM platform_packages WHERE id=$1::uuid AND is_active', [data.packageId])).rowCount)
-        throw Object.assign(new Error('Choose an available platform package'), { statusCode: 400 });
-    const number = `ACCOUNT-${new Date().getFullYear()}-${Date.now()}`;
-    const result = await c.query(`INSERT INTO organization_account_applications(application_number,permit_application_id,applicant_user_id,requested_package_id,administrator_name,administrator_email,administrator_phone,certificate_file_name,certificate_mime_type,certificate_file_data) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,application_number,status,created_at`, [number, permit.id, userId, data.packageId, data.administratorName, applicant.email, data.administratorPhone, data.certificate.fileName, data.certificate.mimeType, data.certificate.dataUrl]);
+    let permitId = null;
+    if (applicant.company_type === 'waste_collection_company') {
+        if (!data.permitApplicationId)
+            throw Object.assign(new Error('A current KCCA permit is required for a waste collection company'), { statusCode: 409 });
+        const permit = (await c.query(`SELECT id FROM organization_permit_applications WHERE id=$1::uuid AND applicant_user_id=$2::uuid AND status='approved' AND valid_until>=CURRENT_DATE AND organization_id IS NULL FOR UPDATE`, [data.permitApplicationId, userId])).rows[0];
+        if (!permit)
+            throw Object.assign(new Error('Choose your current approved KCCA permit'), { statusCode: 409 });
+        permitId = permit.id;
+    }
+    if (!(await c.query('SELECT 1 FROM platform_packages WHERE id=$1::uuid AND is_active AND organization_type=$2', [data.packageId, applicant.company_type])).rowCount)
+        throw Object.assign(new Error('Choose an available package for your company type'), { statusCode: 400 });
+    const number = `ACCOUNT-${new Date().getFullYear()}-${Date.now()}`, evidenceType = applicant.company_type === 'recycling_company' ? 'company_registration' : 'kcca_certificate';
+    const result = await c.query(`INSERT INTO organization_account_applications(application_number,permit_application_id,applicant_user_id,requested_package_id,administrator_name,administrator_email,administrator_phone,certificate_file_name,certificate_mime_type,certificate_file_data,evidence_type) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,application_number,status,created_at`, [number, permitId, userId, data.packageId, data.administratorName, applicant.email, data.administratorPhone, data.certificate.fileName, data.certificate.mimeType, data.certificate.dataUrl, evidenceType]);
     await c.query('COMMIT');
     return result.rows[0];
 }
@@ -112,7 +123,7 @@ catch (e) {
 finally {
     c.release();
 } }
-async function applicantAccountApplications(userId) { return (await database_1.dbPool.query(`SELECT a.id,a.application_number,a.status,a.review_notes,a.created_at,a.organization_id,pk.name package_name,p.permit_number FROM organization_account_applications a JOIN platform_packages pk ON pk.id=a.requested_package_id JOIN organization_permit_applications p ON p.id=a.permit_application_id WHERE a.applicant_user_id=$1::uuid ORDER BY a.created_at DESC`, [userId])).rows; }
+async function applicantAccountApplications(userId) { return (await database_1.dbPool.query(`SELECT a.id,a.application_number,a.status,a.review_notes,a.created_at,a.organization_id,a.evidence_type,pk.name package_name,p.permit_number FROM organization_account_applications a JOIN platform_packages pk ON pk.id=a.requested_package_id LEFT JOIN organization_permit_applications p ON p.id=a.permit_application_id WHERE a.applicant_user_id=$1::uuid ORDER BY a.created_at DESC`, [userId])).rows; }
 async function permits(status) { const r = await database_1.dbPool.query(`SELECT p.*,COALESCE(json_agg(d ORDER BY d.created_at) FILTER(WHERE d.id IS NOT NULL),'[]') documents FROM organization_permit_applications p LEFT JOIN organization_permit_documents d ON d.application_id=p.id WHERE ($1::text IS NULL OR p.status=$1) GROUP BY p.id ORDER BY p.created_at DESC`, [status || null]); return r.rows; }
 async function permitHasDocuments(id) { return !!(await database_1.dbPool.query('SELECT 1 FROM organization_permit_documents WHERE application_id=$1::uuid LIMIT 1', [id])).rowCount; }
 async function permitStatusById(id) { return (await database_1.dbPool.query('SELECT status FROM organization_permit_applications WHERE id=$1::uuid', [id])).rows[0]?.status ?? null; }
@@ -149,8 +160,9 @@ catch (e) {
 finally {
     c.release();
 } }
-async function platformPackages() { return (await database_1.dbPool.query('SELECT id,code,name,description,monthly_fee_ugx FROM platform_packages WHERE is_active ORDER BY monthly_fee_ugx,name')).rows; }
-async function allPlatformPackages() { return (await database_1.dbPool.query('SELECT id,code,name,description,monthly_fee_ugx,is_active,created_at FROM platform_packages ORDER BY created_at,name')).rows; }
+async function platformPackages(organizationType) { return (await database_1.dbPool.query(`SELECT id,code,name,description,monthly_fee_ugx,organization_type FROM platform_packages WHERE is_active AND ($1::text IS NULL OR organization_type=$1) ORDER BY monthly_fee_ugx,name`, [organizationType || null])).rows; }
+async function allPlatformPackages() { return (await database_1.dbPool.query('SELECT id,code,name,description,monthly_fee_ugx,organization_type,is_active,created_at FROM platform_packages ORDER BY organization_type,created_at,name')).rows; }
+async function createPlatformPackage(userId, data) { const result = await database_1.dbPool.query(`INSERT INTO platform_packages(code,name,description,monthly_fee_ugx,organization_type,is_active) VALUES($1,$2,$3,0,$4,$5) RETURNING id,code,name,description,monthly_fee_ugx,organization_type,is_active`, [data.code, data.name, data.description, data.organizationType, data.isActive]); await database_1.dbPool.query(`INSERT INTO platform_administration_events(actor_id,action,details) VALUES($1,'platform_package_created',$2::jsonb)`, [userId, JSON.stringify(result.rows[0])]); return result.rows[0]; }
 async function updatePlatformPackage(id, userId, data) { const c = await database_1.dbPool.connect(); try {
     await c.query('BEGIN');
     const old = (await c.query('SELECT * FROM platform_packages WHERE id=$1::uuid FOR UPDATE', [id])).rows[0];
@@ -190,13 +202,13 @@ catch (e) {
 finally {
     c.release();
 } }
-async function accountApplications() { return (await database_1.dbPool.query(`SELECT a.*,p.company_name,p.registration_number,p.permit_number,p.valid_until,pk.name package_name,pk.description package_description FROM organization_account_applications a JOIN organization_permit_applications p ON p.id=a.permit_application_id JOIN platform_packages pk ON pk.id=a.requested_package_id ORDER BY a.created_at DESC`)).rows; }
+async function accountApplications() { return (await database_1.dbPool.query(`SELECT a.*,COALESCE(p.company_name,ap.company_name) company_name,COALESCE(p.registration_number,ap.registration_number) registration_number,p.permit_number,p.valid_until,COALESCE(ap.company_type,'waste_collection_company') company_type,pk.name package_name,pk.description package_description FROM organization_account_applications a LEFT JOIN organization_permit_applications p ON p.id=a.permit_application_id LEFT JOIN organization_applicant_profiles ap ON ap.user_id=a.applicant_user_id JOIN platform_packages pk ON pk.id=a.requested_package_id ORDER BY a.created_at DESC`)).rows; }
 async function accountApplicationCertificate(id) { return (await database_1.dbPool.query(`SELECT certificate_file_name,certificate_mime_type,certificate_file_data FROM organization_account_applications WHERE id=$1::uuid`, [id])).rows[0] ?? null; }
 async function reviewAccountApplication(id, userId, data) {
     const c = await database_1.dbPool.connect();
     try {
         await c.query('BEGIN');
-        const application = (await c.query(`SELECT a.*,p.company_name,p.email company_email,p.phone company_phone,p.address,p.status permit_status,p.valid_until FROM organization_account_applications a JOIN organization_permit_applications p ON p.id=a.permit_application_id WHERE a.id=$1::uuid FOR UPDATE`, [id])).rows[0];
+        const application = (await c.query(`SELECT a.*,COALESCE(p.company_name,ap.company_name) company_name,COALESCE(p.email,u.email) company_email,COALESCE(p.phone,u.phone) company_phone,p.address,p.status permit_status,p.valid_until,COALESCE(ap.company_type,'waste_collection_company') company_type FROM organization_account_applications a LEFT JOIN organization_permit_applications p ON p.id=a.permit_application_id LEFT JOIN organization_applicant_profiles ap ON ap.user_id=a.applicant_user_id LEFT JOIN users u ON u.id=a.applicant_user_id WHERE a.id=$1::uuid FOR UPDATE OF a`, [id])).rows[0];
         if (!application)
             throw Object.assign(new Error('Account application not found'), { statusCode: 404 });
         const allowed = { submitted: ['start_review', 'approve', 'reject'], under_review: ['approve', 'reject'] };
@@ -204,11 +216,12 @@ async function reviewAccountApplication(id, userId, data) {
             throw Object.assign(new Error(`Cannot ${data.action.replaceAll('_', ' ')} this ${application.status.replaceAll('_', ' ')} application`), { statusCode: 409 });
         let organizationId = null, accountActivated = false;
         if (data.action === 'approve') {
-            if (application.permit_status !== 'approved' || application.valid_until < new Date().toISOString().slice(0, 10))
+            if (application.company_type === 'waste_collection_company' && (application.permit_status !== 'approved' || application.valid_until < new Date().toISOString().slice(0, 10)))
                 throw Object.assign(new Error('The KCCA permit is no longer valid'), { statusCode: 409 });
-            const org = await c.query(`INSERT INTO organizations(name,type,email,phone,address,platform_package_id,is_active) VALUES($1,'waste_collection_company',$2,$3,$4,$5,true) RETURNING id`, [application.company_name, application.company_email, application.company_phone, application.address, application.requested_package_id]);
+            const org = await c.query(`INSERT INTO organizations(name,type,email,phone,address,platform_package_id,is_active) VALUES($1,$2,$3,$4,$5,$6,true) RETURNING id`, [application.company_name, application.company_type, application.company_email, application.company_phone, application.address, application.requested_package_id]);
             organizationId = org.rows[0].id;
-            await c.query('UPDATE organization_permit_applications SET organization_id=$2,updated_at=CURRENT_TIMESTAMP WHERE id=$1', [application.permit_application_id, organizationId]);
+            if (application.permit_application_id)
+                await c.query('UPDATE organization_permit_applications SET organization_id=$2,updated_at=CURRENT_TIMESTAMP WHERE id=$1', [application.permit_application_id, organizationId]);
             await c.query(`UPDATE organization_account_applications SET status='approved',organization_id=$2,review_notes=$3,reviewed_by=$4,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=$1`, [id, organizationId, data.notes, userId]);
             if (application.applicant_user_id) {
                 const roles = await c.query("SELECT id,name FROM roles WHERE name IN ('organization_applicant','company_admin')");
@@ -235,31 +248,51 @@ async function reviewAccountApplication(id, userId, data) {
         c.release();
     }
 }
-async function reviewPermit(id, userId, data) { const next = { start_review: 'under_review', request_information: 'information_required', approve: 'approved', reject: 'rejected', suspend: 'suspended', renew: 'approved' }; const c = await database_1.dbPool.connect(); try {
-    await c.query('BEGIN');
-    const old = (await c.query('SELECT * FROM organization_permit_applications WHERE id=$1 FOR UPDATE', [id])).rows[0];
-    if (!old) {
-        await c.query('ROLLBACK');
-        return null;
+async function reviewPermit(id, userId, data) {
+    const next = { start_review: 'under_review', request_information: 'information_required', approve: 'approved', reject: 'rejected', suspend: 'suspended', renew: 'approved' };
+    const c = await database_1.dbPool.connect();
+    try {
+        await c.query('BEGIN');
+        const old = (await c.query('SELECT *,valid_until::text valid_until_value FROM organization_permit_applications WHERE id=$1 FOR UPDATE', [id])).rows[0];
+        if (!old) {
+            await c.query('ROLLBACK');
+            return null;
+        }
+        const allowed = { submitted: ['start_review'], under_review: ['request_information', 'approve', 'reject'], information_required: ['start_review'], approved: ['suspend', 'renew'], expired: ['renew'] };
+        if (!(allowed[old.status] || []).includes(data.action))
+            throw Object.assign(new Error(`Cannot ${data.action.replaceAll('_', ' ')} an application in ${old.status.replaceAll('_', ' ')}`), { statusCode: 409 });
+        if (['approve', 'renew'].includes(data.action) && !data.validUntil)
+            throw Object.assign(new Error('Permit validity date is required'), { statusCode: 400 });
+        if (data.action === 'renew') {
+            const today = new Date().toISOString().slice(0, 10), currentExpiry = old.valid_until_value, minimum = currentExpiry && currentExpiry > today ? currentExpiry : today;
+            if (data.validUntil <= minimum)
+                throw Object.assign(new Error(`The new expiry date must be after ${minimum}`), { statusCode: 400 });
+            if (old.organization_id) {
+                const organization = (await c.query('SELECT is_active FROM organizations WHERE id=$1::uuid', [old.organization_id])).rows[0];
+                if (!organization?.is_active)
+                    throw Object.assign(new Error('Reactivate the organization before extending its permit'), { statusCode: 409 });
+                const critical = await c.query(`SELECT 1 FROM collector_compliance_cases WHERE organization_id=$1::uuid AND severity='critical' AND status<>'closed' LIMIT 1`, [old.organization_id]);
+                if (critical.rowCount)
+                    throw Object.assign(new Error('Resolve the organization’s critical compliance case before extending this permit'), { statusCode: 409 });
+            }
+        }
+        const permit = old.permit_number || `PERMIT-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`;
+        const r = await c.query(`UPDATE organization_permit_applications SET status=$2,review_notes=$3,reviewed_by=$4,reviewed_at=CURRENT_TIMESTAMP,permit_number=CASE WHEN $2='approved' THEN $5 ELSE permit_number END,valid_from=CASE WHEN $7='approve' AND valid_from IS NULL THEN CURRENT_DATE ELSE valid_from END,valid_until=CASE WHEN $2='approved' THEN $6::date ELSE valid_until END,renewal_count=renewal_count+CASE WHEN $7='renew' THEN 1 ELSE 0 END,last_renewed_at=CASE WHEN $7='renew' THEN CURRENT_TIMESTAMP ELSE last_renewed_at END,last_renewed_by=CASE WHEN $7='renew' THEN $4::uuid ELSE last_renewed_by END,updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *`, [id, next[data.action], data.notes, userId, permit, data.validUntil || null, data.action]);
+        if (data.action === 'renew' && old.organization_id)
+            await c.query(`UPDATE organization_division_authorizations SET expires_on=$2::date,status='active' WHERE organization_id=$1::uuid AND permit_application_id=$3::uuid AND status IN('active','expired')`, [old.organization_id, data.validUntil, id]);
+        const historyNote = data.action === 'renew' ? `Permit extended from ${old.valid_until_value || 'no expiry'} to ${data.validUntil}. ${data.notes}` : data.notes;
+        await c.query('INSERT INTO organization_permit_history(application_id,previous_status,new_status,notes,changed_by) VALUES($1,$2,$3,$4,$5)', [id, old.status, next[data.action], historyNote, userId]);
+        await c.query('COMMIT');
+        return r.rows[0];
     }
-    const allowed = { submitted: ['start_review'], under_review: ['request_information', 'approve', 'reject'], information_required: ['start_review'], approved: ['suspend', 'renew'], expired: ['renew'] };
-    if (!(allowed[old.status] || []).includes(data.action))
-        throw Object.assign(new Error(`Cannot ${data.action.replaceAll('_', ' ')} an application in ${old.status.replaceAll('_', ' ')}`), { statusCode: 409 });
-    if (['approve', 'renew'].includes(data.action) && !data.validUntil)
-        throw Object.assign(new Error('Permit validity date is required'), { statusCode: 400 });
-    const permit = old.permit_number || `PERMIT-${new Date().getFullYear()}-${String(Date.now()).slice(-7)}`;
-    const r = await c.query(`UPDATE organization_permit_applications SET status=$2,review_notes=$3,reviewed_by=$4,reviewed_at=CURRENT_TIMESTAMP,permit_number=CASE WHEN $2='approved' THEN $5 ELSE permit_number END,valid_from=CASE WHEN $2='approved' THEN CURRENT_DATE ELSE valid_from END,valid_until=CASE WHEN $2='approved' THEN $6::date ELSE valid_until END,updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *`, [id, next[data.action], data.notes, userId, permit, data.validUntil || null]);
-    await c.query('INSERT INTO organization_permit_history(application_id,previous_status,new_status,notes,changed_by) VALUES($1,$2,$3,$4,$5)', [id, old.status, next[data.action], data.notes, userId]);
-    await c.query('COMMIT');
-    return r.rows[0];
+    catch (e) {
+        await c.query('ROLLBACK');
+        throw e;
+    }
+    finally {
+        c.release();
+    }
 }
-catch (e) {
-    await c.query('ROLLBACK');
-    throw e;
-}
-finally {
-    c.release();
-} }
 async function authorizeDivisions(userId, data) { const c = await database_1.dbPool.connect(); try {
     await c.query('BEGIN');
     const valid = await c.query(`SELECT 1 FROM organization_permit_applications WHERE id=$1 AND organization_id=$2 AND status='approved' AND (valid_until IS NULL OR valid_until>=CURRENT_DATE)`, [data.permitApplicationId, data.organizationId]);

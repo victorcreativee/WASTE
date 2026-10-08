@@ -62,8 +62,15 @@ export default function LoginPage() {
       const isCompany = response.data.roles.some((role) => role.name === "company_admin");
       const isApplicant = response.data.roles.some((role) => role.name === "organization_applicant");
       const isWeighbridgeWorker = response.data.roles.some((role) => role.name === "weighbridge_operator");
+      const isRecyclingWorker = response.data.roles.some((role) => ["recycling_collector", "recycling_sales"].includes(role.name));
+      let isRecyclingCompany=false;
+      if(isCompany){
+        try{const context=await apiRequest<{data:{organization:{type:string}}}>("/api/waste/recycling");isRecyclingCompany=context.data.organization.type==="recycling_company";}catch{}
+      }
       window.location.href = isWeighbridgeWorker
         ? "/dashboard/weighbridge/operations"
+        : isRecyclingWorker
+        ? "/dashboard/recycling"
         : isDriver
         ? "/dashboard/driver-mobile"
         : isCitizen
@@ -71,7 +78,7 @@ export default function LoginPage() {
         : isApplicant
         ? "/onboarding"
         : isCompany
-        ? "/dashboard/company"
+        ? isRecyclingCompany?"/dashboard/recycling":"/dashboard/company"
         : "/dashboard";
     } catch (error) {
       setError(error instanceof Error ? error.message : "Login failed");
