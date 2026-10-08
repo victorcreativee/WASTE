@@ -1,0 +1,144 @@
+name: kampala-wms
+
+x-backend-common: &backend-common
+  restart: unless-stopped
+  networks:
+    - internal
+  init: true
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  database:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?required}
+      POSTGRES_USER: ${POSTGRES_USER:?required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+    volumes:
+      - database_data:/var/lib/postgresql/data
+      - ../database/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  auth-service:
+    <<: *backend-common
+    build:
+      context: ../..
+      dockerfile: infrastructure/production/Dockerfile.backend
+      args:
+        SERVICE_PATH: services/auth-service
+    environment:
+      NODE_ENV: production
+      PORT: 8091
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?required}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?required}
+    depends_on:
+      database:
+        condition: service_healthy
+
+  organization-service:
+    <<: *backend-common
+    build:
+      context: ../..
+      dockerfile: infrastructure/production/Dockerfile.backend
+      args:
+        SERVICE_PATH: services/organization-service
+    environment:
+      NODE_ENV: production
+      PORT: 8092
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?required}
+    depends_on:
+      database:
+        condition: service_healthy
+
+  waste-service:
+    <<: *backend-common
+    build:
+      context: ../..
+      dockerfile: infrastructure/production/Dockerfile.backend
+      args:
+        SERVICE_PATH: services/waste-service
+    environment:
+      NODE_ENV: production
+      PORT: 8093
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?required}
+    depends_on:
+      database:
+        condition: service_healthy
+
+  api-gateway:
+    <<: *backend-common
+    build:
+      context: ../..
+      dockerfile: infrastructure/production/Dockerfile.backend
+      args:
+        SERVICE_PATH: apps/api-gateway
+    environment:
+      NODE_ENV: production
+      PORT: 8090
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+      AUTH_SERVICE_URL: http://auth-service:8091
+      ORGANIZATION_SERVICE_URL: http://organization-service:8092
+      WASTE_SERVICE_URL: http://waste-service:8093
+    ports:
+      - "${WMS_GATEWAY_PORT:-127.0.0.1:8095}:8090"
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      organization-service:
+        condition: service_started
+      waste-service:
+        condition: service_started
+
+  admin-web:
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    build:
+      context: ../..
+      dockerfile: infrastructure/production/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ""
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - "${WMS_WEB_PORT:-127.0.0.1:8082}:3000"
+    networks:
+      - internal
+    depends_on:
+      - api-gateway
+
+networks:
+  internal:
+
+volumes:
+  database_data:
