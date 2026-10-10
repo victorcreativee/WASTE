@@ -23,33 +23,39 @@ export default function SystemAdminSetupPage() {
   }, []);
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const f = new FormData(e.currentTarget),
-      password = String(f.get("password")),
-      confirmation = String(f.get("confirmation"));
+
+    const f = new FormData(e.currentTarget);
+
+    const fullName = String(f.get("fullName") || "").trim();
+    const email = String(f.get("email") || "").trim();
+    const password = String(f.get("password") || "");
+    const confirmation = String(f.get("confirmation") || "");
+    const setupToken = String(f.get("setupToken") || "").trim();
+
     if (password !== confirmation) {
       setError("Passwords do not match");
       return;
     }
+
+    if (!/^[a-f0-9]{64}$/i.test(setupToken)) {
+      setError("Enter the complete 64-character setup token.");
+      return;
+    }
+
     setSaving(true);
     setError("");
+
     try {
       await apiRequest("/api/auth/system-bootstrap", {
         method: "POST",
         body: JSON.stringify({
-          fullName: f.get("fullName"),
-          email: f.get("email"),
+          fullName,
+          email,
           password,
+          setupToken,
         }),
       });
-      await apiRequest("/api/auth/system-bootstrap", {
-        method: "POST",
-        body: JSON.stringify({
-          fullName: f.get("fullName"),
-          email: f.get("email"),
-          password,
-          setupToken: f.get("setupToken"),
-        }),
-      });
+
       setDone(true);
       setAvailable(false);
     } catch (e) {
