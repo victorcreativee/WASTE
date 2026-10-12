@@ -78,7 +78,13 @@ async function main() {
       return { status: response.status, body: await response.json() };
     }
     const one = async (sql, values) => (await client.query(sql, values)).rows[0];
-    const organization = async name => (await one("INSERT INTO organizations(name,type) VALUES($1,'waste_collection_company') RETURNING id", [name])).id;
+    const organization = async name => (await one(
+      `INSERT INTO organizations(name,type,platform_package_id)
+       VALUES($1,'waste_collection_company',(
+         SELECT id FROM platform_packages WHERE code='collector_professional' AND is_active LIMIT 1
+       )) RETURNING id`,
+      [name]
+    )).id;
     const a = await organization('Rollback tenant A'), b = await organization('Rollback tenant B');
     const fixturePassword = randomBytes(24).toString('hex');
     const fixtureHash = await require('../../auth-service/node_modules/bcrypt').hash(fixturePassword, 4);
@@ -145,7 +151,6 @@ async function main() {
     check((await request(driverA, '/api/waste/driver-jobs/' + ja + '/start', 'PATCH', {})).status === 200, 'Driver can start own assigned job');
     const assign = await request(adminA, '/api/waste/collection-jobs/' + ja + '/assign', 'PATCH', { truckId: truckB, driverId: db });
     check(assign.status === 400, 'Cross-tenant assignment references rejected');
-    const zone = await one("INSERT INTO waste_zones(organization_id,name) VALUES($1,'Rollback zone') RETURNING id", [b]);
     const spoof = await request(adminA, '/api/waste/trucks', 'POST', { organizationId: b, plateNumber: 'SPOOF-' + randomUUID().slice(0,8), truckName: 'Rollback scope' });
     check(spoof.status === 201 && spoof.body.data.organization_id === a, 'Body organization cannot override tenant');
     // Customer + subscription fixtures, no provider calls.
@@ -188,6 +193,7 @@ async function main() {
     if(process.argv.includes('--provider-requests'))await require('./provider-request-tests.cjs')({client,one,check,request,a,b,adminA,adminB,user});
     if(process.argv.includes('--customer-stops'))await require('./customer-stop-tests.cjs')({client,one,check,request,a,b,adminA,adminB,driverA,driverB,kcca,user});
     if (process.argv.includes('--access')) await require('./organization-access-tests.cjs')({client,one,check,request,authBase,orgBase,a,b,adminA,adminB,supervisor,driverA,driverB,kcca,system,citizen,fixturePassword,user});
+    if (process.argv.includes('--recycling-isolation')) await require('./recycling-isolation-tests.cjs')({client,one,check,request,a,b,adminA,adminB,user});
     await client.query('UPDATE organizations SET is_active=false WHERE id=$1',[a]);
     check((await request(adminA,'/api/waste/inventory')).status === 403, 'Inactive organization denied in Waste');
     check((await request(adminA,'/api/organizations','GET',undefined,orgBase)).status === 403, 'Inactive organization denied in Organization');

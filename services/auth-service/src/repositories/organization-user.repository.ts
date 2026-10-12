@@ -141,7 +141,7 @@ export async function createOrganizationCustomerRecord(
   );
   const customerResult = await client.query(
     `INSERT INTO customer_profiles (user_id, customer_type, service_status)
-     VALUES ($1::uuid, $2, 'active') RETURNING id, customer_type, service_status`,
+     VALUES ($1::uuid, $2, 'active') RETURNING id, customer_number, customer_type, service_status`,
     [user.id, input.customerType]
   );
   const customer = customerResult.rows[0];

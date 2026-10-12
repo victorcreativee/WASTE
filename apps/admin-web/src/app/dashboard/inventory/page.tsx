@@ -47,11 +47,7 @@ type PR = {
 };
 type Data = { items: Item[]; movements: Movement[]; requests: PR[] };
 const money = (v: string | number) =>
-  new Intl.NumberFormat("en-UG", {
-    style: "currency",
-    currency: "UGX",
-    maximumFractionDigits: 0,
-  }).format(Number(v || 0));
+  `UGX ${new Intl.NumberFormat("en-UG", { maximumFractionDigits: 0 }).format(Number(v || 0))}`;
 const label = (v: string) => v.replaceAll("_", " ");
 export default function InventoryPage() {
   const [data, setData] = useState<Data>({

@@ -125,6 +125,9 @@ type Summary = {
   stockRemovedKg: number;
   lossKg: number;
   purchaseCostUgx: number;
+  inventoryValueUgx: number;
+  costOfGoodsSoldUgx: number;
+  grossProfitUgx: number;
   creditPurchasesUgx: number;
   overduePayablesUgx: number;
   dueSoonPayablesUgx: number;
@@ -136,6 +139,11 @@ type Summary = {
   processingCostUgx: number;
   profitLossUgx: number;
   floatBalanceUgx: number;
+  openingBalanceUgx: number;
+  openingBalanceConfigured: boolean;
+  cashPositionUgx: number;
+  committedFundsUgx: number;
+  availableToCommitUgx: number;
 };
 type MaterialPerformance = {
   materialType: string;
@@ -161,6 +169,8 @@ type ExpenseBreakdown = {
 type AgingBuckets = { current: number; days1To30: number; days31To60: number; days61Plus: number };
 type Operations = {
   operatingDate: string;
+  isClosed: boolean;
+  currentClosure: DailyClosure | null;
   receivedTodayKg: number;
   sortedTodayKg: number;
   soldTodayKg: number;
@@ -169,10 +179,22 @@ type Operations = {
   saleableStockKg: number;
   workQueue: Array<{ lotId: string; materialType: string; sourceName: string; receivedOn: string; availableKg: number; quality: string }>;
 };
+type DailyClosure = {
+  id: string;
+  operating_date: string;
+  status: "closed" | "reopened";
+  snapshot: Record<string, number>;
+  notes: string | null;
+  closed_at: string;
+  closed_by_name: string;
+  reopened_at: string | null;
+  reopen_reason: string | null;
+};
 type Data = {
   organization: { name: string; type: string };
   summary: Summary;
   operations: Operations;
+  dailyClosures: DailyClosure[];
   lots: Lot[];
   sales: Sale[];
   floatTransactions: FloatTx[];
@@ -188,6 +210,7 @@ type Data = {
   buyerExposure: Array<{ buyerName: string; amountUgx: number }>;
   upcomingFollowUps: Array<{ saleId: string; buyerName: string; invoiceNumber: string | null; amountUgx: number; nextFollowUpOn: string; outcome: string }>;
   myActivity?: { purchases?: number; purchasedKg?: number; sales: number; soldKg: number; saleValueUgx?: number; outstandingUgx?: number };
+  dailyActivity?: Array<{ date: string; purchases: number; purchasedKg: number; sales: number; soldKg: number; saleValueUgx: number; purchaseIds: string[]; saleIds: string[] }>;
 };
 type FormKind =
   | ""
@@ -204,10 +227,12 @@ type FormKind =
   | "followUp"
   | "saleHistory"
   | "purchaseHistory"
-  | "material";
+  | "material"
+  | "dailyClose"
+  | "dailyReopen";
 const today = () => new Date().toISOString().slice(0, 10),
   field = "mt-1 w-full border border-slate-300 px-3 py-2.5 font-normal",
-  money = (n: string | number) => `USh ${Number(n).toLocaleString()}`;
+  money = (n: string | number) => `UGX ${Number(n).toLocaleString()}`;
 const expenseFields = [
   ["workerWagesUgx", "Worker wages"],
   ["foodUgx", "Food"],
@@ -218,6 +243,7 @@ export default function RecyclingPage() {
   const [roleSnapshot] = useState<string[]>(() => { if (typeof window === "undefined") return []; try { return JSON.parse(sessionStorage.getItem("currentUser") || "{}").roles || []; } catch { return []; } }),
     collectorMode = roleSnapshot.includes("recycling_collector"),
     salesMode = roleSnapshot.includes("recycling_sales"),
+    companyAdminMode = roleSnapshot.includes("company_admin"),
     workerMode = collectorMode || salesMode,
     [data, setData] = useState<Data | null>(null),
     [error, setError] = useState(""),
@@ -226,6 +252,7 @@ export default function RecyclingPage() {
     [actionMenu, setActionMenu] = useState(false),
     [selectedSaleId, setSelectedSaleId] = useState(""),
     [selectedPurchaseId, setSelectedPurchaseId] = useState(""),
+    [activityDate, setActivityDate] = useState(""),
     [saving, setSaving] = useState(false),
     [tab, setTab] = useState<
       | "insights"
@@ -243,7 +270,9 @@ export default function RecyclingPage() {
   async function load() {
     try {
       setError("");
-      setData((await apiRequest<{ data: Data }>("/api/waste/recycling")).data);
+      const next = (await apiRequest<{ data: Data }>("/api/waste/recycling")).data;
+      setData(next);
+      setActivityDate((current) => current || next.dailyActivity?.find((item) => item.date === next.operations.operatingDate)?.date || next.dailyActivity?.[0]?.date || next.operations.operatingDate);
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Could not load recycling workspace",
@@ -261,17 +290,27 @@ export default function RecyclingPage() {
   }
   const values = (f: FormData, names: readonly string[]) =>
     Object.fromEntries(names.map((name) => [name, Number(f.get(name) || 0)]));
+  const selectedActivity = data?.dailyActivity?.find((item) => item.date === activityDate) ?? { date: activityDate, purchases: 0, purchasedKg: 0, sales: 0, soldKg: 0, saleValueUgx: 0, purchaseIds: [], saleIds: [] };
+  const visiblePurchaseLots = data?.lots.filter((item) => item.origin === "purchase" && (!collectorMode || selectedActivity.purchaseIds.includes(item.id))) ?? [];
+  const visibleSales = data?.sales.filter((item) => !workerMode || selectedActivity.saleIds.includes(item.id)) ?? [];
   async function submitPurchase(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const el = e.currentTarget,
       f = new FormData(el);
+    const customMaterial = String(f.get("customMaterialType") || "").trim();
+    const materialType = customMaterial || String(f.get("materialType") || "").trim();
+    if (!materialType) {
+      setError("Choose a material from the list or enter another material name.");
+      return;
+    }
     try {
       setSaving(true);
       setError("");
       await apiRequest("/api/waste/recycling/lots", {
         method: "POST",
         body: JSON.stringify({
-          materialType: f.get("materialType"),
+          materialType,
+          allowNewMaterial: Boolean(customMaterial),
           supplierPartnerId: f.get("supplierPartnerId") || undefined,
           sourceName: f.get("sourceName"),
           quantityKg: Number(f.get("quantityKg")),
@@ -372,6 +411,12 @@ export default function RecyclingPage() {
     e.preventDefault();
     const el = e.currentTarget,
       f = new FormData(el);
+    const customMaterial = String(f.get("customOutputMaterialType") || "").trim();
+    const outputMaterialType = customMaterial || String(f.get("outputMaterialType") || "").trim();
+    if (!outputMaterialType) {
+      setError("Choose an output material from the list or enter another material name.");
+      return;
+    }
     try {
       setSaving(true);
       setError("");
@@ -381,7 +426,8 @@ export default function RecyclingPage() {
           inputLotId: f.get("inputLotId"),
           processedOn: f.get("processedOn"),
           inputKg: Number(f.get("inputKg")),
-          outputMaterialType: f.get("outputMaterialType"),
+          outputMaterialType,
+          allowNewMaterial: Boolean(customMaterial),
           outputKg: Number(f.get("outputKg")),
           rejectedKg: Number(f.get("rejectedKg") || 0),
           processingCostUgx: Number(f.get("processingCostUgx") || 0),
@@ -615,6 +661,27 @@ export default function RecyclingPage() {
       setSaving(false);
     }
   }
+  async function submitDailyClose(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const el = e.currentTarget, f = new FormData(el);
+    try {
+      setSaving(true); setError("");
+      await apiRequest("/api/waste/recycling/daily-closures", { method: "POST", body: JSON.stringify({ operatingDate: data?.operations.operatingDate, notes: f.get("notes") || undefined }) });
+      el.reset(); setForm(""); setNotice("Business day closed. Its operational totals are now fixed."); await load();
+    } catch (x) { setError(x instanceof Error ? x.message : "Could not close business day"); }
+    finally { setSaving(false); }
+  }
+  async function submitDailyReopen(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const el=e.currentTarget,f=new FormData(el),id=data?.operations.currentClosure?.id;
+    if(!id)return;
+    try {
+      setSaving(true); setError("");
+      await apiRequest(`/api/waste/recycling/daily-closures/${id}/reopen`,{method:"PATCH",body:JSON.stringify({reason:f.get("reason")})});
+      el.reset();setForm("");setNotice("Business day reopened. Corrections can now be recorded.");await load();
+    } catch(x){setError(x instanceof Error?x.message:"Could not reopen business day");}
+    finally{setSaving(false);}
+  }
   function exportRecords() {
     if (!data) return;
     const rows = [
@@ -624,7 +691,7 @@ export default function RecyclingPage() {
         "Material",
         "Partner",
         "Quantity kg",
-        "Amount USh",
+        "Amount UGX",
         "Status / reference",
       ],
       ...data.lots
@@ -680,7 +747,7 @@ export default function RecyclingPage() {
       ["sorting", "Sorting & grading"],
       ["stock", "Material stock"],
       ["sales", "Industrial sales"],
-      ["float", "Cash & float"],
+      ["float", "Finance & accounting"],
     ] as const).filter(([id]) => !workerMode || (collectorMode ? ["purchases", "sales"].includes(id) : ["partners", "stock", "sales"].includes(id)));
   return (
     <AppShell>
@@ -789,7 +856,15 @@ export default function RecyclingPage() {
         )}
         {data && recycling && (
           <>
-            {workerMode && <section className="mt-7 border-l-2 border-[#3156a3] bg-blue-50 p-5"><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">Your responsibility</p><h2 className="mt-1 text-xl font-semibold">{collectorMode ? "Daily collection and purchasing" : "Industrial sales and buyer management"}</h2><p className="mt-2 text-sm text-slate-600">{collectorMode ? "Record every material purchase with its real kilograms, material type, supplier, price, and date. You may also record approved sales to local buyers." : "Use saleable stock to record industry sales, maintain buyer records, issue traceable invoice details, and follow up outstanding payments."}</p>{data.myActivity&&<div className="mt-5 grid gap-px bg-blue-200 sm:grid-cols-4">{(collectorMode?[["Purchases today",data.myActivity.purchases||0],["Kg bought today",`${Number(data.myActivity.purchasedKg||0).toLocaleString()} kg`],["Local sales today",data.myActivity.sales],["Kg sold today",`${Number(data.myActivity.soldKg).toLocaleString()} kg`]]:[["Sales today",data.myActivity.sales],["Kg dispatched",`${Number(data.myActivity.soldKg).toLocaleString()} kg`],["Sales value",money(data.myActivity.saleValueUgx||0)],["My outstanding",money(data.myActivity.outstandingUgx||0)]]).map(([label,value])=><div key={label} className="bg-white p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 font-semibold">{value}</p></div>)}</div>}</section>}
+            {workerMode && <section className="mt-7 border-l-2 border-[#3156a3] bg-blue-50 p-5">
+              <div className="flex flex-wrap items-end justify-between gap-4">
+                <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">Your responsibility</p><h2 className="mt-1 text-xl font-semibold">{collectorMode ? "Daily collection and purchasing" : "Industrial sales and buyer management"}</h2></div>
+                <label className="text-xs font-semibold text-slate-600">Activity date<input type="date" value={activityDate} max={data.operations.operatingDate} onChange={(event) => setActivityDate(event.target.value)} className="mt-1 block border border-blue-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">{collectorMode ? "Record every material purchase with its real kilograms, material type, supplier, price, and date. The totals below match the selected day and the records shown below." : "Use saleable stock to record industry sales, maintain buyer records, issue traceable invoice details, and follow up outstanding payments."}</p>
+              <div className="mt-5 grid gap-px bg-blue-200 sm:grid-cols-4">{(collectorMode?[["Purchases",selectedActivity.purchases],["Kg bought",`${Number(selectedActivity.purchasedKg).toLocaleString()} kg`],["Local sales",selectedActivity.sales],["Kg sold",`${Number(selectedActivity.soldKg).toLocaleString()} kg`]]:[["Sales",selectedActivity.sales],["Kg dispatched",`${Number(selectedActivity.soldKg).toLocaleString()} kg`],["Sales value",money(selectedActivity.saleValueUgx)],["Selected date",activityDate ? new Date(`${activityDate}T00:00:00`).toLocaleDateString("en-GB") : "—"]]).map(([label,value])=><div key={label} className="bg-white p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 font-semibold">{value}</p></div>)}</div>
+            </section>}
+            {workerMode && data.operations.isClosed && <Feedback tone="warning">Today’s business day is closed. You can review records, but new transactions dated today require a company administrator to reopen the day.</Feedback>}
             <section className={`${workerMode ? "hidden" : "mt-7"} border border-slate-200 bg-slate-50 p-5`}>
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
@@ -804,7 +879,18 @@ export default function RecyclingPage() {
                     follow-up is managed separately below.
                   </p>
                 </div>
+                <div className="flex items-center gap-3">
+                  {data.operations.isClosed ? (
+                    <>
+                      <span className="border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">Day closed ✓</span>
+                      {companyAdminMode && <button onClick={() => openForm("dailyReopen")} className="border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-[#3156a3]">Reopen day</button>}
+                    </>
+                  ) : (
+                    <button onClick={() => openForm("dailyClose")} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">Close business day</button>
+                  )}
+                </div>
               </div>
+              {data.operations.isClosed && <div className="mt-4 border-l-2 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-900">Transactions dated {new Date(`${data.operations.operatingDate}T00:00:00`).toLocaleDateString("en-GB")} are locked. The recorded daily summary will not change unless a company administrator reopens the day.</div>}
               <div className="mt-5 grid gap-px bg-slate-200 md:grid-cols-4">
                 {[
                   {
@@ -1243,7 +1329,7 @@ export default function RecyclingPage() {
                 />
               ))}
             {tab === "purchases" &&
-              (data.lots.filter((x) => x.origin === "purchase").length ? (
+              (visiblePurchaseLots.length ? (
                 <div className="table-wrap mt-5">
                   <table>
                     <thead>
@@ -1259,9 +1345,7 @@ export default function RecyclingPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {data.lots
-                        .filter((x) => x.origin === "purchase")
-                        .map((x) => (
+                      {visiblePurchaseLots.map((x) => (
                           <tr key={x.id}>
                             <td>
                               <p className="table-primary">
@@ -1461,7 +1545,7 @@ export default function RecyclingPage() {
               </div>
             )}
             {tab === "sales" &&
-              (data.sales.length ? (
+              (visibleSales.length ? (
                 <div className="table-wrap mt-5">
                   <table>
                     <thead>
@@ -1478,7 +1562,7 @@ export default function RecyclingPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {data.sales.map((x) => (
+                      {visibleSales.map((x) => (
                         <tr key={x.id}>
                           <td>
                             <p className="table-primary">
@@ -1536,9 +1620,25 @@ export default function RecyclingPage() {
                   description="Record a sale from available graded material stock, including its buyer, price and selling expenses."
                 />
               ))}
-            {tab === "float" &&
-              (data.floatTransactions.length ? (
-                <div className="table-wrap mt-5">
+            {tab === "float" && <div className="mt-6 space-y-7">
+              <section>
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">Finance control</p><h2 className="mt-1 text-xl font-semibold">Cash, obligations and profitability</h2><p className="mt-1 max-w-3xl text-sm text-slate-500">Cash answers what can be paid now. Receivables and payables show money still due. Profit uses only the cost of material actually sold; unsold material remains inventory.</p></div>
+                  <a href="/dashboard/billing" className="border border-[#3156a3] px-4 py-2.5 text-sm font-semibold text-[#3156a3]">Open full finance controls</a>
+                </div>
+                {!data.summary.openingBalanceConfigured && <div className="mt-4 border-l-4 border-[#c6842f] bg-amber-50 p-4 text-sm text-amber-950"><strong>Finance setup required.</strong> Set the verified opening balance before recording paid purchases or allocating manager float. <a href="/dashboard/billing" className="font-semibold text-[#3156a3] underline">Set opening balance →</a></div>}
+                <div className="mt-5 grid gap-px bg-slate-300 sm:grid-cols-2 lg:grid-cols-3">
+                  {[["Cash available",data.summary.cashPositionUgx,"Money currently available after received and paid transactions"],["Committed funds",data.summary.committedFundsUgx,"Approved or unpaid obligations reserved from cash"],["Available to commit",data.summary.availableToCommitUgx,"Maximum safe value for new credit commitments"],["Customer receivables",data.summary.unpaidSalesUgx,"Sales recorded but not yet fully collected"],["Supplier payables",data.summary.creditPurchasesUgx,"Material purchases still owed to suppliers"],["Manager float",data.summary.floatBalanceUgx,"Cash currently held for field purchasing"]].map(([label,value,help])=><div key={String(label)} className="bg-white p-4"><p className="text-xs font-semibold text-slate-500">{label}</p><p className={`mt-1 text-xl font-semibold ${Number(value)<0?"text-red-700":""}`}>{money(Number(value))}</p><p className="mt-2 text-xs leading-5 text-slate-500">{help}</p></div>)}
+                </div>
+              </section>
+              <section className="grid gap-5 lg:grid-cols-2">
+                <div className="border border-slate-200 bg-white p-5"><h3 className="font-semibold">Trading result</h3><div className="mt-3 divide-y text-sm">{[["Sales revenue",data.summary.revenueUgx],["Cost of material sold",-data.summary.costOfGoodsSoldUgx],["Gross profit",data.summary.grossProfitUgx],["Selling expenses",-data.summary.saleExpensesUgx],["Net trading profit / loss",data.summary.profitLossUgx]].map(([label,value])=><div key={String(label)} className="flex justify-between gap-4 py-3"><span>{label}</span><strong className={Number(value)<0?"text-red-700":""}>{money(Number(value))}</strong></div>)}</div></div>
+                <div className="border border-slate-200 bg-white p-5"><h3 className="font-semibold">Stock accounting</h3><div className="mt-3 divide-y text-sm"><div className="flex justify-between py-3"><span>Material purchased</span><strong>{money(data.summary.purchaseCostUgx)}</strong></div><div className="flex justify-between py-3"><span>Processing cost recorded</span><strong>{money(data.summary.processingCostUgx)}</strong></div><div className="flex justify-between py-3"><span>Unsold inventory value</span><strong>{money(data.summary.inventoryValueUgx)}</strong></div><div className="flex justify-between py-3"><span>Physical stock</span><strong>{data.summary.availableKg.toLocaleString()} kg</strong></div></div><p className="mt-3 text-xs leading-5 text-slate-500">Buying stock reduces cash but does not become a trading loss immediately. Its cost moves to cost of goods sold only when that material is sold.</p></div>
+              </section>
+              <section className="border-y border-slate-300 bg-slate-50 p-5"><h3 className="font-semibold">How to record money correctly</h3><div className="mt-4 grid gap-4 text-sm md:grid-cols-4">{[["1. Fund the business","Set the verified opening balance under Finance. Do not use a fake sale to create cash."],["2. Buy material","Choose Paid only when cash actually leaves. Choose Credit when the supplier will be paid later."],["3. Record sales","Record the dispatch first. Mark payment only when the buyer’s money is actually received."],["4. Reconcile daily","Review cash, float, receivables and payables, then close the business day after corrections."]].map(([title,description])=><div key={title}><p className="font-semibold text-[#3156a3]">{title}</p><p className="mt-1 leading-6 text-slate-600">{description}</p></div>)}</div></section>
+              <section><div className="flex items-end justify-between gap-3"><div><h3 className="font-semibold">Manager float ledger</h3><p className="mt-1 text-sm text-slate-500">Money issued to field buyers and the purchasing spend recorded against it.</p></div><button onClick={()=>openForm("float")} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">Record float movement</button></div>
+              {data.floatTransactions.length ? (
+                <div className="table-wrap mt-4">
                   <table>
                     <thead>
                       <tr>
@@ -1573,9 +1673,37 @@ export default function RecyclingPage() {
                   title="No manager float movements"
                   description="Record money given to the manager. Purchase amounts marked as paid from float are deducted automatically."
                 />
-              ))}
+              )}</section></div>}
           </>
         )}
+        <Modal
+          open={form === "dailyClose"}
+          title="Close business day"
+          description="Review today’s operational totals, then lock the date against further purchasing, sorting, sales, payments, float and stock changes."
+          onClose={() => setForm("")}
+        >
+          <form onSubmit={submitDailyClose} className="space-y-4">
+            <div className="grid gap-px bg-slate-200 sm:grid-cols-3">
+              <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Material received</p><p className="font-semibold">{Number(data?.operations.receivedTodayKg || 0).toLocaleString()} kg</p></div>
+              <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Saleable output</p><p className="font-semibold">{Number(data?.operations.sortedTodayKg || 0).toLocaleString()} kg</p></div>
+              <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Material sold</p><p className="font-semibold">{Number(data?.operations.soldTodayKg || 0).toLocaleString()} kg</p></div>
+            </div>
+            <label className="block text-sm font-semibold">Closing note (optional)<textarea name="notes" rows={3} maxLength={500} placeholder="Handover note, variance explanation, or manager comment" className={field} /></label>
+            <div className="border-l-2 border-[#c6842f] bg-amber-50 p-3 text-sm text-slate-700">After closing, records dated {data?.operations.operatingDate} cannot be added or changed. A company administrator can reopen the day with a mandatory reason.</div>
+            <button disabled={saving} className="w-full bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white">{saving ? "Closing…" : "Confirm and close day"}</button>
+          </form>
+        </Modal>
+        <Modal
+          open={form === "dailyReopen"}
+          title="Reopen business day"
+          description="Use this only to correct an omitted or incorrect operational record. The reason remains attached to the closing record."
+          onClose={() => setForm("")}
+        >
+          <form onSubmit={submitDailyReopen} className="space-y-4">
+            <label className="block text-sm font-semibold">Reason for reopening<textarea required minLength={5} maxLength={500} name="reason" rows={4} placeholder="Explain the correction that must be made" className={field} /></label>
+            <button disabled={saving} className="w-full bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white">{saving ? "Reopening…" : "Reopen business day"}</button>
+          </form>
+        </Modal>
         <Modal
           open={form === "material"}
           title="Add material type"
@@ -1606,12 +1734,17 @@ export default function RecyclingPage() {
           <form onSubmit={submitPurchase} className="grid gap-4 sm:grid-cols-2">
             <label className="text-sm font-semibold">
               Material type
-              <select required name="materialType" defaultValue="" className={field}>
+              <select name="materialType" defaultValue="" className={field}>
                 <option value="">Choose material</option>
                 {data?.materials.filter((x) => x.active).map((x) => (
                   <option key={x.id} value={x.name}>{x.name}</option>
                 ))}
               </select>
+            </label>
+            <label className="text-sm font-semibold">
+              Material not listed? Enter its name
+              <input minLength={2} maxLength={80} name="customMaterialType" placeholder="Example: Copper cable" className={field} />
+              <span className="mt-1 block text-xs font-normal text-slate-500">A new name is saved to your company catalogue for future transactions.</span>
             </label>
             <label className="text-sm font-semibold">
               Saved supplier (optional)
@@ -1647,7 +1780,7 @@ export default function RecyclingPage() {
               />
             </label>
             <label className="text-sm font-semibold">
-              Price paid per kg (USh)
+              Price paid per kg (UGX)
               <input
                 required
                 type="number"
@@ -1692,7 +1825,7 @@ export default function RecyclingPage() {
             </label>
             {expenseFields.map(([name, label]) => (
               <label key={name} className="text-sm font-semibold">
-                {label} (USh)
+                {label} (UGX)
                 <input
                   type="number"
                   min="0"
@@ -1703,7 +1836,7 @@ export default function RecyclingPage() {
               </label>
             ))}
             <label className="text-sm font-semibold">
-              Driver fee (USh)
+              Driver fee (UGX)
               <input
                 type="number"
                 min="0"
@@ -1713,7 +1846,7 @@ export default function RecyclingPage() {
               />
             </label>
             <label className="text-sm font-semibold">
-              Paid from manager float (USh)
+              Paid from manager float (UGX)
               <input
                 type="number"
                 min="0"
@@ -1783,7 +1916,6 @@ export default function RecyclingPage() {
             <label className="text-sm font-semibold">
               Output material grade
               <select
-                required
                 name="outputMaterialType"
                 defaultValue=""
                 className={field}
@@ -1793,6 +1925,11 @@ export default function RecyclingPage() {
                   <option key={x.id} value={x.name}>{x.name}</option>
                 ))}
               </select>
+            </label>
+            <label className="text-sm font-semibold">
+              Output grade not listed? Enter its name
+              <input minLength={2} maxLength={80} name="customOutputMaterialType" placeholder="Example: Clear PET flakes" className={field} />
+              <span className="mt-1 block text-xs font-normal text-slate-500">This new grade is saved to the material catalogue automatically.</span>
             </label>
             <label className="text-sm font-semibold">
               Saleable output (kg)
@@ -1817,7 +1954,7 @@ export default function RecyclingPage() {
               />
             </label>
             <label className="text-sm font-semibold">
-              Processing cost (USh)
+              Processing cost (UGX)
               <input
                 type="number"
                 min="0"
@@ -1952,7 +2089,7 @@ export default function RecyclingPage() {
               />
             </label>
             <label className="text-sm font-semibold">
-              Price per kg (USh)
+              Price per kg (UGX)
               <input
                 required
                 type="number"
@@ -1977,7 +2114,7 @@ export default function RecyclingPage() {
             </label>
             {expenseFields.map(([name, label]) => (
               <label key={name} className="text-sm font-semibold">
-                {label} (USh)
+                {label} (UGX)
                 <input
                   type="number"
                   min="0"
@@ -2029,7 +2166,7 @@ export default function RecyclingPage() {
               </select>
             </label>
             <label className="block text-sm font-semibold">
-              Amount (USh)
+              Amount (UGX)
               <input
                 required
                 type="number"
@@ -2134,7 +2271,7 @@ export default function RecyclingPage() {
         >
           <form onSubmit={submitPurchasePayment} className="space-y-4">
             <label className="block text-sm font-semibold">
-              Amount paid (USh)
+              Amount paid (UGX)
               <input required type="number" min="1" max={data?.lots.find(x => x.id === selectedPurchaseId)?.balance_ugx} name="amountUgx" defaultValue={data?.lots.find(x => x.id === selectedPurchaseId)?.balance_ugx} className={field} />
               <span className="mt-1 block text-xs font-normal text-slate-500">Remaining balance: {money(data?.lots.find(x => x.id === selectedPurchaseId)?.balance_ugx || 0)}</span>
             </label>
@@ -2176,7 +2313,7 @@ export default function RecyclingPage() {
         >
           <form onSubmit={submitPayment} className="space-y-4">
             <label className="block text-sm font-semibold">
-              Amount received (USh)
+              Amount received (UGX)
               <input required type="number" min="1" max={data?.sales.find(x => x.id === selectedSaleId)?.balance_ugx} name="amountUgx" defaultValue={data?.sales.find(x => x.id === selectedSaleId)?.balance_ugx} className={field} />
               <span className="mt-1 block text-xs font-normal text-slate-500">Remaining balance: {money(data?.sales.find(x => x.id === selectedSaleId)?.balance_ugx || 0)}</span>
             </label>

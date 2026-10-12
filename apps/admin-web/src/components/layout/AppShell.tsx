@@ -18,26 +18,26 @@ const cityNav:NavItem[] = [
   {group:"City oversight",label:"Compliance cases",href:"/dashboard/compliance"},
 ];
 const systemNav:NavItem[]=[{group:"Platform",label:"Platform overview",href:"/dashboard"},{group:"Platform",label:"Company applications",href:"/dashboard/account-applications"},{group:"Platform",label:"Account verification",href:"/dashboard/account-verification"},{group:"Platform",label:"Platform packages",href:"/dashboard/platform-packages"},{group:"Platform",label:"Platform users",href:"/dashboard/platform-users"},{group:"Platform",label:"Weighbridge workers",href:"/dashboard/weighbridge-workers"},{group:"Platform",label:"Organizations",href:"/dashboard/organizations"},{group:"Reference",label:"KCCA permit register",href:"/dashboard/permits"},{group:"Reference",label:"Collector performance",href:"/dashboard/city-reports"}];
-type NavItem={label:string;href:string;group?:string};
+type NavItem={label:string;href:string;group?:string;packageFeature?:string};
 const companyNav:NavItem[] = [
   {group:"Overview",label:"Organization overview",href:"/dashboard/company"},
-  {group:"Service delivery",label:"Today’s operations",href:"/dashboard/waste"},
-  {group:"Service delivery",label:"Service areas & routes",href:"/dashboard/service-areas"},
-  {group:"Service delivery",label:"Fleet control",href:"/dashboard/fleet"},
-  {group:"Service delivery",label:"Trips & drivers",href:"/dashboard/driver-mobile"},
-  {group:"Service delivery",label:"Daily tonnage",href:"/dashboard/tonnage"},
-  {group:"Service delivery",label:"Service issues",href:"/dashboard/citizen-issues"},
-  {group:"People & customers",label:"Staff management",href:"/dashboard/team"},
-  {group:"People & customers",label:"Customer management",href:"/dashboard/customer-service"},
-  {group:"Commercial",label:"Contracts & service levels",href:"/dashboard/contracts"},
-  {group:"Commercial",label:"Income & billing",href:"/dashboard/billing"},
-  {group:"Finance",label:"Payroll",href:"/dashboard/payroll"},
-  {group:"Finance",label:"Accounts payable",href:"/dashboard/accounts-payable"},
-  {group:"Supply",label:"Inventory",href:"/dashboard/inventory"},
-  {group:"Supply",label:"Procurement",href:"/dashboard/procurement"},
-  {group:"Insights",label:"Reports",href:"/dashboard/reports"},
-  {group:"Insights",label:"KCCA compliance",href:"/dashboard/compliance"},
-  {group:"Administration",label:"Access & permissions",href:"/dashboard/access"},
+  {group:"Service delivery",label:"Today’s operations",href:"/dashboard/waste",packageFeature:"core_operations"},
+  {group:"Service delivery",label:"Service areas & routes",href:"/dashboard/service-areas",packageFeature:"service_areas"},
+  {group:"Service delivery",label:"Fleet control",href:"/dashboard/fleet",packageFeature:"fleet"},
+  {group:"Service delivery",label:"Trips & drivers",href:"/dashboard/driver-mobile",packageFeature:"core_operations"},
+  {group:"Service delivery",label:"Daily tonnage",href:"/dashboard/tonnage",packageFeature:"tonnage"},
+  {group:"Service delivery",label:"Service issues",href:"/dashboard/citizen-issues",packageFeature:"service_issues"},
+  {group:"People & customers",label:"Customer management",href:"/dashboard/customer-service",packageFeature:"customers"},
+  {group:"People & customers",label:"Staff management",href:"/dashboard/team",packageFeature:"core_operations"},
+  {group:"Commercial",label:"Contracts & service levels",href:"/dashboard/contracts",packageFeature:"contracts"},
+  {group:"Commercial",label:"Income & billing",href:"/dashboard/billing",packageFeature:"billing"},
+  {group:"Finance",label:"Payroll",href:"/dashboard/payroll",packageFeature:"finance"},
+  {group:"Finance",label:"Accounts payable",href:"/dashboard/accounts-payable",packageFeature:"finance"},
+  {group:"Supply",label:"Inventory",href:"/dashboard/inventory",packageFeature:"inventory"},
+  {group:"Supply",label:"Procurement",href:"/dashboard/procurement",packageFeature:"procurement"},
+  {group:"Insights",label:"Reports",href:"/dashboard/reports",packageFeature:"reports"},
+  {group:"Insights",label:"KCCA compliance",href:"/dashboard/compliance",packageFeature:"compliance"},
+  {group:"Administration",label:"Access & permissions",href:"/dashboard/access",packageFeature:"access"},
   {group:"Administration",label:"Company settings",href:"/dashboard/company-settings"},
 ];
 const supervisorNav:NavItem[] = [
@@ -49,6 +49,7 @@ const supervisorNav:NavItem[] = [
   {group:"Operations",label:"Daily tonnage",href:"/dashboard/tonnage"},
   {group:"Operations",label:"Service issues",href:"/dashboard/citizen-issues"},
   {group:"Customers",label:"Customer management",href:"/dashboard/customer-service"},
+  {group:"People",label:"Staff management",href:"/dashboard/team"},
   {group:"Customers",label:"Billing monitor",href:"/dashboard/billing"},
   {group:"Resources",label:"Inventory",href:"/dashboard/inventory"},
   {group:"Insights",label:"Reports",href:"/dashboard/reports"},
@@ -73,7 +74,10 @@ const customerNav:NavItem[] = [
 ];
 const driverNav:NavItem[] = [{group:"Today",label:"My route & jobs",href:"/dashboard/driver-mobile"}];
 const weighbridgeNav:NavItem[] = [{group:"Facility operations",label:"Record vehicle",href:"/dashboard/weighbridge/operations"},{group:"Facility operations",label:"Transaction records",href:"/dashboard/weighbridge"}];
-const recyclingWorkerNav:NavItem[] = [{group:"Daily work",label:"Materials & sales",href:"/dashboard/recycling"}];
+const recyclingCollectorNav:NavItem[] = [
+  {group:"Daily work",label:"Materials & local sales",href:"/dashboard/recycling"},
+];
+const recyclingSalesNav:NavItem[] = [{group:"Daily work",label:"Industrial sales",href:"/dashboard/recycling"}];
 
 type CurrentUser = {
   fullName: string;
@@ -107,6 +111,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [storedUser]);
   const [accessUser,setAccessUser]=useState<{user:string;permissions:string[]}|null>(null);
   const [organizationType,setOrganizationType]=useState("");
+  const [packageAccess,setPackageAccess]=useState<{organization_type:string;package_name:string;feature_codes:string[]}|null>(null);
   useEffect(()=>{
     let cancelled=false;
     if(!currentUser?.roles?.some(r=>["company_admin","supervisor","driver","iot_operator","recycling_collector","recycling_sales"].includes(r)))return;
@@ -114,21 +119,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if(!cancelled)setAccessUser({user:storedUser,permissions:result.data.permissions});
     }).catch(()=>{if(!cancelled)setAccessUser(null);});
     apiRequest<{data:{organization:{type:string}}}>("/api/waste/recycling").then(result=>{if(!cancelled)setOrganizationType(result.data.organization.type)}).catch(()=>{if(!cancelled)setOrganizationType("")});
+    apiRequest<{data:{organization_type:string;package_name:string;feature_codes:string[]}}>("/api/waste/regulatory/organization-package").then(result=>{if(!cancelled)setPackageAccess(result.data)}).catch(()=>{if(!cancelled)setPackageAccess(null)});
     return()=>{cancelled=true;};
   },[currentUser,storedUser,pathname]);
   const recyclingWorkspace=organizationType==="recycling_company";
   const primaryNavItems = currentUser?.roles?.includes("weighbridge_operator") ? weighbridgeNav
     : currentUser?.roles?.includes("driver") ? driverNav
     : currentUser?.roles?.includes("citizen") ? customerNav
-    : currentUser?.roles?.some(role=>["recycling_collector","recycling_sales"].includes(role)) ? recyclingWorkerNav
+    : currentUser?.roles?.includes("recycling_collector") ? recyclingCollectorNav
+    : currentUser?.roles?.includes("recycling_sales") ? recyclingSalesNav
     : currentUser?.roles?.includes("company_admin") ? (recyclingWorkspace?recyclingCompanyNav:companyNav)
     : currentUser?.roles?.includes("supervisor") ? (recyclingWorkspace?recyclingCompanyNav:supervisorNav)
     : currentUser?.roles?.includes("system_admin") ? systemNav : cityNav;
   const grants=accessUser?.user===storedUser?accessUser.permissions:[];
+  const packageFeatures=new Set(packageAccess?.feature_codes||[]);
   const visibleNavItems:NavItem[]=primaryNavItems.filter(item=>
+    packageAccess?.organization_type==="waste_collection_company"&&item.packageFeature&&!packageFeatures.has(item.packageFeature)?false:
     item.href==="/dashboard/team"?grants.includes("staff.read"):
     item.href==="/dashboard/access"?grants.includes("access.read"):true);
-  if(grants.includes("staff.read")&&!visibleNavItems.some(item=>item.href==="/dashboard/team"))visibleNavItems.push({group:"People & customers",label:"Staff management",href:"/dashboard/team"});
+  if(recyclingWorkspace&&grants.includes("staff.read")&&!visibleNavItems.some(item=>item.href==="/dashboard/team"))visibleNavItems.push({group:"People",label:"Staff management",href:"/dashboard/team"});
   if(grants.includes("access.read")&&!visibleNavItems.some(item=>item.href==="/dashboard/access"))visibleNavItems.push({group:"Administration",label:"Access & permissions",href:"/dashboard/access"});
   const navGroups=visibleNavItems.reduce<Array<{name:string;items:NavItem[]}>>((groups,item)=>{
     const name=item.group||"Workspace",existing=groups.find(group=>group.name===name);

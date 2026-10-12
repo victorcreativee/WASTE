@@ -16,6 +16,8 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Kampala Smart Waste Management",
   description: "Connected city, organization, driver, and customer waste operations.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "Urban Waste" },
 };
 
 export default function RootLayout({

@@ -6,6 +6,7 @@ exports.updateServicePlanHandler = updateServicePlanHandler;
 exports.updateServicePlanStatusHandler = updateServicePlanStatusHandler;
 exports.subscribeServicePlanHandler = subscribeServicePlanHandler;
 exports.getBillingOverviewHandler = getBillingOverviewHandler;
+exports.getPaymentReceiptHandler = getPaymentReceiptHandler;
 exports.generateDueInvoicesHandler = generateDueInvoicesHandler;
 exports.updateSubscriptionStatusHandler = updateSubscriptionStatusHandler;
 exports.initiatePaymentHandler = initiatePaymentHandler;
@@ -97,6 +98,12 @@ async function getBillingOverviewHandler(req, res) {
         data: overview,
     });
 }
+async function getPaymentReceiptHandler(req, res) {
+    const receipt = await (0, billing_service_1.findPaymentReceipt)(req.params.paymentId, organizationScope(req), customerUser(req));
+    if (!receipt)
+        return res.status(404).json({ success: false, message: "Receipt not found or payment has not been confirmed" });
+    return res.status(200).json({ success: true, message: "Payment receipt fetched", data: receipt });
+}
 async function generateDueInvoicesHandler(req, res) {
     const organizationId = auth(req).organizationId;
     if (!organizationId)
@@ -104,7 +111,7 @@ async function generateDueInvoicesHandler(req, res) {
             success: false,
             message: "Account is not linked to an organization",
         });
-    const invoices = await (0, billing_service_1.generateDueSubscriptionInvoices)(organizationId);
+    const invoices = await (0, billing_service_1.generateDueSubscriptionInvoices)(organizationId, auth(req).userId);
     return res.status(201).json({
         success: true,
         message: invoices.length
@@ -148,7 +155,7 @@ async function initiatePaymentHandler(req, res) {
 }
 async function confirmPaymentHandler(req, res) {
     const input = billing_validator_1.confirmPaymentSchema.parse(req.body);
-    const result = await (0, billing_service_1.confirmPayment)(req.params.paymentId, organizationScope(req), input.providerReference);
+    const result = await (0, billing_service_1.confirmPayment)(req.params.paymentId, organizationScope(req), input.providerReference, auth(req).userId);
     if (!result)
         return res.status(409).json({
             success: false,
@@ -167,7 +174,7 @@ async function recordOrganizationPaymentHandler(req, res) {
             success: false,
             message: "Account is not linked to an organization",
         });
-    const result = await (0, billing_service_1.recordOrganizationPayment)(organizationId, billing_validator_1.recordOrganizationPaymentSchema.parse(req.body));
+    const result = await (0, billing_service_1.recordOrganizationPayment)(organizationId, billing_validator_1.recordOrganizationPaymentSchema.parse(req.body), auth(req).userId);
     if (!result)
         return res.status(409).json({
             success: false,

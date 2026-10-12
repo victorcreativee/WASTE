@@ -6,14 +6,29 @@ export async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const accessToken = typeof window === "undefined" ? null : sessionStorage.getItem("accessToken");
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
+  let response: Response;
+  const method=(options.method||"GET").toUpperCase();
+  for(let attempt=0;;attempt++){
+    try {
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        ...options,
+        cache: method==="GET"?"no-store":options.cache,
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          ...(options.headers || {}),
+        },
+      });
+      if(method==="GET"&&attempt===0&&[502,503,504].includes(response.status)){
+        await new Promise(resolve=>setTimeout(resolve,300));
+        continue;
+      }
+      break;
+    } catch {
+      if(method==="GET"&&attempt===0){await new Promise(resolve=>setTimeout(resolve,300));continue;}
+      throw new Error("The platform service is temporarily unavailable. Please try again.");
+    }
+  }
 
   const responseType = response.headers.get("content-type") || "";
   const raw = await response.text();
@@ -33,7 +48,21 @@ export async function apiRequest<T>(
       sessionStorage.removeItem("currentUser");
       if (window.location.pathname !== "/login") window.location.href = "/login";
     }
-    throw new Error(data.message || "API request failed");
+    const responseMessage =
+      typeof data?.message === "string" ? data.message.trim() : "";
+    const isUnavailable =
+      response.status === 502 ||
+      response.status === 503 ||
+      response.status === 504 ||
+      /trying to proxy|econnrefused|connect econn|socket hang up|localhost:\d+/i.test(
+        responseMessage,
+      );
+
+    throw new Error(
+      isUnavailable
+        ? "The platform service is temporarily unavailable. Please try again."
+        : responseMessage || "The request could not be completed. Please try again.",
+    );
   }
 
   return data as T;

@@ -4,6 +4,7 @@ import {
   downloadOrganizationCertificate,
   getAccountApplications,
   getAllPlatformPackages,
+  getOrganizationPackageAccess,
   getApplicantPermits,
   getDivisionAuthorizations,
   getDivisions,
@@ -46,6 +47,11 @@ r.get(
   "/platform-packages",
   requireRoles("system_admin"),
   run(getAllPlatformPackages),
+);
+r.get(
+  "/organization-package",
+  requireRoles("company_admin", "supervisor", "driver"),
+  run(getOrganizationPackageAccess),
 );
 r.post(
   "/platform-packages",

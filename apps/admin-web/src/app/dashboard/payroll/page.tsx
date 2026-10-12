@@ -41,11 +41,7 @@ type FinancialPosition = {
   available_to_commit_ugx: string;
 };
 const money = (v: string | number) =>
-  new Intl.NumberFormat("en-UG", {
-    style: "currency",
-    currency: "UGX",
-    maximumFractionDigits: 0,
-  }).format(Number(v || 0));
+  `UGX ${new Intl.NumberFormat("en-UG", { maximumFractionDigits: 0 }).format(Number(v || 0))}`;
 export default function PayrollPage() {
   const [data, setData] = useState<Data>({ periods: [], lines: [] }),
     [position,setPosition]=useState<FinancialPosition>({cash_position_ugx:"0",committed_funds_ugx:"0",available_to_commit_ugx:"0"}),

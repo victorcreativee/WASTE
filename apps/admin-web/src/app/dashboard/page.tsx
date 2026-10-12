@@ -81,6 +81,9 @@ export default function DashboardPage() {
   const [user, setUser] = useState<MeResponse["data"] | null>(null);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [summary, setSummary] = useState(EMPTY_SUMMARY);
+  const [organizationsLoaded, setOrganizationsLoaded] = useState(false);
+  const [summaryLoaded, setSummaryLoaded] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -93,7 +96,7 @@ export default function DashboardPage() {
           return;
         }
 
-        const [meResponse, organizationsResponse, summaryResponse] = await Promise.all([
+        const [meResult, organizationsResult, summaryResult] = await Promise.allSettled([
           apiRequest<MeResponse>("/api/auth/me", {
             headers: { Authorization: `Bearer ${token}` },
           }),
@@ -101,13 +104,34 @@ export default function DashboardPage() {
           apiRequest<SummaryResponse>("/api/waste/command-center/summary"),
         ]);
 
-        setUser(meResponse.data);
-        setOrganizations(organizationsResponse.data);
-        setSummary(summaryResponse.data);
+        if (meResult.status === "fulfilled") {
+          setUser(meResult.value.data);
+        }
+
+        if (organizationsResult.status === "fulfilled") {
+          setOrganizations(organizationsResult.value.data);
+          setOrganizationsLoaded(true);
+        }
+
+        if (summaryResult.status === "fulfilled") {
+          setSummary(summaryResult.value.data);
+          setSummaryLoaded(true);
+        }
+
+        const failedSections = [
+          organizationsResult.status === "rejected" ? "organization readiness" : "",
+          summaryResult.status === "rejected" ? "today’s operations" : "",
+        ].filter(Boolean);
+
+        if (failedSections.length) {
+          setError(`Could not refresh ${failedSections.join(" and ")}. Please try again.`);
+        }
       } catch (error) {
         setError(
           error instanceof Error ? error.message : "Failed to load dashboard"
         );
+      } finally {
+        setLoading(false);
       }
     }
 
@@ -127,7 +151,7 @@ export default function DashboardPage() {
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl">
-        <PageHeader eyebrow={isCityController?"KCCA command centre":"Today"} title={isCityController?"Kampala waste operations":`Good to see you, ${user ? user.user.fullName : "loading"}.`} description={isCityController?"See what needs attention, monitor active collections and maintain citywide accountability.":"See today’s work, operational capacity and service exceptions."}/>
+        <PageHeader eyebrow={isCityController?"KCCA command centre":"Today"} title={isCityController?"Kampala waste operations":loading?"Loading your workspace…":`Good to see you, ${user?.user.fullName || "welcome back"}.`} description={isCityController?"See what needs attention, monitor active collections and maintain citywide accountability.":"See today’s work, operational capacity and service exceptions."}/>
         {error&&<Feedback tone="error">{error}</Feedback>}
         <section className="py-8">
           {isCityController&&<section className="mb-10"><div className="flex items-end justify-between border-b border-slate-300 pb-3"><div><h2 className="text-xl font-semibold text-slate-950">What needs attention</h2><p className="mt-1 text-sm text-slate-500">Exceptions are shown here so the control room knows where to act first.</p></div></div>{attention.length?<div className="divide-y divide-slate-200 border-b border-slate-200">{attention.map(item=><div key={item.label} className="flex items-center justify-between gap-6 py-4"><div className="flex items-baseline gap-4"><span className="min-w-8 text-2xl font-semibold text-slate-950">{item.value}</span><span className="text-sm font-medium text-slate-700">{item.label}</span></div><Link href={item.href} className="text-sm font-semibold text-[#3156a3]">{item.action} →</Link></div>)}</div>:<div className="border-b border-slate-200 py-6"><p className="font-semibold text-slate-800">No urgent exceptions</p><p className="mt-1 text-sm text-slate-500">There are no missed collections, unassigned areas, driver alerts or unresolved reports requiring action.</p></div>}</section>}
@@ -135,7 +159,7 @@ export default function DashboardPage() {
           <div className="grid gap-10 xl:grid-cols-[1.35fr_0.65fr]">
           <div>
             <div className="flex items-end justify-between border-b border-slate-300 pb-3"><div><h2 className="text-xl font-semibold text-slate-950">Today’s service delivery</h2><p className="mt-1 text-sm text-slate-500">A concise citywide view of work dispatched by licensed collectors.</p></div><Link href="/dashboard/waste" className="text-sm font-semibold text-[#3156a3]">Open live operations →</Link></div>
-            <div className="grid grid-cols-2 border-b border-slate-300 md:grid-cols-4">{[["Trips",summary.jobs_today],["In progress",summary.active_routes],["Completed",summary.completed_jobs],["Completion",`${summary.service_completion_percentage}%`]].map(([label,value])=><div key={label} className="border-r border-slate-200 py-5 last:border-r-0"><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-1 text-3xl font-semibold text-slate-950">{value}</p></div>)}</div>
+            <div className="grid grid-cols-2 border-b border-slate-300 md:grid-cols-4">{[["Trips",summaryLoaded?summary.jobs_today:"—"],["In progress",summaryLoaded?summary.active_routes:"—"],["Completed",summaryLoaded?summary.completed_jobs:"—"],["Completion",summaryLoaded?`${summary.service_completion_percentage}%`:"—"]].map(([label,value])=><div key={label} className="border-r border-slate-200 py-5 last:border-r-0"><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-1 text-3xl font-semibold text-slate-950">{value}</p></div>)}</div>
 
             <div className="mt-8 border-t border-slate-200 pt-6">
               <div className="flex items-center justify-between"><h2 className="text-xl font-semibold text-slate-950">Active trips</h2></div>
@@ -148,7 +172,7 @@ export default function DashboardPage() {
 
           <aside className="border-l border-slate-200 pl-8">
             <h2 className="border-b border-slate-300 pb-3 text-xl font-semibold text-slate-950">City readiness</h2>
-            <dl className="divide-y divide-slate-200 border-b border-slate-200">{[["Licensed operators",organizations.filter(item=>item.is_active&&["waste_collection_company","recycling_company"].includes(item.type)).length],["Waste collectors",organizations.filter(item=>item.is_active&&item.type==="waste_collection_company").length],["Recycling companies",organizations.filter(item=>item.is_active&&item.type==="recycling_company").length],["Zones covered",summary.zones_covered],["Customers served",summary.total_customers]].map(([label,value])=><div key={label} className="flex items-center justify-between py-4"><dt className="text-sm text-slate-600">{label}</dt><dd className="font-semibold text-slate-950">{value}</dd></div>)}</dl>
+            <dl className="divide-y divide-slate-200 border-b border-slate-200">{[["Licensed operators",organizationsLoaded?organizations.filter(item=>item.is_active&&["waste_collection_company","recycling_company"].includes(item.type)).length:"—"],["Waste collectors",organizationsLoaded?organizations.filter(item=>item.is_active&&item.type==="waste_collection_company").length:"—"],["Recycling companies",organizationsLoaded?organizations.filter(item=>item.is_active&&item.type==="recycling_company").length:"—"],["Zones covered",summaryLoaded?summary.zones_covered:"—"],["Customers served",summaryLoaded?summary.total_customers:"—"]].map(([label,value])=><div key={label} className="flex items-center justify-between py-4"><dt className="text-sm text-slate-600">{label}</dt><dd className="font-semibold text-slate-950">{value}</dd></div>)}</dl>
             {isCityController && <>
             <div className="mt-8 flex items-center justify-between border-b border-slate-300 pb-3">
               <div>

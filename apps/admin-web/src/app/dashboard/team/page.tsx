@@ -27,18 +27,19 @@ type Attendance={id:string;user_id:string;full_name:string;roles:string[];work_d
 export default function TeamPage() {
   const [permissions,setPermissions]=useState<string[]>([]);
   const [identity,setIdentity]=useState({currentUserId:"",isAdministrator:false});
-  const [recyclingCompany,setRecyclingCompany]=useState(false);
+  const [organizationType,setOrganizationType]=useState<"waste_collection_company"|"recycling_company"|"">("");
   const [driverSearch,setDriverSearch]=useState(""),[driverPage,setDriverPage]=useState(1),[driverPageSize,setDriverPageSize]=useState(10);
   const [search,setSearch]=useState(""),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(10);
   const [attendanceLoading,setAttendanceLoading]=useState(false);
   const attendanceRequest=useRef({id:0});
   const [attendanceReady,setAttendanceReady]=useState(false);
   const canManage=permissions.includes("staff.manage");
+  const canCreateStaff=canManage&&identity.isAdministrator;
   const canReadAttendance=permissions.includes("attendance.read");
   const canMarkAttendance=permissions.includes("attendance.manage");
   const [staff, setStaff] = useState<StaffUser[]>([]);
   const [form, setForm] = useState({
-    fullName: "", email: "", phone: "", password: "", role: "driver", licenseNumber: "",
+    fullName: "", email: "", phone: "", password: "", role: "recycling_collector", licenseNumber: "",
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -65,13 +66,23 @@ export default function TeamPage() {
   useEffect(() => {
     let cancelled=false;
     const requestState=attendanceRequest.current;
-    Promise.all([apiRequest<ListResponse>("/api/auth/organization-users"),apiRequest<{data:{permissions:string[];currentUserId:string;isAdministrator:boolean}}>("/api/auth/organization-access/me"),apiRequest<{data:{organization:{type:string}}}>("/api/waste/recycling").catch(()=>null)])
-      .then(([response,access,recycling])=>{if(!cancelled){setStaff(response.data);setPermissions(access.data.permissions);setIdentity(access.data);setRecyclingCompany(recycling?.data.organization.type==="recycling_company");}})
+    apiRequest<{data:{organization_type:"waste_collection_company"|"recycling_company"}}>("/api/waste/regulatory/organization-package")
+      .then(async packageResult=>{
+        if(cancelled)return;
+        const type=packageResult.data.organization_type;
+        setOrganizationType(type);
+        setForm(current=>({...current,role:type==="recycling_company"?"recycling_collector":"driver"}));
+        const [response,access]=await Promise.all([
+          apiRequest<ListResponse>("/api/auth/organization-users"),
+          apiRequest<{data:{permissions:string[];currentUserId:string;isAdministrator:boolean}}>("/api/auth/organization-access/me"),
+        ]);
+        if(!cancelled){setStaff(response.data);setPermissions(access.data.permissions);setIdentity(access.data);}
+      })
       .catch((loadError:unknown)=>{if(!cancelled)setError(loadError instanceof Error?loadError.message:"Could not load staff.");})
       .finally(()=>{if(!cancelled)setLoading(false);});
     return()=>{cancelled=true;requestState.id++;};
   }, []);
-  useEffect(()=>{if(!canManage)return;const params=new URLSearchParams(window.location.search);if(params.get("action")==="add"){const requested=params.get("role");setForm(current=>({...current,role:requested==="supervisor"&&identity.isAdministrator?"supervisor":"driver"}));setTeamView("add")}},[canManage,identity.isAdministrator]);
+  useEffect(()=>{if(!canCreateStaff||!organizationType)return;const params=new URLSearchParams(window.location.search);if(params.get("action")==="add"){const requested=params.get("role"),allowed=organizationType==="recycling_company"?["recycling_collector","recycling_sales"]:["driver","supervisor"];setForm(current=>({...current,role:allowed.includes(requested||"")?requested!:allowed[0]}));setTeamView("add")}},[canCreateStaff,organizationType]);
 
   async function createStaff(event: FormEvent) {
     event.preventDefault();
@@ -87,7 +98,7 @@ export default function TeamPage() {
       });
       const roleLabel=form.role==="driver"?"Driver":form.role==="supervisor"?"Supervisor":form.role==="recycling_collector"?"Collection and purchasing worker":"Industrial sales worker";
       setMessage(`${roleLabel} account created. They can now sign in with the email and password provided.`);
-      setForm({ fullName: "", email: "", phone: "", password: "", role: "driver", licenseNumber: "" });
+      setForm({ fullName: "", email: "", phone: "", password: "", role: organizationType==="recycling_company"?"recycling_collector":"driver", licenseNumber: "" });
       await loadStaff();
       setTeamView("people");
     } catch (createError) {
@@ -133,27 +144,27 @@ export default function TeamPage() {
   const teamDrivers=staff.filter(p=>p.driver_id&&(driverEligible(p)||selectedDriverIds.includes(p.driver_id))&&(p.full_name+" "+p.email).toLowerCase().includes(driverSearch.toLowerCase()));
   const actualDriverPage=Math.min(driverPage,Math.max(1,Math.ceil(teamDrivers.length/driverPageSize)));
   const visibleDrivers=teamDrivers.slice((actualDriverPage-1)*driverPageSize,actualDriverPage*driverPageSize);
-  const eligible=staff.filter(p=>teamView!=="attendance"||(p.status==="active"&&p.membership_status==="active"&&!p.roles.some(r=>["company_admin","citizen","kcca_admin","system_admin"].includes(r))&&p.roles.some(r=>["driver","supervisor","iot_operator"].includes(r))));
+  const attendanceRoles=organizationType==="recycling_company"?["recycling_collector","recycling_sales","supervisor"]:["driver","supervisor"];
+  const eligible=staff.filter(p=>teamView!=="attendance"||(p.status==="active"&&p.membership_status==="active"&&p.roles.some(r=>attendanceRoles.includes(r))));
   const filtered=eligible.filter(p=>(p.full_name+" "+p.email+" "+p.roles.join(" ")).toLowerCase().includes(search.toLowerCase()));
   const actualPage=Math.min(page,Math.max(1,Math.ceil(filtered.length/pageSize)));
   const visible=filtered.slice((actualPage-1)*pageSize,actualPage*pageSize);
   return <AppShell><div className="mx-auto max-w-7xl">
 
-    <PageHeader eyebrow="Staff management" title="People, access and teams" description="Create secure staff accounts, confirm daily attendance and assign clear supervisor responsibility." action={canManage&&<button onClick={()=>setTeamView("add")} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">Add staff member</button>}/>
-    <nav className="mt-6 flex gap-6 overflow-x-auto border-b border-slate-300">{[["people","People"],...(canReadAttendance?[["attendance","Attendance"]]:[]),...(canManage?[["teams","Supervisor teams"]]:[])].map(([value,label])=><button key={value} onClick={()=>{setPage(1);setTeamView(value as "people"|"add"|"teams"|"attendance");if(value==="attendance")void loadAttendance();}} className={`whitespace-nowrap border-b-2 pb-3 text-sm font-bold ${teamView===value?"border-[#3156a3] text-[#3156a3]":"border-transparent text-slate-500"}`}>{label}</button>)}</nav>
+    <PageHeader eyebrow="Organization staff" title="People and responsibilities" description={organizationType==="recycling_company"?"Create purchasing and industrial-sales accounts, control access, and confirm attendance.":"Create supervisors and drivers, organize field teams, control access, and confirm attendance."} action={canCreateStaff&&<button onClick={()=>setTeamView("add")} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">Add staff member</button>}/>
+    <nav className="mt-6 flex gap-6 overflow-x-auto border-b border-slate-300">{[["people","People"],...(canManage&&organizationType==="waste_collection_company"?[["teams","Supervisor teams"]]:[]),...(canReadAttendance?[["attendance","Attendance"]]:[])].map(([value,label])=><button key={value} onClick={()=>{setPage(1);setTeamView(value as "people"|"teams"|"attendance");if(value==="attendance")void loadAttendance();}} className={`whitespace-nowrap border-b-2 pb-3 text-sm font-bold ${teamView===value?"border-[#3156a3] text-[#3156a3]":"border-transparent text-slate-500"}`}>{label}</button>)}</nav>
     {(teamView==="people"||teamView==="attendance")&&<label className="mt-5 block text-sm">Find staff<input value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}} placeholder="Search name, email or role" className="mt-2 block w-full max-w-md border px-3 py-2"/></label>}
     {error && <Feedback tone="error">{error}</Feedback>}
     {message && <Feedback tone="success">{message}</Feedback>}
 
     <div className="py-8">
-      {canManage&&<form onSubmit={createStaff} className={`${teamView==="add"?"block":"hidden"} max-w-2xl border-t-2 border-[#3156a3] bg-white p-6`}>
+      {canCreateStaff&&<form onSubmit={createStaff} className={`${teamView==="add"?"block":"hidden"} max-w-2xl border-t-2 border-[#3156a3] bg-white p-6`}>
         <h2 className="text-xl font-black">Add a team member</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-500">Choose the worker&apos;s actual responsibility. Restricted recycling workers see only the operational tools required for their job.</p>
-        <label className="mt-5 block text-sm font-bold">Role<select value={form.role} onChange={(event)=>setForm({...form,role:event.target.value})} className="mt-2 w-full border p-3"><option value="driver">Driver</option>{identity.isAdministrator&&<option value="supervisor">Supervisor</option>}{identity.isAdministrator&&recyclingCompany&&<><option value="recycling_collector">Collection & purchasing worker</option><option value="recycling_sales">Industrial sales worker</option></>}</select></label>
+        <p className="mt-2 text-sm leading-6 text-slate-500">Choose the person&apos;s actual operational responsibility. Their workspace is limited to the tools required for that role.</p>
+        <label className="mt-5 block text-sm font-bold">Responsibility<select value={form.role} onChange={(event)=>setForm({...form,role:event.target.value})} className="mt-2 w-full border p-3">{organizationType==="recycling_company"?<><option value="recycling_collector">Collection & purchasing worker</option><option value="recycling_sales">Industrial sales worker</option></>:<><option value="driver">Driver</option><option value="supervisor">Supervisor</option></>}</select><span className="mt-2 block text-xs font-normal leading-5 text-slate-500">{organizationType==="recycling_company"?"Collection workers record materials bought and local sales. Industrial sales workers manage industry buyers and payments.":"Drivers receive assigned routes and record collection outcomes. Supervisors prepare, dispatch, and monitor field work."}</span></label>
         <label className="mt-4 block text-sm font-bold">Full name<input required minLength={2} value={form.fullName} onChange={(event)=>setForm({...form,fullName:event.target.value})} className="mt-2 w-full border p-3" /></label>
         <label className="mt-4 block text-sm font-bold">Email address<input required type="email" value={form.email} onChange={(event)=>setForm({...form,email:event.target.value})} className="mt-2 w-full border p-3" /></label>
         <label className="mt-4 block text-sm font-bold">Phone number<input value={form.phone} onChange={(event)=>setForm({...form,phone:event.target.value})} className="mt-2 w-full border p-3" /></label>
-        {form.role === "driver" && <label className="mt-4 block text-sm font-bold">Driving licence<input value={form.licenseNumber} onChange={(event)=>setForm({...form,licenseNumber:event.target.value})} className="mt-2 w-full border p-3" /></label>}
         <label className="mt-4 block text-sm font-bold">Temporary password<input required type="password" minLength={8} value={form.password} onChange={(event)=>setForm({...form,password:event.target.value})} className="mt-2 w-full border p-3" /><span className="mt-2 block text-xs font-normal leading-5 text-slate-500">Share this securely. The password is never displayed again.</span></label>
         <button disabled={saving} className="mt-5 w-full bg-[#3156a3] px-4 py-3 font-bold text-white disabled:opacity-50">{saving ? "Creating account..." : "Create staff account"}</button>
       </form>}

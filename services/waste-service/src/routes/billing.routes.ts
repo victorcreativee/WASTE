@@ -1,20 +1,23 @@
 import { NextFunction,Request,Response,Router } from "express";
 import {
-  confirmPaymentHandler,createServicePlanHandler,getBillingOverviewHandler,getServicePlansHandler,initiatePaymentHandler,subscribeServicePlanHandler,updateServicePlanHandler,updateServicePlanStatusHandler,generateDueInvoicesHandler,updateSubscriptionStatusHandler,recordOrganizationPaymentHandler,
+  confirmPaymentHandler,createServicePlanHandler,getBillingOverviewHandler,getServicePlansHandler,initiatePaymentHandler,subscribeServicePlanHandler,updateServicePlanHandler,updateServicePlanStatusHandler,generateDueInvoicesHandler,updateSubscriptionStatusHandler,recordOrganizationPaymentHandler,getPaymentReceiptHandler,
 } from "../controllers/billing.controller";
 import { requireRoles } from "../middlewares/auth.middleware";
+import { requireOrganizationPermission,requireRoleOrOrganizationPermission } from "../middlewares/organization-permission.middleware";
 const router=Router();
 const run=(handler:(req:Request,res:Response)=>Promise<unknown>)=>async(req:Request,res:Response,next:NextFunction)=>{try{await handler(req,res);}catch(error){next(error);}};
-const canView=requireRoles("citizen","company_admin","supervisor");
+const permission=(code:string)=>requireOrganizationPermission(code);
+const canView=requireRoleOrOrganizationPermission(["citizen"],"billing.read");
 router.get("/billing/plans",canView,run(getServicePlansHandler));
-router.post("/billing/plans",requireRoles("company_admin"),run(createServicePlanHandler));
-router.put("/billing/plans/:planId",requireRoles("company_admin"),run(updateServicePlanHandler));
-router.patch("/billing/plans/:planId/status",requireRoles("company_admin"),run(updateServicePlanStatusHandler));
+router.post("/billing/plans",permission("billing.plan.manage"),run(createServicePlanHandler));
+router.put("/billing/plans/:planId",permission("billing.plan.manage"),run(updateServicePlanHandler));
+router.patch("/billing/plans/:planId/status",permission("billing.plan.manage"),run(updateServicePlanStatusHandler));
 router.post("/billing/subscriptions",requireRoles("citizen"),run(subscribeServicePlanHandler));
 router.get("/billing/overview",canView,run(getBillingOverviewHandler));
-router.post("/billing/invoices/generate",requireRoles("company_admin"),run(generateDueInvoicesHandler));
-router.patch("/billing/subscriptions/:subscriptionId/status",requireRoles("company_admin"),run(updateSubscriptionStatusHandler));
+router.get("/billing/payments/:paymentId/receipt",canView,run(getPaymentReceiptHandler));
+router.post("/billing/invoices/generate",permission("billing.invoice.generate"),run(generateDueInvoicesHandler));
+router.patch("/billing/subscriptions/:subscriptionId/status",permission("billing.subscription.manage"),run(updateSubscriptionStatusHandler));
 router.post("/billing/payments",requireRoles("citizen"),run(initiatePaymentHandler));
-router.post("/billing/payments/record",requireRoles("company_admin"),run(recordOrganizationPaymentHandler));
-router.patch("/billing/payments/:paymentId/confirm",requireRoles("company_admin"),run(confirmPaymentHandler));
+router.post("/billing/payments/record",permission("billing.payment.record"),run(recordOrganizationPaymentHandler));
+router.patch("/billing/payments/:paymentId/confirm",permission("billing.payment.confirm"),run(confirmPaymentHandler));
 export default router;

@@ -47,6 +47,7 @@ exports.getDivisions = getDivisions;
 exports.getDivisionAuthorizations = getDivisionAuthorizations;
 exports.getPlatformPackages = getPlatformPackages;
 exports.getAllPlatformPackages = getAllPlatformPackages;
+exports.getOrganizationPackageAccess = getOrganizationPackageAccess;
 exports.postPlatformPackage = postPlatformPackage;
 exports.patchPlatformPackage = patchPlatformPackage;
 exports.postAccountApplication = postAccountApplication;
@@ -75,6 +76,8 @@ async function getDivisions(req, res) { return res.json({ success: true, message
 async function getDivisionAuthorizations(_req, res) { return res.json({ success: true, message: 'Division authorizations fetched', data: await repo.divisionAuthorizations() }); }
 async function getPlatformPackages(req, res) { const type = typeof req.query.organizationType === 'string' ? req.query.organizationType : undefined; return res.json({ success: true, message: 'Platform packages fetched', data: await repo.platformPackages(type) }); }
 async function getAllPlatformPackages(_req, res) { return res.json({ success: true, message: 'Platform packages fetched', data: await repo.allPlatformPackages() }); }
+async function getOrganizationPackageAccess(req, res) { const organizationId = req.auth.organizationId; if (!organizationId)
+    return res.status(403).json({ success: false, message: 'Your account is not linked to an organization' }); const data = await repo.organizationPackageAccess(organizationId); return data ? res.json({ success: true, message: 'Organization package access fetched', data }) : res.status(404).json({ success: false, message: 'Organization package is not configured' }); }
 async function postPlatformPackage(req, res) { const auth = req.auth; return res.status(201).json({ success: true, message: 'Platform package created', data: await repo.createPlatformPackage(auth.userId, regulatory_validator_1.platformPackageCreateSchema.parse(req.body)) }); }
 async function patchPlatformPackage(req, res) { const auth = req.auth; return res.json({ success: true, message: 'Platform package updated', data: await repo.updatePlatformPackage(req.params.id, auth.userId, regulatory_validator_1.platformPackageUpdateSchema.parse(req.body)) }); }
 async function postAccountApplication(req, res) { return res.status(201).json({ success: true, message: 'Account application submitted for System Admin approval', data: await repo.submitAccountApplication(regulatory_validator_1.accountApplicationSchema.parse(req.body)) }); }

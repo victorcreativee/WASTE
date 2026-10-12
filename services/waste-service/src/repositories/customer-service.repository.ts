@@ -52,7 +52,7 @@ export async function upsertCustomerService(
 
 export async function findCustomerServiceOverview(userId: string) {
   const profileResult = await dbPool.query(
-    `SELECT cp.id, cp.customer_type, cp.service_status,
+    `SELECT cp.id, cp.customer_number, cp.customer_type, cp.service_status,
        csl.label, csl.address,
        ST_Y(csl.location::geometry) AS latitude,
        ST_X(csl.location::geometry) AS longitude,
@@ -104,7 +104,7 @@ export async function findCustomerServiceOverview(userId: string) {
 
 export async function findCustomers(organizationId: string | null) {
   const result = await dbPool.query(
-    `SELECT cp.id, u.full_name, u.email, u.phone, cp.customer_type, cp.service_status,
+    `SELECT cp.id, cp.customer_number, u.full_name, u.email, u.phone, cp.customer_type, cp.service_status,
        csl.address, wz.name AS zone_name, o.name AS organization_name,
        csr.id relationship_id,csr.status relationship_status,csr.effective_from relationship_started_on,
        u.status account_status,o.is_active provider_active,
@@ -115,7 +115,9 @@ export async function findCustomers(organizationId: string | null) {
          AND c.starts_on<=CURRENT_DATE AND c.ends_on>=CURRENT_DATE
          AND s.customer_id=cp.id AND s.service_location_id=csl.id AND s.organization_id=c.organization_id
          AND s.status='active' AND s.starts_on<=CURRENT_DATE AND p.is_active
-         AND (p.customer_type IS NULL OR p.customer_type=cp.customer_type)) agreement_confirmed
+         AND (p.customer_type IS NULL OR p.customer_type=cp.customer_type)) agreement_confirmed,
+       (SELECT c.status FROM customer_contracts c WHERE c.customer_id=cp.id AND c.organization_id=csr.organization_id
+         ORDER BY (c.status IN ('active','expiring')) DESC,c.created_at DESC LIMIT 1) latest_contract_status
      FROM customer_profiles cp
      JOIN users u ON u.id = cp.user_id
      JOIN customer_service_locations csl ON csl.customer_id = cp.id AND csl.is_primary = true
@@ -139,7 +141,7 @@ export async function findCustomers(organizationId: string | null) {
 }
 
 export async function updateCustomerServiceStatus(
-  customerId: string, organizationId: string, status: "active" | "suspended" | "inactive"
+  customerId: string, organizationId: string, status: "active" | "suspended" | "inactive", actorId:string
 ) {
   const client=await dbPool.connect();
   try {
@@ -159,6 +161,16 @@ export async function updateCustomerServiceStatus(
     await client.query(`UPDATE customer_service_relationships SET status=$3,updated_at=CURRENT_TIMESTAMP
       WHERE customer_id=$1::uuid AND organization_id=$2::uuid AND status IN ('active','suspended')`,
       [customerId,organizationId,status==='active'?'active':'suspended']);
+    if(status!=='active'){
+      const subscriptionStatus=status==='inactive'?'cancelled':'suspended';
+      const contractStatus=status==='inactive'?'cancelled':'suspended';
+      await client.query(`UPDATE customer_subscriptions SET status=$3,updated_at=CURRENT_TIMESTAMP
+        WHERE customer_id=$1::uuid AND organization_id=$2::uuid AND status IN ('pending','active','suspended')`,[customerId,organizationId,subscriptionStatus]);
+      await client.query(`UPDATE customer_contracts SET status=$3,updated_at=CURRENT_TIMESTAMP
+        WHERE customer_id=$1::uuid AND organization_id=$2::uuid AND status IN ('draft','active','expiring','suspended')`,[customerId,organizationId,contractStatus]);
+    }
+    await client.query(`INSERT INTO organization_audit_events(organization_id,actor_id,action,entity_type,entity_id,new_value)
+      VALUES($1::uuid,$2::uuid,'service_status_changed','customer',$3::uuid,$4::jsonb)`,[organizationId,actorId,customerId,JSON.stringify({service_status:status})]);
     await client.query('COMMIT');
     return result.rows[0];
   } catch(error) { await client.query('ROLLBACK');throw error; }

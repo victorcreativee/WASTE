@@ -20,7 +20,9 @@ export async function createOrganizationUser(organizationId: string, input: Crea
   try {
     await client.query("BEGIN");
     const actor=await authorizeStaffWrite(client,organizationId,actorId);
-    if(!actor.isAdministrator&&input.role!=="driver")protectedStaff("Only company administrators can create supervisory or specialist accounts");
+    if(!actor.isAdministrator)protectedStaff("Only the company administrator can create staff accounts");
+    const allowedRoles=actor.organizationType==='recycling_company'?["recycling_collector","recycling_sales"]:["supervisor","driver"];
+    if(!allowedRoles.includes(input.role))protectedStaff(actor.organizationType==='recycling_company'?"Choose a recycling collection worker or industrial sales worker role":"Choose a supervisor or driver role");
     const result = await createOrganizationStaffRecord(client, {
       organizationId,
       fullName: input.fullName,

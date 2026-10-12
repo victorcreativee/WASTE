@@ -33,6 +33,7 @@ import tripRoutes from "./routes/trip.routes";
 import weighbridgeRoutes from "./routes/weighbridge.routes";
 import complianceRoutes from "./routes/compliance.routes";
 import recyclingRoutes from "./routes/recycling.routes";
+import { requirePackageFeature } from "./middlewares/package-access.middleware";
 
 const app = express();
 
@@ -45,6 +46,19 @@ app.use(morgan("dev"));
 app.use("/api/waste", healthRoutes);
 app.use("/api/waste/public", regulatoryPublicRoutes);
 app.use("/api/waste", requireAuth);
+app.use("/api/waste/trips",requirePackageFeature("core_operations"));
+app.use("/api/waste/operations",requirePackageFeature("core_operations"));
+app.use("/api/waste/service-areas",requirePackageFeature("service_areas"));
+app.use("/api/waste/service-routes",requirePackageFeature("service_areas"));
+app.use("/api/waste/fleet",requirePackageFeature("fleet"));
+app.use("/api/waste/customers",requirePackageFeature("customers"));
+app.use("/api/waste/contracts",requirePackageFeature("contracts"));
+app.use("/api/waste/billing",requirePackageFeature("billing"));
+app.use("/api/waste/finance",requirePackageFeature("finance"));
+app.use("/api/waste/inventory",requirePackageFeature("inventory"));
+app.use("/api/waste/procurement",requirePackageFeature("procurement"));
+app.use("/api/waste/reports/organization",requirePackageFeature("reports"));
+app.use("/api/waste/compliance/organization",requirePackageFeature("compliance"));
 app.use("/api/waste/regulatory", regulatoryRoutes);
 app.use("/api/waste/regulatory", applicantOnboardingRoutes);
 app.use("/api/waste/regulatory", platformOnboardingRoutes);

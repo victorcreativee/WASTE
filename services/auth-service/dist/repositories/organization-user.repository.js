@@ -103,7 +103,7 @@ async function createOrganizationCustomerRecord(client, input) {
     await client.query(`INSERT INTO user_roles (user_id, role_id)
      SELECT $1::uuid, id FROM roles WHERE name = 'citizen'`, [user.id]);
     const customerResult = await client.query(`INSERT INTO customer_profiles (user_id, customer_type, service_status)
-     VALUES ($1::uuid, $2, 'active') RETURNING id, customer_type, service_status`, [user.id, input.customerType]);
+     VALUES ($1::uuid, $2, 'active') RETURNING id, customer_number, customer_type, service_status`, [user.id, input.customerType]);
     const customer = customerResult.rows[0];
     const zoneResult = await client.query(`SELECT id,ST_Y(center_point::geometry) latitude,ST_X(center_point::geometry) longitude FROM waste_zones WHERE id=$1::uuid AND organization_id=$2::uuid AND is_active=true`, [input.zoneId, input.organizationId]);
     if (!zoneResult.rows[0])

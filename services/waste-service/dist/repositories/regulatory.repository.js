@@ -21,6 +21,7 @@ exports.platformPackages = platformPackages;
 exports.allPlatformPackages = allPlatformPackages;
 exports.createPlatformPackage = createPlatformPackage;
 exports.updatePlatformPackage = updatePlatformPackage;
+exports.organizationPackageAccess = organizationPackageAccess;
 exports.submitAccountApplication = submitAccountApplication;
 exports.accountApplications = accountApplications;
 exports.accountApplicationCertificate = accountApplicationCertificate;
@@ -160,15 +161,15 @@ catch (e) {
 finally {
     c.release();
 } }
-async function platformPackages(organizationType) { return (await database_1.dbPool.query(`SELECT id,code,name,description,monthly_fee_ugx,organization_type FROM platform_packages WHERE is_active AND ($1::text IS NULL OR organization_type=$1) ORDER BY monthly_fee_ugx,name`, [organizationType || null])).rows; }
-async function allPlatformPackages() { return (await database_1.dbPool.query('SELECT id,code,name,description,monthly_fee_ugx,organization_type,is_active,created_at FROM platform_packages ORDER BY organization_type,created_at,name')).rows; }
-async function createPlatformPackage(userId, data) { const result = await database_1.dbPool.query(`INSERT INTO platform_packages(code,name,description,monthly_fee_ugx,organization_type,is_active) VALUES($1,$2,$3,0,$4,$5) RETURNING id,code,name,description,monthly_fee_ugx,organization_type,is_active`, [data.code, data.name, data.description, data.organizationType, data.isActive]); await database_1.dbPool.query(`INSERT INTO platform_administration_events(actor_id,action,details) VALUES($1,'platform_package_created',$2::jsonb)`, [userId, JSON.stringify(result.rows[0])]); return result.rows[0]; }
+async function platformPackages(organizationType) { return (await database_1.dbPool.query(`SELECT id,code,name,description,monthly_fee_ugx,organization_type,feature_codes FROM platform_packages WHERE is_active AND ($1::text IS NULL OR organization_type=$1) ORDER BY CASE code WHEN 'collector_standard' THEN 1 WHEN 'collector_professional' THEN 2 WHEN 'collector_custom' THEN 3 ELSE 4 END,monthly_fee_ugx,name`, [organizationType || null])).rows; }
+async function allPlatformPackages() { return (await database_1.dbPool.query('SELECT id,code,name,description,monthly_fee_ugx,organization_type,is_active,feature_codes,created_at FROM platform_packages ORDER BY organization_type,created_at,name')).rows; }
+async function createPlatformPackage(userId, data) { const result = await database_1.dbPool.query(`INSERT INTO platform_packages(code,name,description,monthly_fee_ugx,organization_type,is_active,feature_codes) VALUES($1,$2,$3,0,$4,$5,$6::text[]) RETURNING id,code,name,description,monthly_fee_ugx,organization_type,is_active,feature_codes`, [data.code, data.name, data.description, data.organizationType, data.isActive, data.featureCodes]); await database_1.dbPool.query(`INSERT INTO platform_administration_events(actor_id,action,details) VALUES($1,'platform_package_created',$2::jsonb)`, [userId, JSON.stringify(result.rows[0])]); return result.rows[0]; }
 async function updatePlatformPackage(id, userId, data) { const c = await database_1.dbPool.connect(); try {
     await c.query('BEGIN');
     const old = (await c.query('SELECT * FROM platform_packages WHERE id=$1::uuid FOR UPDATE', [id])).rows[0];
     if (!old)
         throw Object.assign(new Error('Platform package not found'), { statusCode: 404 });
-    const result = await c.query(`UPDATE platform_packages SET name=$2,description=$3,monthly_fee_ugx=$4,is_active=$5 WHERE id=$1::uuid RETURNING id,code,name,description,monthly_fee_ugx,is_active`, [id, data.name, data.description, data.monthlyFeeUgx, data.isActive]);
+    const result = await c.query(`UPDATE platform_packages SET name=$2,description=$3,monthly_fee_ugx=$4,is_active=$5,feature_codes=$6::text[] WHERE id=$1::uuid RETURNING id,code,name,description,monthly_fee_ugx,organization_type,is_active,feature_codes`, [id, data.name, data.description, data.monthlyFeeUgx, data.isActive, data.featureCodes]);
     await c.query(`INSERT INTO platform_administration_events(actor_id,action,details) VALUES($1,'platform_package_updated',$2::jsonb)`, [userId, JSON.stringify({ packageId: id, previous: old, current: result.rows[0] })]);
     await c.query('COMMIT');
     return result.rows[0];
@@ -180,6 +181,11 @@ catch (e) {
 finally {
     c.release();
 } }
+async function organizationPackageAccess(organizationId) {
+    return (await database_1.dbPool.query(`SELECT o.type organization_type,p.id package_id,p.code package_code,p.name package_name,
+ CASE WHEN p.code='collector_custom' THEN COALESCE((SELECT array_agg(feature_code ORDER BY feature_code) FROM organization_package_feature_overrides WHERE organization_id=o.id AND enabled),p.feature_codes) ELSE p.feature_codes END feature_codes
+ FROM organizations o LEFT JOIN platform_packages p ON p.id=o.platform_package_id WHERE o.id=$1::uuid`, [organizationId])).rows[0] || null;
+}
 async function submitAccountApplication(data) { const c = await database_1.dbPool.connect(); try {
     await c.query('BEGIN');
     const permit = (await c.query(`SELECT id FROM organization_permit_applications WHERE application_number=$1 AND applicant_access_token_hash=$2 AND status='approved' AND permit_number IS NOT NULL AND organization_id IS NULL AND valid_until>=CURRENT_DATE FOR UPDATE`, [data.permitApplicationNumber, digest(data.accessToken)])).rows[0];
@@ -208,7 +214,7 @@ async function reviewAccountApplication(id, userId, data) {
     const c = await database_1.dbPool.connect();
     try {
         await c.query('BEGIN');
-        const application = (await c.query(`SELECT a.*,COALESCE(p.company_name,ap.company_name) company_name,COALESCE(p.email,u.email) company_email,COALESCE(p.phone,u.phone) company_phone,p.address,p.status permit_status,p.valid_until,COALESCE(ap.company_type,'waste_collection_company') company_type FROM organization_account_applications a LEFT JOIN organization_permit_applications p ON p.id=a.permit_application_id LEFT JOIN organization_applicant_profiles ap ON ap.user_id=a.applicant_user_id LEFT JOIN users u ON u.id=a.applicant_user_id WHERE a.id=$1::uuid FOR UPDATE OF a`, [id])).rows[0];
+        const application = (await c.query(`SELECT a.*,COALESCE(p.company_name,ap.company_name) company_name,COALESCE(p.email,u.email) company_email,COALESCE(p.phone,u.phone) company_phone,p.address,p.status permit_status,p.valid_until,COALESCE(ap.company_type,'waste_collection_company') company_type,pk.code package_code,pk.feature_codes package_feature_codes FROM organization_account_applications a LEFT JOIN organization_permit_applications p ON p.id=a.permit_application_id LEFT JOIN organization_applicant_profiles ap ON ap.user_id=a.applicant_user_id LEFT JOIN users u ON u.id=a.applicant_user_id JOIN platform_packages pk ON pk.id=a.requested_package_id WHERE a.id=$1::uuid FOR UPDATE OF a`, [id])).rows[0];
         if (!application)
             throw Object.assign(new Error('Account application not found'), { statusCode: 404 });
         const allowed = { submitted: ['start_review', 'approve', 'reject'], under_review: ['approve', 'reject'] };
@@ -220,6 +226,9 @@ async function reviewAccountApplication(id, userId, data) {
                 throw Object.assign(new Error('The KCCA permit is no longer valid'), { statusCode: 409 });
             const org = await c.query(`INSERT INTO organizations(name,type,email,phone,address,platform_package_id,is_active) VALUES($1,$2,$3,$4,$5,$6,true) RETURNING id`, [application.company_name, application.company_type, application.company_email, application.company_phone, application.address, application.requested_package_id]);
             organizationId = org.rows[0].id;
+            if (application.package_code === 'collector_custom')
+                for (const featureCode of application.package_feature_codes || [])
+                    await c.query(`INSERT INTO organization_package_feature_overrides(organization_id,feature_code,enabled) VALUES($1::uuid,$2,true) ON CONFLICT(organization_id,feature_code) DO UPDATE SET enabled=true,updated_at=CURRENT_TIMESTAMP`, [organizationId, featureCode]);
             if (application.permit_application_id)
                 await c.query('UPDATE organization_permit_applications SET organization_id=$2,updated_at=CURRENT_TIMESTAMP WHERE id=$1', [application.permit_application_id, organizationId]);
             await c.query(`UPDATE organization_account_applications SET status='approved',organization_id=$2,review_notes=$3,reviewed_by=$4,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=$1`, [id, organizationId, data.notes, userId]);

@@ -64,10 +64,9 @@ export async function subscribeCustomer(userId: string, planId: string) {
       `INSERT INTO customer_subscriptions(customer_id,service_location_id,organization_id,plan_id,next_billing_date)
        VALUES($1,$2,$3,$4,CASE $5 WHEN 'monthly' THEN CURRENT_DATE+INTERVAL '1 month' WHEN 'quarterly' THEN CURRENT_DATE+INTERVAL '3 months' WHEN 'annual' THEN CURRENT_DATE+INTERVAL '1 year' ELSE NULL END)
        RETURNING *`,[row.customer_id,row.location_id,row.organization_id,planId,row.billing_frequency]);
-    const invoiceNumber=`INV-${Date.now()}-${sub.rows[0].id.slice(0,6).toUpperCase()}`;
     await client.query(
-      `INSERT INTO customer_invoices(invoice_number,subscription_id,customer_id,organization_id,amount_ugx,balance_ugx,due_on)
-       VALUES($1,$2,$3,$4,$5,$5,CURRENT_DATE+7)`,[invoiceNumber,sub.rows[0].id,row.customer_id,row.organization_id,row.fee_ugx]);
+      `INSERT INTO customer_invoices(invoice_number,subscription_id,customer_id,organization_id,amount_ugx,balance_ugx,due_on,billing_period_start,billing_period_end)
+       VALUES('INV-'||to_char(CURRENT_DATE,'YYYY')||'-'||LPAD(nextval('customer_invoice_number_seq')::text,6,'0'),$1,$2,$3,$4,$4,CURRENT_DATE+7,CURRENT_DATE,CURRENT_DATE)`,[sub.rows[0].id,row.customer_id,row.organization_id,row.fee_ugx]);
     await client.query("COMMIT");return sub.rows[0];
   }catch(error){await client.query("ROLLBACK");if((error as {code?:string}).code==="23505"){const conflict=new Error("This service location already has an active subscription") as Error&{statusCode?:number};conflict.statusCode=409;throw conflict;}throw error;}finally{client.release();}
 }
@@ -81,7 +80,7 @@ export async function findBillingOverview(organizationId:string|null,userId:stri
      ORDER BY cs.created_at DESC`,params);
   const invoices=await dbPool.query(
     `SELECT ci.*,CASE WHEN ci.status IN ('issued','partially_paid') AND ci.due_on<CURRENT_DATE THEN 'overdue' ELSE ci.status END AS status,
-       u.full_name AS customer_name,sp.name AS plan_name FROM customer_invoices ci
+       u.full_name AS customer_name,cp.customer_number,sp.name AS plan_name FROM customer_invoices ci
      JOIN customer_profiles cp ON cp.id=ci.customer_id JOIN users u ON u.id=cp.user_id
      JOIN customer_subscriptions cs ON cs.id=ci.subscription_id JOIN service_plans sp ON sp.id=cs.plan_id
      WHERE ($1::uuid IS NULL OR ci.organization_id=$1::uuid) AND ($2::uuid IS NULL OR cp.user_id=$2::uuid)
@@ -92,6 +91,19 @@ export async function findBillingOverview(organizationId:string|null,userId:stri
      WHERE ($1::uuid IS NULL OR p.organization_id=$1::uuid) AND ($2::uuid IS NULL OR cp.user_id=$2::uuid)
      ORDER BY p.created_at DESC`,params);
   return {subscriptions:subscriptions.rows,invoices:invoices.rows,payments:payments.rows};
+}
+export async function findPaymentReceipt(paymentId:string,organizationId:string|null,userId:string|null){
+  const result=await dbPool.query(`SELECT p.id,p.receipt_number,p.amount_ugx,p.provider,p.provider_reference,p.confirmed_at,
+    ci.invoice_number,ci.amount_ugx invoice_amount_ugx,ci.balance_ugx invoice_balance_ugx,ci.billing_period_start,ci.billing_period_end,
+    cp.customer_number,u.full_name customer_name,u.email customer_email,o.name organization_name,
+    sp.name plan_name
+    FROM customer_payments p JOIN customer_invoices ci ON ci.id=p.invoice_id
+    JOIN customer_profiles cp ON cp.id=p.customer_id JOIN users u ON u.id=cp.user_id
+    JOIN organizations o ON o.id=p.organization_id JOIN customer_subscriptions cs ON cs.id=ci.subscription_id
+    JOIN service_plans sp ON sp.id=cs.plan_id
+    WHERE p.id=$1::uuid AND p.status='successful' AND p.receipt_number IS NOT NULL
+      AND (($2::uuid IS NOT NULL AND p.organization_id=$2::uuid) OR ($3::uuid IS NOT NULL AND cp.user_id=$3::uuid))`,[paymentId,organizationId,userId]);
+  return result.rows[0]??null;
 }
 export async function updateSubscriptionStatus(organizationId:string,subscriptionId:string,status:string){
   const result=await dbPool.query(
@@ -112,30 +124,39 @@ export async function updateSubscriptionStatus(organizationId:string,subscriptio
      RETURNING *`,[subscriptionId,organizationId,status]);
   return result.rows[0]??null;
 }
-export async function generateDueSubscriptionInvoices(organizationId:string){
+export async function generateDueSubscriptionInvoices(organizationId:string,actorId:string){
   const client=await dbPool.connect();try{await client.query("BEGIN");
     const due=await client.query(
       `SELECT cs.id subscription_id,cs.customer_id,cs.organization_id,cs.next_billing_date,
-         sp.fee_ugx,sp.billing_frequency
+         sp.fee_ugx,sp.billing_frequency,cc.ends_on contract_ends_on
        FROM customer_subscriptions cs JOIN service_plans sp ON sp.id=cs.plan_id
+       JOIN customer_contracts cc ON cc.subscription_id=cs.id AND cc.status IN ('active','expiring')
        WHERE cs.organization_id=$1::uuid AND cs.status='active'
          AND cs.next_billing_date IS NOT NULL AND cs.next_billing_date<=CURRENT_DATE
        ORDER BY cs.next_billing_date,cs.id FOR UPDATE OF cs SKIP LOCKED`,[organizationId]);
     const invoices=[];
-    for(const [index,row] of due.rows.entries()){
-      const invoiceNumber=`INV-${Date.now()}-${index}-${String(row.subscription_id).slice(0,6).toUpperCase()}`;
-      const invoice=await client.query(
-        `INSERT INTO customer_invoices(invoice_number,subscription_id,customer_id,organization_id,amount_ugx,balance_ugx,issued_on,due_on)
-         VALUES($1,$2,$3,$4,$5,$5,CURRENT_DATE,CURRENT_DATE+7) RETURNING *`,
-        [invoiceNumber,row.subscription_id,row.customer_id,row.organization_id,row.fee_ugx]);
-      invoices.push(invoice.rows[0]);
-      await client.query(
-        `UPDATE customer_subscriptions SET next_billing_date=CASE $2::varchar
-           WHEN 'monthly' THEN GREATEST(next_billing_date,CURRENT_DATE)+INTERVAL '1 month'
-           WHEN 'quarterly' THEN GREATEST(next_billing_date,CURRENT_DATE)+INTERVAL '3 months'
-           WHEN 'annual' THEN GREATEST(next_billing_date,CURRENT_DATE)+INTERVAL '1 year'
-           ELSE NULL END,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid`,
-        [row.subscription_id,row.billing_frequency]);
+    for(const row of due.rows){
+      let periods=0;
+      while(row.next_billing_date&&new Date(row.next_billing_date)<=new Date()&&periods<120){
+        const invoice=await client.query(
+          `INSERT INTO customer_invoices(invoice_number,subscription_id,customer_id,organization_id,amount_ugx,balance_ugx,issued_on,due_on,billing_period_start,billing_period_end)
+           VALUES('INV-'||to_char(CURRENT_DATE,'YYYY')||'-'||LPAD(nextval('customer_invoice_number_seq')::text,6,'0'),$1,$2,$3,$4,$4,CURRENT_DATE,CURRENT_DATE+7,$5::date,LEAST($6::date,CASE $7::varchar WHEN 'monthly' THEN ($5::date+INTERVAL '1 month'-INTERVAL '1 day')::date WHEN 'quarterly' THEN ($5::date+INTERVAL '3 months'-INTERVAL '1 day')::date WHEN 'annual' THEN ($5::date+INTERVAL '1 year'-INTERVAL '1 day')::date ELSE $5::date END))
+           ON CONFLICT DO NOTHING RETURNING *`,
+          [row.subscription_id,row.customer_id,row.organization_id,row.fee_ugx,row.next_billing_date,row.contract_ends_on,row.billing_frequency]);
+        if(invoice.rows[0]){
+          invoices.push(invoice.rows[0]);
+          await client.query(`INSERT INTO organization_audit_events(organization_id,actor_id,action,entity_type,entity_id,new_value) VALUES($1::uuid,$2::uuid,'invoice_generated','customer_invoice',$3::uuid,$4::jsonb)`,[organizationId,actorId,invoice.rows[0].id,JSON.stringify({invoiceNumber:invoice.rows[0].invoice_number,amountUgx:Number(invoice.rows[0].amount_ugx),billingPeriodStart:invoice.rows[0].billing_period_start,billingPeriodEnd:invoice.rows[0].billing_period_end})]);
+        }
+        const advanced=await client.query(
+          `UPDATE customer_subscriptions SET next_billing_date=CASE $2::varchar
+             WHEN 'monthly' THEN CASE WHEN next_billing_date+INTERVAL '1 month'<=$3::date THEN next_billing_date+INTERVAL '1 month' END
+             WHEN 'quarterly' THEN CASE WHEN next_billing_date+INTERVAL '3 months'<=$3::date THEN next_billing_date+INTERVAL '3 months' END
+             WHEN 'annual' THEN CASE WHEN next_billing_date+INTERVAL '1 year'<=$3::date THEN next_billing_date+INTERVAL '1 year' END
+             ELSE NULL END,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid RETURNING next_billing_date`,
+          [row.subscription_id,row.billing_frequency,row.contract_ends_on]);
+        row.next_billing_date=advanced.rows[0]?.next_billing_date??null;
+        periods+=1;
+      }
     }
     await client.query("COMMIT");return invoices;
   }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
@@ -148,7 +169,7 @@ export async function createPendingPayment(userId:string,input:PaymentInput,prov
        AND ci.status IN ('issued','partially_paid','overdue') AND $3<=ci.balance_ugx RETURNING *`,
     [userId,input.invoiceId,input.amountUgx,input.provider,providerReference,input.payerPhone??null]);return result.rows[0]??null;
 }
-export async function confirmPayment(paymentId:string,organizationId:string|null,reference?:string){
+export async function confirmPayment(paymentId:string,organizationId:string|null,reference?:string,actorId?:string){
   // Confirmation is organization-private; a missing scope must never mean all tenants.
   if (!organizationId) return null;
   const client=await dbPool.connect();
@@ -183,14 +204,16 @@ export async function confirmPayment(paymentId:string,organizationId:string|null
     if(!invoice.rows[0]){await client.query("ROLLBACK");return null;}
     const updated=await client.query(
       `UPDATE customer_payments SET status='successful',provider_reference=$3,
+         receipt_number='RCT-'||to_char(CURRENT_DATE,'YYYY')||'-'||LPAD(nextval('customer_receipt_number_seq')::text,6,'0'),
          confirmed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
        WHERE id=$1::uuid AND organization_id=$2::uuid AND status='pending' RETURNING *`,
       [paymentId,organizationId,providerReference??null]);
+    if(actorId)await client.query(`INSERT INTO organization_audit_events(organization_id,actor_id,action,entity_type,entity_id,new_value) VALUES($1::uuid,$2::uuid,'customer_payment_confirmed','customer_payment',$3::uuid,$4::jsonb)`,[organizationId,actorId,paymentId,JSON.stringify({invoiceId:payment.invoice_id,amountUgx:Number(payment.amount_ugx),providerReference:providerReference??null})]);
     await client.query("COMMIT");
     return {payment:updated.rows[0],invoice:invoice.rows[0]};
   }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
 }
-export async function recordOrganizationPayment(organizationId:string,input:OrganizationPaymentInput){
+export async function recordOrganizationPayment(organizationId:string,input:OrganizationPaymentInput,actorId:string){
   if (!organizationId || !Number.isSafeInteger(input.amountUgx) || input.amountUgx <= 0) return null;
   const client=await dbPool.connect();try{await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`finance:${organizationId}`]);
@@ -205,14 +228,15 @@ export async function recordOrganizationPayment(organizationId:string,input:Orga
       [organizationId,input.providerReference]);
     if(duplicate.rowCount){await client.query("ROLLBACK");return null;}
     const payment=await client.query(
-      `INSERT INTO customer_payments(invoice_id,customer_id,organization_id,amount_ugx,provider,provider_reference,status,confirmed_at)
-       VALUES($1,$2,$3,$4,$5,$6,'successful',CURRENT_TIMESTAMP) RETURNING *`,
+      `INSERT INTO customer_payments(invoice_id,customer_id,organization_id,amount_ugx,provider,provider_reference,status,confirmed_at,receipt_number)
+       VALUES($1,$2,$3,$4,$5,$6,'successful',CURRENT_TIMESTAMP,'RCT-'||to_char(CURRENT_DATE,'YYYY')||'-'||LPAD(nextval('customer_receipt_number_seq')::text,6,'0')) RETURNING *`,
       [invoice.id,invoice.customer_id,organizationId,input.amountUgx,input.provider,input.providerReference]);
     const updated=await client.query(
       `UPDATE customer_invoices SET balance_ugx=balance_ugx-$2,
        status=CASE WHEN balance_ugx-$2=0 THEN 'paid' ELSE 'partially_paid' END,
        paid_at=CASE WHEN balance_ugx-$2=0 THEN CURRENT_TIMESTAMP ELSE paid_at END
        WHERE id=$1::uuid RETURNING *`,[invoice.id,input.amountUgx]);
+    await client.query(`INSERT INTO organization_audit_events(organization_id,actor_id,action,entity_type,entity_id,new_value) VALUES($1::uuid,$2::uuid,'customer_payment_recorded','customer_payment',$3::uuid,$4::jsonb)`,[organizationId,actorId,payment.rows[0].id,JSON.stringify({invoiceId:invoice.id,amountUgx:input.amountUgx,provider:input.provider,providerReference:input.providerReference})]);
     await client.query("COMMIT");return {payment:payment.rows[0],invoice:updated.rows[0]};
   }catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}
 }

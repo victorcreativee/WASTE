@@ -5,6 +5,7 @@ import { OrganizationWorkspaceNav } from "@/components/layout/OrganizationWorksp
 import {
   EmptyState,
   Feedback,
+  Modal,
   PageHeader,
   Status,
 } from "@/components/ui/System";
@@ -12,6 +13,9 @@ import { Pagination, usePagination } from "@/components/ui/Pagination";
 import { apiRequest } from "@/lib/api";
 type Contract = {
   id: string;
+  customer_id:string;
+  plan_id:string|null;
+  customer_number:string;
   contract_number: string;
   customer_name: string;
   customer_email: string;
@@ -29,9 +33,12 @@ type Contract = {
 };
 type Customer = {
   id: string;
+  customer_number: string;
   full_name: string;
   email: string;
   customer_type: string;
+  address:string;
+  zone_name:string|null;
 };
 type Plan = {
   id: string;
@@ -45,11 +52,7 @@ type Plan = {
 };
 type Data = { contracts: Contract[]; customers: Customer[]; plans: Plan[] };
 const money = (v: string | number) =>
-  new Intl.NumberFormat("en-UG", {
-    style: "currency",
-    currency: "UGX",
-    maximumFractionDigits: 0,
-  }).format(Number(v || 0));
+  `UGX ${new Intl.NumberFormat("en-UG", { maximumFractionDigits: 0 }).format(Number(v || 0))}`;
 const label = (v: string) => v.replaceAll("_", " ");
 export default function ContractsPage() {
   const [data, setData] = useState<Data>({
@@ -64,10 +67,14 @@ export default function ContractsPage() {
     [message, setMessage] = useState(""),
     [saving, setSaving] = useState(false),
     [selectedCustomer, setSelectedCustomer] = useState(""),
-    [selectedPlan, setSelectedPlan] = useState("");
+    [selectedPlan, setSelectedPlan] = useState(""),
+    [startsOn,setStartsOn]=useState(""),
+    [endsOn,setEndsOn]=useState("");
   const load = useCallback(async () => {
     const r = await apiRequest<{ data: Data }>("/api/waste/contracts");
     setData(r.data);
+    const customerId=new URLSearchParams(window.location.search).get("customerId");
+    if(customerId&&r.data.customers.some(customer=>customer.id===customerId)){const today=new Date(),end=new Date(today);end.setFullYear(end.getFullYear()+1);setSelectedCustomer(customerId);setStartsOn(today.toISOString().slice(0,10));setEndsOn(end.toISOString().slice(0,10));setOpen(true);window.history.replaceState({},"","/dashboard/contracts");}
   }, []);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -125,13 +132,15 @@ export default function ContractsPage() {
       {
         customerId: selectedCustomer,
         planId: selectedPlan,
-        startsOn: f.get("startsOn"),
-        endsOn: f.get("endsOn"),
+        startsOn,
+        endsOn,
         notes: f.get("notes") || undefined,
       },
       "Contract created as draft. Review it, then activate to create the subscription and first invoice.",
     );
   }
+  function openContract(customerId="") {const today=new Date(),end=new Date(today);end.setFullYear(end.getFullYear()+1);setSelectedCustomer(customerId);setSelectedPlan("");setStartsOn(today.toISOString().slice(0,10));setEndsOn(end.toISOString().slice(0,10));setError("");setOpen(true);}
+  function renewContract(contract:Contract){const start=new Date(`${contract.ends_on.slice(0,10)}T00:00:00`);start.setDate(start.getDate()+1);const end=new Date(start);end.setFullYear(end.getFullYear()+1);end.setDate(end.getDate()-1);setSelectedCustomer(contract.customer_id);setSelectedPlan(contract.plan_id||"");setStartsOn(start.toISOString().slice(0,10));setEndsOn(end.toISOString().slice(0,10));setError("");setMessage("");setOpen(true);}
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl">
@@ -142,7 +151,7 @@ export default function ContractsPage() {
           description="Assign a controlled service package to a customer, review the agreement, then activate billing."
           action={data.plans.length ? (
             <button
-              onClick={() => setOpen(true)}
+              onClick={() => openContract()}
               className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white"
             >
               New contract
@@ -170,25 +179,12 @@ export default function ContractsPage() {
             </div>
           ))}
         </section>
-        {open && (
-          <form onSubmit={submit} className="mt-6 border-y bg-white p-5">
-            <div className="flex justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">New package contract</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Choose the customer and package. Price and service levels
-                  cannot be entered separately.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="text-sm text-slate-500"
-              >
-                Close
-              </button>
-            </div>
-            <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+        <section className="mt-8 grid border-y sm:grid-cols-3">
+          {[["Customers available",data.customers.length],["Service packages",data.plans.length],["Drafts awaiting activation",data.contracts.filter(c=>c.status==="draft").length]].map(([title,count])=><div key={String(title)} className="border-b py-4 pr-5 sm:border-b-0 sm:border-r"><p className="text-sm font-semibold text-slate-500">{title}</p><p className="mt-1 text-2xl font-semibold">{count}</p></div>)}
+        </section>
+        <Modal open={open} onClose={()=>!saving&&setOpen(false)} title="Create customer contract" description="Step 1: choose the customer. Step 2: apply a matching service package. Step 3: save the draft and activate it after review.">
+          <form onSubmit={submit}>
+            <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-semibold">
                 Customer
                 <select
@@ -203,11 +199,12 @@ export default function ContractsPage() {
                   <option value="">Choose active customer</option>
                   {data.customers.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.full_name} · {label(c.customer_type)}
+                      {c.full_name} · {c.customer_number}
                     </option>
                   ))}
                 </select>
               </label>
+              {customer&&<div className="border-l-2 border-slate-300 px-3 text-sm sm:col-span-2"><p className="font-semibold">{customer.full_name}</p><p className="mt-1 text-slate-500">{label(customer.customer_type)} · {customer.zone_name||"Zone review"} · {customer.address}</p></div>}
               <label className="text-sm font-semibold">
                 Service package
                 <select
@@ -230,15 +227,10 @@ export default function ContractsPage() {
                   ))}
                 </select>
               </label>
-              <Field
-                name="startsOn"
-                label="Contract starts"
-                type="date"
-                required
-              />
-              <Field name="endsOn" label="Contract ends" type="date" required />
+              <label className="text-sm font-semibold">Contract starts<input required type="date" value={startsOn} onChange={event=>setStartsOn(event.target.value)} className="mt-1 w-full border p-2.5"/></label>
+              <label className="text-sm font-semibold">Contract ends<input required type="date" min={startsOn} value={endsOn} onChange={event=>setEndsOn(event.target.value)} className="mt-1 w-full border p-2.5"/></label>
               {plan && (
-                <div className="border-l-2 border-[#3156a3] px-3 text-sm md:col-span-2 lg:col-span-3">
+                <div className="border-l-2 border-[#3156a3] bg-blue-50 px-4 py-3 text-sm sm:col-span-2">
                   <p className="font-semibold">{plan.name}</p>
                   <p className="mt-1 text-slate-500">
                     {money(plan.fee_ugx)} per {label(plan.billing_frequency)} ·{" "}
@@ -247,16 +239,11 @@ export default function ContractsPage() {
                   </p>
                 </div>
               )}
-              <Field name="notes" label="Contract notes" />
-              <button
-                disabled={saving || !selectedCustomer || !selectedPlan}
-                className="self-end bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
-              >
-                Create draft
-              </button>
+              <div className="sm:col-span-2"><Field name="notes" label="Contract notes (optional)" /></div>
             </div>
+            <div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" disabled={saving} onClick={()=>setOpen(false)} className="border border-slate-300 px-4 py-2.5 text-sm font-semibold">Cancel</button><button disabled={saving||!selectedCustomer||!selectedPlan||!startsOn||!endsOn||endsOn<startsOn} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40">{saving?"Creating draft…":"Create contract draft"}</button></div>
           </form>
-        )}
+        </Modal>
         <section className="mt-8">
           <div className="table-toolbar">
             <input
@@ -309,7 +296,7 @@ export default function ContractsPage() {
                         <td>
                           <p className="table-primary">{c.contract_number}</p>
                           <p>{c.customer_name}</p>
-                          <p className="table-secondary">{c.customer_email}</p>
+                          <p className="table-secondary">{c.customer_number} · {c.customer_email}</p>
                         </td>
                         <td>
                           {c.plan_name || c.service_name}
@@ -349,6 +336,7 @@ export default function ContractsPage() {
                             {["draft", "suspended"].includes(c.status) && (
                               <Step c={c} next="cancelled" act={act} />
                             )}
+                            {["expiring","expired"].includes(c.status)&&c.plan_id&&<button disabled={saving} onClick={()=>renewContract(c)} className="border border-[#3156a3] px-3 py-2 text-xs font-semibold text-[#3156a3]">Renew</button>}
                           </div>
                         </td>
                       </tr>

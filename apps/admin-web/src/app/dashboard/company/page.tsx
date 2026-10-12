@@ -10,7 +10,7 @@ type Summary={jobs_today:number;completed_jobs:number;missed_jobs:number;active_
 type Billing={subscriptions:{status:string}[];invoices:{amount_ugx:string;balance_ugx:string;status:string;invoice_number:string;customer_name:string;due_on:string}[];payments:{amount_ugx:string;status:string}[]};
 type Staff={id:string;status:string;roles:string[];full_name:string};
 type Response<T>={data:T};
-function money(value:number){return new Intl.NumberFormat("en-UG",{style:"currency",currency:"UGX",maximumFractionDigits:0}).format(value);}
+function money(value:number){return `UGX ${new Intl.NumberFormat("en-UG",{maximumFractionDigits:0}).format(value)}`;}
 
 export default function CompanyDashboard(){
  const [organization,setOrganization]=useState<Organization|null>(null),[summary,setSummary]=useState<Summary|null>(null),[billing,setBilling]=useState<Billing>({subscriptions:[],invoices:[],payments:[]}),[staff,setStaff]=useState<Staff[]>([]);

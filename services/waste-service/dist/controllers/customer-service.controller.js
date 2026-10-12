@@ -26,7 +26,7 @@ async function updateCustomerServiceStatusHandler(req, res) {
     if (!auth.organizationId)
         return res.status(403).json({ success: false, message: "Your account is not linked to an organization" });
     const input = customer_service_validator_1.updateCustomerServiceStatusSchema.parse(req.body);
-    const customer = await (0, customer_service_repository_1.updateCustomerServiceStatus)(req.params.customerId, auth.organizationId, input.status);
+    const customer = await (0, customer_service_repository_1.updateCustomerServiceStatus)(req.params.customerId, auth.organizationId, input.status, auth.userId);
     if (!customer)
         return res.status(404).json({ success: false, message: "Customer was not found in your organization" });
     return res.status(200).json({ success: true, message: `Customer service ${input.status}`, data: customer });

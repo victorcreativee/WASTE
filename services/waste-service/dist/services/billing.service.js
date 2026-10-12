@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.recordOrganizationPayment = exports.updateSubscriptionStatus = exports.generateDueSubscriptionInvoices = exports.updateServicePlanStatus = exports.updateServicePlan = exports.confirmPayment = exports.subscribeCustomer = exports.findServicePlans = exports.findBillingOverview = exports.createServicePlan = void 0;
+exports.findPaymentReceipt = exports.recordOrganizationPayment = exports.updateSubscriptionStatus = exports.generateDueSubscriptionInvoices = exports.updateServicePlanStatus = exports.updateServicePlan = exports.confirmPayment = exports.subscribeCustomer = exports.findServicePlans = exports.findBillingOverview = exports.createServicePlan = void 0;
 exports.initiateCustomerPayment = initiateCustomerPayment;
 const payment_provider_1 = require("../billing/payment-provider");
 const billing_repository_1 = require("../repositories/billing.repository");
@@ -14,6 +14,7 @@ Object.defineProperty(exports, "updateServicePlanStatus", { enumerable: true, ge
 Object.defineProperty(exports, "generateDueSubscriptionInvoices", { enumerable: true, get: function () { return billing_repository_1.generateDueSubscriptionInvoices; } });
 Object.defineProperty(exports, "updateSubscriptionStatus", { enumerable: true, get: function () { return billing_repository_1.updateSubscriptionStatus; } });
 Object.defineProperty(exports, "recordOrganizationPayment", { enumerable: true, get: function () { return billing_repository_1.recordOrganizationPayment; } });
+Object.defineProperty(exports, "findPaymentReceipt", { enumerable: true, get: function () { return billing_repository_1.findPaymentReceipt; } });
 async function initiateCustomerPayment(userId, input) {
     const provider = (0, payment_provider_1.getPaymentProvider)(input.provider);
     const initiation = await provider.initiate({ amountUgx: input.amountUgx, payerPhone: input.payerPhone, invoiceNumber: input.invoiceId });

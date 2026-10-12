@@ -12,6 +12,7 @@ import {
   generateDueSubscriptionInvoices,
   updateSubscriptionStatus,
   recordOrganizationPayment,
+  findPaymentReceipt,
 } from "../services/billing.service";
 import {
   confirmPaymentSchema,
@@ -130,6 +131,11 @@ export async function getBillingOverviewHandler(req: Request, res: Response) {
     data: overview,
   });
 }
+export async function getPaymentReceiptHandler(req:Request,res:Response){
+  const receipt=await findPaymentReceipt(req.params.paymentId as string,organizationScope(req),customerUser(req));
+  if(!receipt)return res.status(404).json({success:false,message:"Receipt not found or payment has not been confirmed"});
+  return res.status(200).json({success:true,message:"Payment receipt fetched",data:receipt});
+}
 export async function generateDueInvoicesHandler(req: Request, res: Response) {
   const organizationId = auth(req).organizationId;
   if (!organizationId)
@@ -137,7 +143,7 @@ export async function generateDueInvoicesHandler(req: Request, res: Response) {
       success: false,
       message: "Account is not linked to an organization",
     });
-  const invoices = await generateDueSubscriptionInvoices(organizationId);
+  const invoices = await generateDueSubscriptionInvoices(organizationId,auth(req).userId);
   return res.status(201).json({
     success: true,
     message: invoices.length
@@ -197,7 +203,8 @@ export async function confirmPaymentHandler(req: Request, res: Response) {
   const result = await confirmPayment(
     req.params.paymentId as string,
     organizationScope(req),
-    input.providerReference
+    input.providerReference,
+    auth(req).userId
   );
   if (!result)
     return res.status(409).json({
@@ -223,7 +230,8 @@ export async function recordOrganizationPaymentHandler(
     });
   const result = await recordOrganizationPayment(
     organizationId,
-    recordOrganizationPaymentSchema.parse(req.body)
+    recordOrganizationPaymentSchema.parse(req.body),
+    auth(req).userId
   );
   if (!result)
     return res.status(409).json({

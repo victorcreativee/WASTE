@@ -47,6 +47,9 @@ type Invoice = {
   status: string;
   issued_on: string;
   due_on: string;
+  billing_period_start: string | null;
+  billing_period_end: string | null;
+  customer_number: string;
 };
 type Payment = {
   id: string;
@@ -57,6 +60,7 @@ type Payment = {
   provider_reference: string | null;
   status: string;
   created_at: string;
+  receipt_number: string | null;
 };
 type Overview = {
   subscriptions: Subscription[];
@@ -128,11 +132,7 @@ function label(v: string) {
   return v.replaceAll("_", " ");
 }
 function money(v: string | number) {
-  return new Intl.NumberFormat("en-UG", {
-    style: "currency",
-    currency: "UGX",
-    maximumFractionDigits: 0,
-  }).format(Number(v));
+  return `UGX ${new Intl.NumberFormat("en-UG", { maximumFractionDigits: 0 }).format(Number(v))}`;
 }
 
 export default function BillingPage() {
@@ -563,7 +563,7 @@ export default function BillingPage() {
       (p) =>
         (paymentStatus === "all" || p.status === paymentStatus) &&
         (!q ||
-          `${p.invoice_number} ${p.customer_name} ${p.provider} ${p.provider_reference || ""}`
+          `${p.invoice_number} ${p.receipt_number||""} ${p.customer_name} ${p.provider} ${p.provider_reference || ""}`
             .toLowerCase()
             .includes(q)),
     );
@@ -1301,6 +1301,7 @@ export default function BillingPage() {
                                 <tr>
                                   <th>Invoice</th>
                                   {!isCustomer && <th>Customer</th>}
+                                  <th>Service period</th>
                                   <th>Issued / due</th>
                                   <th className="text-right">Amount</th>
                                   <th className="text-right">Balance</th>
@@ -1319,7 +1320,10 @@ export default function BillingPage() {
                                         {i.plan_name}
                                       </p>
                                     </td>
-                                    {!isCustomer && <td>{i.customer_name}</td>}
+                                    {!isCustomer && <td><p className="table-primary">{i.customer_name}</p><p className="table-secondary">{i.customer_number}</p></td>}
+                                    <td>
+                                      {i.billing_period_start&&i.billing_period_end?`${new Date(i.billing_period_start).toLocaleDateString("en-GB")} – ${new Date(i.billing_period_end).toLocaleDateString("en-GB")}`:"Legacy invoice"}
+                                    </td>
                                     <td>
                                       {new Date(i.issued_on).toLocaleDateString(
                                         "en-GB",
@@ -1508,6 +1512,7 @@ export default function BillingPage() {
                                   <tr key={p.id}>
                                     <td className="table-primary">
                                       {money(p.amount_ugx)}
+                                      {p.receipt_number&&<p className="table-secondary">{p.receipt_number}</p>}
                                     </td>
                                     <td>{p.invoice_number}</td>
                                     {!isCustomer && <td>{p.customer_name}</td>}
@@ -1537,6 +1542,7 @@ export default function BillingPage() {
                                               Confirm received
                                             </button>
                                           )}
+                                        {p.status==="successful"&&p.receipt_number&&<a href={`/dashboard/billing/receipt/${p.id}`} className="border border-[#3156a3] px-3 py-2 text-xs font-semibold text-[#3156a3]">View receipt</a>}
                                       </div>
                                     </td>
                                   </tr>

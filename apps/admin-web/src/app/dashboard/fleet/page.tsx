@@ -11,7 +11,7 @@ type Truck={id:string;plate_number:string;truck_name:string|null;capacity_tons:s
 type FleetRecord=Record<string,string|number|null>;
 type Detail=Truck&{maintenance:FleetRecord[];documents:FleetRecord[];fuel:FleetRecord[]};
 type Overview={summary:{total:number;available:number;assigned:number;maintenance:number;inactive:number;maintenance_month:string;fuel_month:string;expiring_documents:number};trucks:Truck[]};
-const money=(value:string|number)=>new Intl.NumberFormat("en-UG",{style:"currency",currency:"UGX",maximumFractionDigits:0}).format(Number(value||0));
+const money=(value:string|number)=>`UGX ${new Intl.NumberFormat("en-UG",{maximumFractionDigits:0}).format(Number(value||0))}`;
 const pretty=(v:string)=>v.replaceAll("_"," ").replace(/\b\w/g,c=>c.toUpperCase());
 const badge:Record<string,string>={available:"bg-emerald-100 text-emerald-800",assigned:"bg-blue-100 text-blue-800",maintenance:"bg-amber-100 text-amber-800",inactive:"bg-slate-200 text-slate-700",completed:"bg-emerald-100 text-emerald-800",in_progress:"bg-amber-100 text-amber-800",scheduled:"bg-blue-100 text-blue-800",cancelled:"bg-slate-200 text-slate-700",valid:"bg-emerald-100 text-emerald-800",expiring:"bg-amber-100 text-amber-800",expired:"bg-red-100 text-red-800"};
 

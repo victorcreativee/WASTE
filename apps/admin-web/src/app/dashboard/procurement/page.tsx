@@ -52,11 +52,7 @@ type Data = {
   approvedRequests: Request[];
 };
 const money = (v: string | number) =>
-  new Intl.NumberFormat("en-UG", {
-    style: "currency",
-    currency: "UGX",
-    maximumFractionDigits: 0,
-  }).format(Number(v || 0));
+  `UGX ${new Intl.NumberFormat("en-UG", { maximumFractionDigits: 0 }).format(Number(v || 0))}`;
 export default function ProcurementPage() {
   const [data, setData] = useState<Data>({
       suppliers: [],
