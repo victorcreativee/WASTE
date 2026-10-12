@@ -1,0 +1,36 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import test from "node:test";
+
+const migration = fs.readFileSync(
+  path.resolve(__dirname, "../../../infrastructure/database/073_recycling_permissions.sql"),
+  "utf8"
+);
+const routes = fs.readFileSync(
+  path.resolve(__dirname, "../src/routes/recycling.routes.ts"),
+  "utf8"
+);
+
+const permissions = [
+  "recycling.read",
+  "recycling.purchase.create",
+  "recycling.local_sale.create",
+  "recycling.industrial_sale.manage",
+  "recycling.inventory.manage",
+  "recycling.finance.manage",
+  "recycling.daily_close.manage",
+];
+
+test("recycling permissions are catalogued and tenant restricted", () => {
+  for (const permission of permissions) assert.match(migration, new RegExp(permission.replace(".", "\\.")));
+  assert.match(migration, /organization\.type='recycling_company'/);
+  assert.match(migration, /module <> 'recycling' OR org_type='recycling_company'/);
+});
+
+test("every recycling route is guarded by an organization permission", () => {
+  assert.doesNotMatch(routes, /const manage=requireRoles/);
+  assert.equal((routes.match(/permission\('recycling\./g) || []).length, 16);
+  assert.match(routes, /requireAnyOrganizationPermission\('recycling\.local_sale\.create','recycling\.industrial_sale\.manage'\)/);
+  assert.match(routes, /requireRoles\('company_admin'\),permission\('recycling\.daily_close\.manage'\)/);
+});
