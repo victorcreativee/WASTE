@@ -7,6 +7,7 @@ exports.registerUser = registerUser;
 exports.registerOrganizationApplicant = registerOrganizationApplicant;
 exports.loginUser = loginUser;
 exports.getCurrentUser = getCurrentUser;
+exports.refreshUserSession = refreshUserSession;
 const organization_access_service_1 = require("./organization-access.service");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const auth_repository_1 = require("../repositories/auth.repository");
@@ -122,4 +123,17 @@ async function getCurrentUser(userId) {
         roles,
         permissions,
     };
+}
+async function refreshUserSession(refreshToken) {
+    let payload;
+    try {
+        payload = (0, jwt_1.verifyRefreshToken)(refreshToken);
+    }
+    catch {
+        const error = new Error("Refresh token is invalid or expired");
+        error.statusCode = 401;
+        throw error;
+    }
+    const current = await getCurrentUser(payload.userId), roles = current.roles;
+    return { ...current, tokens: { accessToken: (0, jwt_1.signAccessToken)({ userId: current.user.id, email: current.user.email, organizationId: current.user.organizationId, roles: roles.map(role => role.name) }), refreshToken: (0, jwt_1.signRefreshToken)({ userId: current.user.id }) } };
 }

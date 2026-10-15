@@ -17,7 +17,18 @@ const run = (handler: (req: AuthenticatedRequest, res: Response) => Promise<unkn
     try { await handler(req as AuthenticatedRequest, res); } catch (error) { next(error); }
   };
 
-router.use(requireAuth, requireRoles("company_admin","supervisor","driver","iot_operator"));
+router.use(
+  requireAuth,
+  requireRoles(
+    "company_admin",
+    "supervisor",
+    "driver",
+    "iot_operator",
+    "recycling_collector",
+    "recycling_sales",
+    "recycling_field_manager",
+  ),
+);
 router.get("/organization-users", requireOrganizationPermission("staff.read"),run(getOrganizationUsersHandler));
 router.post("/organization-users", requireOrganizationPermission("staff.manage"),run(createOrganizationUserHandler));
 router.post("/organization-customers", requireRoles("company_admin"),requireOrganizationPermission("customer.manage"),run(createOrganizationCustomerHandler));

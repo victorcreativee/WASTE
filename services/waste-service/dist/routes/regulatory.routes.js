@@ -15,7 +15,7 @@ r.get("/applicant/permits", (0, auth_middleware_1.requireRoles)("organization_ap
 r.post("/applicant/permits", (0, auth_middleware_1.requireRoles)("organization_applicant"), run(regulatory_controller_1.postApplicantPermit));
 r.get("/applicant/permits/:id/certificate", (0, auth_middleware_1.requireRoles)("organization_applicant"), run(regulatory_controller_1.downloadApplicantCertificate));
 r.get("/platform-packages", (0, auth_middleware_1.requireRoles)("system_admin"), run(regulatory_controller_1.getAllPlatformPackages));
-r.get("/organization-package", (0, auth_middleware_1.requireRoles)("company_admin", "supervisor", "driver"), run(regulatory_controller_1.getOrganizationPackageAccess));
+r.get("/organization-package", (0, auth_middleware_1.requireRoles)("company_admin", "supervisor", "driver", "recycling_collector", "recycling_sales", "recycling_field_manager"), run(regulatory_controller_1.getOrganizationPackageAccess));
 r.post("/platform-packages", (0, auth_middleware_1.requireRoles)("system_admin"), run(regulatory_controller_1.postPlatformPackage));
 r.patch("/platform-packages/:id", (0, auth_middleware_1.requireRoles)("system_admin"), run(regulatory_controller_1.patchPlatformPackage));
 r.get("/organization-certificate", (0, auth_middleware_1.requireRoles)("company_admin", "supervisor"), run(regulatory_controller_1.getOrganizationCertificate));

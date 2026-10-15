@@ -4,6 +4,12 @@ const express_1 = require("express");
 const auth_controller_1 = require("../controllers/auth.controller");
 const auth_middleware_1 = require("../middlewares/auth.middleware");
 const router = (0, express_1.Router)();
+router.post("/refresh", async (req, res, next) => { try {
+    await (0, auth_controller_1.refresh)(req, res);
+}
+catch (error) {
+    next(error);
+} });
 const applicantAttempts = new Map();
 router.post("/organization-applicants/register", (req, res, next) => { const now = Date.now(), key = req.ip || "unknown"; for (const [ip, value] of applicantAttempts)
     if (value.until <= now)

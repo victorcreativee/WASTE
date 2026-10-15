@@ -6,7 +6,7 @@ import test from "node:test";
 const root=path.resolve(__dirname,"../../..");
 const repository=fs.readFileSync(path.join(root,"services/waste-service/src/repositories/billing.repository.ts"),"utf8");
 const contracts=fs.readFileSync(path.join(root,"services/waste-service/src/repositories/contract.repository.ts"),"utf8");
-const migration=fs.readFileSync(path.join(root,"infrastructure/database/081_customer_billing_periods.sql"),"utf8");
+const migration=fs.readFileSync(path.join(root,"infrastructure/database/082_customer_billing_periods.sql"),"utf8");
 
 test("customer invoices use controlled numbers and unique service periods",()=>{
   assert.match(migration,/customer_invoice_number_seq/);
@@ -26,7 +26,7 @@ test("recurring billing remains inside the active contract and is audited",()=>{
 });
 
 test("successful customer payments receive controlled printable receipt numbers",()=>{
-  const receiptMigration=fs.readFileSync(path.join(root,"infrastructure/database/082_customer_payment_receipts.sql"),"utf8");
+  const receiptMigration=fs.readFileSync(path.join(root,"infrastructure/database/083_customer_payment_receipts.sql"),"utf8");
   assert.match(receiptMigration,/customer_receipt_number_seq/);
   assert.match(receiptMigration,/customer_payments_receipt_number_idx/);
   assert.match(repository,/receipt_number='RCT-'/);

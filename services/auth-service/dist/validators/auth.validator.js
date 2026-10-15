@@ -27,7 +27,7 @@ exports.createOrganizationUserSchema = zod_1.z.object({
     email: zod_1.z.string().email(),
     phone: zod_1.z.string().trim().max(50).optional(),
     password: zod_1.z.string().min(8).max(128),
-    role: zod_1.z.enum(["supervisor", "driver", "recycling_collector", "recycling_sales"]),
+    role: zod_1.z.enum(["supervisor", "driver", "recycling_collector", "recycling_sales", "recycling_field_manager"]),
     licenseNumber: zod_1.z.string().trim().max(100).optional(),
 });
 exports.createOrganizationCustomerSchema = zod_1.z.object({

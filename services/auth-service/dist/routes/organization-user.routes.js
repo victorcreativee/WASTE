@@ -15,7 +15,7 @@ const run = (handler) => async (req, res, next) => {
         next(error);
     }
 };
-router.use(auth_middleware_1.requireAuth, (0, auth_middleware_1.requireRoles)("company_admin", "supervisor", "driver", "iot_operator"));
+router.use(auth_middleware_1.requireAuth, (0, auth_middleware_1.requireRoles)("company_admin", "supervisor", "driver", "iot_operator", "recycling_collector", "recycling_sales", "recycling_field_manager"));
 router.get("/organization-users", (0, organization_permission_middleware_1.requireOrganizationPermission)("staff.read"), run(organization_user_controller_1.getOrganizationUsersHandler));
 router.post("/organization-users", (0, organization_permission_middleware_1.requireOrganizationPermission)("staff.manage"), run(organization_user_controller_1.createOrganizationUserHandler));
 router.post("/organization-customers", (0, auth_middleware_1.requireRoles)("company_admin"), (0, organization_permission_middleware_1.requireOrganizationPermission)("customer.manage"), run(organization_user_controller_1.createOrganizationCustomerHandler));

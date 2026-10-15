@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 
 const migration = fs.readFileSync(
-  path.resolve(__dirname, "../../../infrastructure/database/072_recycling_tenant_integrity.sql"),
+  path.resolve(__dirname, "../../../infrastructure/database/073_recycling_tenant_integrity.sql"),
   "utf8"
 );
 

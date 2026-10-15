@@ -6,7 +6,7 @@ export async function requireActiveOrganization(
   roles: Array<{ name: string }>,
   userId: string
 ) {
-  if (!roles.some(role => ["company_admin", "supervisor", "driver", "iot_operator", "recycling_collector", "recycling_sales"].includes(role.name))) return;
+  if (!roles.some(role => ["company_admin", "supervisor", "driver", "iot_operator", "recycling_collector", "recycling_sales", "recycling_field_manager"].includes(role.name))) return;
   const result = organizationId
     ? await dbPool.query("SELECT o.id FROM organizations o JOIN organization_memberships m ON m.organization_id=o.id WHERE o.id=$1::uuid AND o.is_active=true AND m.user_id=$2::uuid AND m.status='active'", [organizationId,userId])
     : null;

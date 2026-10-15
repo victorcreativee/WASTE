@@ -21,8 +21,8 @@ export async function createOrganizationUser(organizationId: string, input: Crea
     await client.query("BEGIN");
     const actor=await authorizeStaffWrite(client,organizationId,actorId);
     if(!actor.isAdministrator)protectedStaff("Only the company administrator can create staff accounts");
-    const allowedRoles=actor.organizationType==='recycling_company'?["recycling_collector","recycling_sales"]:["supervisor","driver"];
-    if(!allowedRoles.includes(input.role))protectedStaff(actor.organizationType==='recycling_company'?"Choose a recycling collection worker or industrial sales worker role":"Choose a supervisor or driver role");
+    const allowedRoles=actor.organizationType==='recycling_company'?["recycling_collector","recycling_sales","recycling_field_manager"]:["supervisor","driver"];
+    if(!allowedRoles.includes(input.role))protectedStaff(actor.organizationType==='recycling_company'?"Choose a recycling field manager, collection worker or industrial sales worker role":"Choose a supervisor or driver role");
     const result = await createOrganizationStaffRecord(client, {
       organizationId,
       fullName: input.fullName,
@@ -32,6 +32,16 @@ export async function createOrganizationUser(organizationId: string, input: Crea
       role: input.role,
       licenseNumber: input.licenseNumber,
     });
+    if(input.role==="recycling_field_manager")await client.query(
+      `INSERT INTO organization_role_permissions(organization_id,role_id,permission_code)
+       SELECT $1::uuid,role.id,'recycling.field_float.manage'
+       FROM organization_roles role
+       JOIN organizations organization ON organization.id=role.organization_id
+       WHERE role.organization_id=$1::uuid AND organization.type='recycling_company'
+         AND role.legacy_role_name='recycling_field_manager'
+       ON CONFLICT(role_id,permission_code) DO NOTHING`,
+      [organizationId],
+    );
     await client.query("COMMIT");
     return result;
   } catch (error) {

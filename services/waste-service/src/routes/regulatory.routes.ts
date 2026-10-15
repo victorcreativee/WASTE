@@ -50,7 +50,14 @@ r.get(
 );
 r.get(
   "/organization-package",
-  requireRoles("company_admin", "supervisor", "driver"),
+  requireRoles(
+    "company_admin",
+    "supervisor",
+    "driver",
+    "recycling_collector",
+    "recycling_sales",
+    "recycling_field_manager",
+  ),
   run(getOrganizationPackageAccess),
 );
 r.post(

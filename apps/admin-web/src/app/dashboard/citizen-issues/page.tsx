@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState, useSyncExternalStore } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, queueDesktopWhenUnavailable } from "@/lib/api";
 import { OrganizationWorkspaceNav } from "@/components/layout/OrganizationWorkspaceNav";
 import {EmptyState,Feedback,Modal,PageHeader,Status} from "@/components/ui/System";
 
@@ -25,7 +25,7 @@ type CollectionJob={id:string;zone_id:string;zone_name:string;job_date:string;st
 type DriverProblem={id:string;category:string;description:string;status:string;zone_name:string|null;driver_name:string;plate_number:string|null};
 type ListResponse<T> = { data: T[] };
 
-function storedRoles() {
+function storedRoles():string {
   try {
     return JSON.parse(sessionStorage.getItem("currentUser") || "{}").roles?.join(",") || "unknown";
   } catch {
@@ -38,7 +38,7 @@ function label(value: string) { return value.replaceAll("_", " "); }
 export default function CitizenIssuesPage() {
   const roleSnapshot = useSyncExternalStore(subscribe, storedRoles, () => "hydrating");
   const isCitizen = roleSnapshot.split(",").includes("citizen");
-  const isCompany = roleSnapshot.split(",").includes("company_admin");
+  const isCompany = roleSnapshot.split(",").some(role=>["company_admin","supervisor"].includes(role));
   const canAssign = roleSnapshot.includes("kcca_admin") || roleSnapshot.includes("system_admin");
   const [issues, setIssues] = useState<Issue[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -115,17 +115,20 @@ export default function CitizenIssuesPage() {
         method: "PATCH", body: JSON.stringify({ status }),
       });
       await loadIssues();
-    } catch (error) { setError(error instanceof Error ? error.message : "Failed to update issue"); }
+    } catch (error) {
+      try{await queueDesktopWhenUnavailable(error,{endpoint:`/api/waste/citizen-issues/${issueId}/status`,method:"PATCH",body:{status}});setIssues(current=>current.map(item=>item.id===issueId?{...item,status}:item));setMessage("Issue update saved on this computer and waiting to synchronize.");}
+      catch(failure){setError(failure instanceof Error ? failure.message : "Failed to update issue");}
+    }
     finally { setSaving(false); }
   }
 
   async function updateDriverProblem(problemId:string,status:"acknowledged"|"resolved"){
     try{setSaving(true);setError("");setMessage("");await apiRequest(`/api/waste/driver-job-problems/${problemId}`,{method:"PATCH",body:JSON.stringify({status})});setDriverProblems(current=>current.map(item=>item.id===problemId?{...item,status}:item));setMessage(status==="resolved"?"Driver problem resolved.":"Driver problem acknowledged for follow-up.");}
-    catch(error){setError(error instanceof Error?error.message:"Could not update driver problem");}
+    catch(error){try{await queueDesktopWhenUnavailable(error,{endpoint:`/api/waste/driver-job-problems/${problemId}`,method:"PATCH",body:{status}});setDriverProblems(current=>current.map(item=>item.id===problemId?{...item,status}:item));setMessage("Driver problem update saved on this computer and waiting to synchronize.");}catch(failure){setError(failure instanceof Error?failure.message:"Could not update driver problem");}}
     finally{setSaving(false)}
   }
 
-  async function reviewCollectionException(event:FormEvent<HTMLFormElement>){event.preventDefault();if(!reviewing||exceptionAction==="reschedule"&&!targetJobId)return;const form=new FormData(event.currentTarget);try{setSaving(true);setError("");await apiRequest(`/api/waste/customer-collection-stops/${reviewing.id}/exception`,{method:"PATCH",body:JSON.stringify({action:exceptionAction,reviewNotes:form.get("reviewNotes"),...(exceptionAction==="reschedule"?{targetJobId}:{})})});setMessage(exceptionAction==="reschedule"?"Missed collection assigned to the selected future job.":"Missed collection reviewed and closed.");setExceptions(current=>current.filter(item=>item.id!==reviewing.id));closeExceptionReview();}catch(error){setError(error instanceof Error?error.message:"Could not update the collection exception")}finally{setSaving(false)}}
+  async function reviewCollectionException(event:FormEvent<HTMLFormElement>){event.preventDefault();if(!reviewing||exceptionAction==="reschedule"&&!targetJobId)return;const form=new FormData(event.currentTarget),body={action:exceptionAction,reviewNotes:form.get("reviewNotes"),...(exceptionAction==="reschedule"?{targetJobId}:{})};try{setSaving(true);setError("");await apiRequest(`/api/waste/customer-collection-stops/${reviewing.id}/exception`,{method:"PATCH",body:JSON.stringify(body)});setMessage(exceptionAction==="reschedule"?"Missed collection assigned to the selected future job.":"Missed collection reviewed and closed.");setExceptions(current=>current.filter(item=>item.id!==reviewing.id));closeExceptionReview();}catch(error){try{await queueDesktopWhenUnavailable(error,{endpoint:`/api/waste/customer-collection-stops/${reviewing.id}/exception`,method:"PATCH",body});setMessage("Missed-collection follow-up saved on this computer and waiting to synchronize.");setExceptions(current=>current.filter(item=>item.id!==reviewing.id));closeExceptionReview();}catch(failure){setError(failure instanceof Error?failure.message:"Could not update the collection exception")}}finally{setSaving(false)}}
 
   function openExceptionReview(item:CollectionException){setReviewing(item);setExceptionAction("reschedule");setTargetJobId("");setError("");}
   function closeExceptionReview(){setReviewing(null);setExceptionAction("reschedule");setTargetJobId("");}

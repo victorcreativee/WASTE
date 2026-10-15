@@ -14,7 +14,7 @@ const run = (fn) => async (req, res, next) => { try {
 catch (e) {
     next(e);
 } };
-router.use("/organization-access", auth_middleware_1.requireAuth, (0, auth_middleware_1.requireRoles)("company_admin", "supervisor", "driver", "iot_operator"));
+router.use("/organization-access", auth_middleware_1.requireAuth, (0, auth_middleware_1.requireRoles)("company_admin", "supervisor", "driver", "iot_operator", "recycling_collector", "recycling_sales", "recycling_field_manager"));
 router.get("/organization-access/me", run(async (req, res) => {
     const result = await database_1.dbPool.query("SELECT code FROM organization_effective_permissions($1::uuid,$2::uuid)", [req.user.userId, req.user.organizationId]);
     const admin = await database_1.dbPool.query("SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=$1::uuid AND r.name='company_admin'", [req.user.userId]);

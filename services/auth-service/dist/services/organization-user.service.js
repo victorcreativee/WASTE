@@ -23,9 +23,9 @@ async function createOrganizationUser(organizationId, input, actorId) {
         const actor = await (0, staff_authorization_1.authorizeStaffWrite)(client, organizationId, actorId);
         if (!actor.isAdministrator)
             (0, staff_authorization_1.protectedStaff)("Only the company administrator can create staff accounts");
-        const allowedRoles = actor.organizationType === 'recycling_company' ? ["recycling_collector", "recycling_sales"] : ["supervisor", "driver"];
+        const allowedRoles = actor.organizationType === 'recycling_company' ? ["recycling_collector", "recycling_sales", "recycling_field_manager"] : ["supervisor", "driver"];
         if (!allowedRoles.includes(input.role))
-            (0, staff_authorization_1.protectedStaff)(actor.organizationType === 'recycling_company' ? "Choose a recycling collection worker or industrial sales worker role" : "Choose a supervisor or driver role");
+            (0, staff_authorization_1.protectedStaff)(actor.organizationType === 'recycling_company' ? "Choose a recycling field manager, collection worker or industrial sales worker role" : "Choose a supervisor or driver role");
         const result = await (0, organization_user_repository_1.createOrganizationStaffRecord)(client, {
             organizationId,
             fullName: input.fullName,
@@ -35,6 +35,14 @@ async function createOrganizationUser(organizationId, input, actorId) {
             role: input.role,
             licenseNumber: input.licenseNumber,
         });
+        if (input.role === "recycling_field_manager")
+            await client.query(`INSERT INTO organization_role_permissions(organization_id,role_id,permission_code)
+       SELECT $1::uuid,role.id,'recycling.field_float.manage'
+       FROM organization_roles role
+       JOIN organizations organization ON organization.id=role.organization_id
+       WHERE role.organization_id=$1::uuid AND organization.type='recycling_company'
+         AND role.legacy_role_name='recycling_field_manager'
+       ON CONFLICT(role_id,permission_code) DO NOTHING`, [organizationId]);
         await client.query("COMMIT");
         return result;
     }

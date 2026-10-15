@@ -1,8 +1,9 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { login, me, register, registerApplicant } from "../controllers/auth.controller";
+import { login, me, refresh, register, registerApplicant } from "../controllers/auth.controller";
 import { requireAuth } from "../middlewares/auth.middleware";
 
 const router = Router();
+router.post("/refresh",async(req,res,next)=>{try{await refresh(req,res)}catch(error){next(error)}});
 const applicantAttempts=new Map<string,{count:number;until:number}>();
 router.post("/organization-applicants/register",(req,res,next)=>{const now=Date.now(),key=req.ip||"unknown";for(const [ip,value] of applicantAttempts)if(value.until<=now)applicantAttempts.delete(ip);const value=applicantAttempts.get(key)||{count:0,until:now+60000};value.count++;applicantAttempts.set(key,value);if(value.count>5)return res.status(429).json({success:false,message:"Too many registration attempts. Wait one minute and try again."});next();},async(req,res,next)=>{try{await registerApplicant(req,res)}catch(error){next(error)}});
 

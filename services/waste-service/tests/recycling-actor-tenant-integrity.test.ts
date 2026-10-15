@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-const migration=fs.readFileSync(path.resolve(__dirname,"../../../infrastructure/database/075_recycling_actor_tenant_integrity.sql"),"utf8");
+const migration=fs.readFileSync(path.resolve(__dirname,"../../../infrastructure/database/076_recycling_actor_tenant_integrity.sql"),"utf8");
 
 test("recycling audit actors are bound to the record organization",()=>{
  const constraints=[

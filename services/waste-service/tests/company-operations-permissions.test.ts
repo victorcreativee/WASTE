@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-const migration=fs.readFileSync(path.resolve(__dirname,"../../../infrastructure/database/079_company_operations_permissions.sql"),"utf8");
+const migration=fs.readFileSync(path.resolve(__dirname,"../../../infrastructure/database/080_company_operations_permissions.sql"),"utf8");
 const customerRoutes=fs.readFileSync(path.resolve(__dirname,"../src/routes/customer-service.routes.ts"),"utf8");
 const contractRoutes=fs.readFileSync(path.resolve(__dirname,"../src/routes/contract.routes.ts"),"utf8");
 const fleetRoutes=fs.readFileSync(path.resolve(__dirname,"../src/routes/fleet.routes.ts"),"utf8");

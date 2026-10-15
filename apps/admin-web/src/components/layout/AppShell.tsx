@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { apiRequest } from "@/lib/api";
 import { usePathname } from "next/navigation";
 import { WeighbridgeReconciliation } from "@/components/weighbridge/WeighbridgeReconciliation";
+import { DesktopSyncCenter } from "@/components/layout/DesktopSyncCenter";
 
 const cityNav:NavItem[] = [
   {group:"Overview",label:"Control room",href:"/dashboard"},
@@ -52,7 +53,7 @@ const supervisorNav:NavItem[] = [
   {group:"People",label:"Staff management",href:"/dashboard/team"},
   {group:"Customers",label:"Billing monitor",href:"/dashboard/billing"},
   {group:"Resources",label:"Inventory",href:"/dashboard/inventory"},
-  {group:"Insights",label:"Reports",href:"/dashboard/reports"},
+  {group:"Insights",label:"Reports",href:"/dashboard/recycling-reports"},
 ];
 const recyclingCompanyNav:NavItem[]=[
   {group:"Overview",label:"Materials & sales",href:"/dashboard/recycling"},
@@ -78,6 +79,11 @@ const recyclingCollectorNav:NavItem[] = [
   {group:"Daily work",label:"Materials & local sales",href:"/dashboard/recycling"},
 ];
 const recyclingSalesNav:NavItem[] = [{group:"Daily work",label:"Industrial sales",href:"/dashboard/recycling"}];
+const recyclingFieldManagerNav:NavItem[] = [
+  {group:"Field operations",label:"Materials & stock",href:"/dashboard/recycling"},
+  {group:"Field operations",label:"Team & attendance",href:"/dashboard/team"},
+  {group:"Insights",label:"Operational reports",href:"/dashboard/recycling-reports"},
+];
 
 type CurrentUser = {
   fullName: string;
@@ -114,8 +120,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [packageAccess,setPackageAccess]=useState<{organization_type:string;package_name:string;feature_codes:string[]}|null>(null);
   useEffect(()=>{
     let cancelled=false;
-    if(!currentUser?.roles?.some(r=>["company_admin","supervisor","driver","iot_operator","recycling_collector","recycling_sales"].includes(r)))return;
-    if(currentUser.roles.some(r=>["company_admin","supervisor","driver","iot_operator"].includes(r)))apiRequest<{data:{permissions:string[]}}>("/api/auth/organization-access/me").then(result=>{
+    if(!currentUser?.roles?.some(r=>["company_admin","supervisor","driver","iot_operator","recycling_collector","recycling_sales","recycling_field_manager"].includes(r)))return;
+    apiRequest<{data:{permissions:string[]}}>("/api/auth/organization-access/me").then(result=>{
       if(!cancelled)setAccessUser({user:storedUser,permissions:result.data.permissions});
     }).catch(()=>{if(!cancelled)setAccessUser(null);});
     apiRequest<{data:{organization:{type:string}}}>("/api/waste/recycling").then(result=>{if(!cancelled)setOrganizationType(result.data.organization.type)}).catch(()=>{if(!cancelled)setOrganizationType("")});
@@ -128,6 +134,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     : currentUser?.roles?.includes("citizen") ? customerNav
     : currentUser?.roles?.includes("recycling_collector") ? recyclingCollectorNav
     : currentUser?.roles?.includes("recycling_sales") ? recyclingSalesNav
+    : currentUser?.roles?.includes("recycling_field_manager") ? recyclingFieldManagerNav
     : currentUser?.roles?.includes("company_admin") ? (recyclingWorkspace?recyclingCompanyNav:companyNav)
     : currentUser?.roles?.includes("supervisor") ? (recyclingWorkspace?recyclingCompanyNav:supervisorNav)
     : currentUser?.roles?.includes("system_admin") ? systemNav : cityNav;
@@ -148,6 +155,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const productName = currentUser?.roles?.includes("weighbridge_operator") ? "KCCA Weighbridge"
     : currentUser?.roles?.includes("recycling_collector") ? "Material Collection"
     : currentUser?.roles?.includes("recycling_sales") ? "Industrial Sales"
+    : currentUser?.roles?.includes("recycling_field_manager") ? "Recycling Field Control"
     : recyclingWorkspace ? "Recycling Operations"
     : currentUser?.roles?.includes("company_admin") ? "Waste Collection Operations"
     : currentUser?.roles?.includes("supervisor") ? "Field Control"
@@ -165,11 +173,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  function handleLogout() {
+  async function handleLogout() {
+    try {
+      await window.kwmsDesktop?.offlineLogout();
+    } catch {
+      // Browser session cleanup must still complete if desktop IPC is unavailable.
+    }
     sessionStorage.removeItem("accessToken");
     sessionStorage.removeItem("refreshToken");
     sessionStorage.removeItem("currentUser");
-    window.location.href = "/login";
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+    localStorage.removeItem("currentUser");
+    window.location.replace("/login");
   }
 
   return (
@@ -219,6 +235,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="flex items-center gap-3 text-right">
+              <DesktopSyncCenter />
               <div className="hidden sm:block">
                 <p className="text-sm font-semibold text-slate-900">
                   {currentUser?.fullName || "KCCA Admin"}

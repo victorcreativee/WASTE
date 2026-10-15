@@ -44,7 +44,7 @@ export async function requireAuth(
     if (!user || user.status !== "active") {
       return res.status(401).json({ success: false, message: "User account is unavailable" });
     }
-    if (user.roles?.some((role: string) => ["company_admin", "supervisor", "driver", "iot_operator", "recycling_collector", "recycling_sales"].includes(role)) &&
+    if (user.roles?.some((role: string) => ["company_admin", "supervisor", "driver", "iot_operator", "recycling_collector", "recycling_sales", "recycling_field_manager"].includes(role)) &&
         (!user.organization_id || user.organization_active !== true || user.membership_active !== true)) {
       return res.status(403).json({ success: false, message: "Your organization or membership is unavailable. Contact your administrator." });
     }
@@ -68,7 +68,7 @@ export function requireRoles(...allowedRoles: string[]) {
         message: "You do not have access to this operational resource",
       });
     }
-    if (req.auth.roles.some((role) => ["company_admin", "supervisor", "driver", "iot_operator", "recycling_collector", "recycling_sales"].includes(role)) && !req.auth.organizationId) {
+    if (req.auth.roles.some((role) => ["company_admin", "supervisor", "driver", "iot_operator", "recycling_collector", "recycling_sales", "recycling_field_manager"].includes(role)) && !req.auth.organizationId) {
       return res.status(403).json({
         success: false,
         message: "Your account must be linked to an organization",

@@ -22,9 +22,9 @@ const migrationFiles = [
   "065_recycling_partial_payments.sql",
   "066_recycling_operational_roles.sql",
   "067_recycling_material_catalog.sql",
-  "068_recycling_daily_closures.sql",
-  "069_recycling_field_collection.sql",
-  "070_recycling_material_catalog_source_defaults.sql",
+  "069_recycling_daily_closures.sql",
+  "070_recycling_field_collection.sql",
+  "071_recycling_material_catalog_source_defaults.sql",
 ];
 
 if (!databaseUrl) throw new Error("DATABASE_URL is required");

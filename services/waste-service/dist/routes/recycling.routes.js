@@ -14,7 +14,7 @@ const permission = (code) => (0, organization_permission_middleware_1.requireOrg
 r.get('/recycling', permission('recycling.read'), run(recycling_controller_1.getRecycling));
 r.post('/recycling/lots', permission('recycling.purchase.create'), run(recycling_controller_1.postLot));
 r.post('/recycling/sales', (0, organization_permission_middleware_1.requireAnyOrganizationPermission)('recycling.local_sale.create', 'recycling.industrial_sale.manage'), run(recycling_controller_1.postSale));
-r.post('/recycling/manager-float', permission('recycling.finance.manage'), run(recycling_controller_1.postManagerFloat));
+r.post('/recycling/manager-float', (0, organization_permission_middleware_1.requireAnyOrganizationPermission)('recycling.finance.manage', 'recycling.field_float.manage'), run(recycling_controller_1.postManagerFloat));
 r.post('/recycling/sorting', permission('recycling.inventory.manage'), run(recycling_controller_1.postSorting));
 r.post('/recycling/stock-adjustments', permission('recycling.inventory.manage'), run(recycling_controller_1.postStockAdjustment));
 r.post('/recycling/partners', permission('recycling.industrial_sale.manage'), run(recycling_controller_1.postPartner));

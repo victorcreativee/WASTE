@@ -38,6 +38,7 @@ const weighbridge_routes_1 = __importDefault(require("./routes/weighbridge.route
 const compliance_routes_1 = __importDefault(require("./routes/compliance.routes"));
 const recycling_routes_1 = __importDefault(require("./routes/recycling.routes"));
 const package_access_middleware_1 = require("./middlewares/package-access.middleware");
+const desktop_idempotency_middleware_1 = require("./middlewares/desktop-idempotency.middleware");
 const app = (0, express_1.default)();
 app.use((0, helmet_1.default)());
 app.use((0, cors_1.default)());
@@ -47,6 +48,7 @@ app.use((0, morgan_1.default)("dev"));
 app.use("/api/waste", health_routes_1.default);
 app.use("/api/waste/public", regulatory_public_routes_1.default);
 app.use("/api/waste", auth_middleware_1.requireAuth);
+app.use("/api/waste", desktop_idempotency_middleware_1.desktopIdempotency);
 app.use("/api/waste/trips", (0, package_access_middleware_1.requirePackageFeature)("core_operations"));
 app.use("/api/waste/operations", (0, package_access_middleware_1.requirePackageFeature)("core_operations"));
 app.use("/api/waste/service-areas", (0, package_access_middleware_1.requirePackageFeature)("service_areas"));

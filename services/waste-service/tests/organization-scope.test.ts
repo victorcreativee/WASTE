@@ -22,7 +22,7 @@ for (const role of ["company_admin", "supervisor"]) {
     assert.throws(() => requireOrganizationScope(request(role, null)), { statusCode: 403 });
   });
 }
-for (const role of ["recycling_collector", "recycling_sales"]) {
+for (const role of ["recycling_collector", "recycling_sales", "recycling_field_manager"]) {
   test(`${role} is restricted to its recycling company`, () => {
     assert.equal(requireOrganizationScope(request(role, "recycling-tenant")), "recycling-tenant");
     assert.throws(() => requireOrganizationScope(request(role, null)), { statusCode: 403 });

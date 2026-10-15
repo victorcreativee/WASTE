@@ -243,8 +243,9 @@ export default function RecyclingPage() {
   const [roleSnapshot] = useState<string[]>(() => { if (typeof window === "undefined") return []; try { return JSON.parse(sessionStorage.getItem("currentUser") || "{}").roles || []; } catch { return []; } }),
     collectorMode = roleSnapshot.includes("recycling_collector"),
     salesMode = roleSnapshot.includes("recycling_sales"),
+    fieldManagerMode = roleSnapshot.includes("recycling_field_manager"),
     companyAdminMode = roleSnapshot.includes("company_admin"),
-    workerMode = collectorMode || salesMode,
+    workerMode = collectorMode || salesMode || fieldManagerMode,
     [data, setData] = useState<Data | null>(null),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -262,7 +263,7 @@ export default function RecyclingPage() {
       | "stock"
       | "sales"
       | "float"
-    >(collectorMode ? "purchases" : salesMode ? "sales" : "insights");
+    >(collectorMode ? "purchases" : salesMode ? "sales" : fieldManagerMode ? "purchases" : "insights");
   const selectedSale = data?.sales.find((item) => item.id === selectedSaleId),
     selectedPurchase = data?.lots.find((item) => item.id === selectedPurchaseId),
     selectedSalePayments = data?.salePayments.filter((item) => item.sale_id === selectedSaleId) || [],
@@ -748,14 +749,14 @@ export default function RecyclingPage() {
       ["stock", "Material stock"],
       ["sales", "Industrial sales"],
       ["float", "Finance & accounting"],
-    ] as const).filter(([id]) => !workerMode || (collectorMode ? ["purchases", "sales"].includes(id) : ["partners", "stock", "sales"].includes(id)));
+    ] as const).filter(([id]) => !workerMode || (fieldManagerMode ? ["purchases", "sorting", "stock", "float"].includes(id) : collectorMode ? ["purchases", "sales"].includes(id) : ["partners", "stock", "sales"].includes(id)));
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl">
         <PageHeader
           eyebrow="Recycling company operations"
           title="EcoTrade workspace"
-          description={collectorMode ? "Record material bought each day and any approved sale to a local buyer." : salesMode ? "Manage saleable stock, industrial buyers, dispatches, invoices and payment follow-up." : "Track manager float, purchases, sorting, industrial sales, expenses and profit in one connected workflow."}
+          description={fieldManagerMode ? "Supervise field purchasing, sorting, material stock and daily worker activity." : collectorMode ? "Record material bought each day and any approved sale to a local buyer." : salesMode ? "Manage saleable stock, industrial buyers, dispatches, invoices and payment follow-up." : "Track manager float, purchases, sorting, industrial sales, expenses and profit in one connected workflow."}
           action={
             recycling ? (
               <div className="relative flex gap-2">
@@ -810,7 +811,7 @@ export default function RecyclingPage() {
                         "Add material type",
                         "Extend the company material catalogue",
                       ],
-                    ].filter(([kind]) => !workerMode || (collectorMode ? ["purchase", "sale"].includes(kind) : ["sale", "partner"].includes(kind))).map(([kind, title, description]) => {
+                    ].filter(([kind]) => !workerMode || (fieldManagerMode ? ["purchase", "sorting", "adjustment", "material", "float"].includes(kind) : collectorMode ? ["purchase", "sale"].includes(kind) : ["sale", "partner"].includes(kind))).map(([kind, title, description]) => {
                       const disabled =
                         kind === "sorting"
                           ? !data?.lots.some(
@@ -858,11 +859,11 @@ export default function RecyclingPage() {
           <>
             {workerMode && <section className="mt-7 border-l-2 border-[#3156a3] bg-blue-50 p-5">
               <div className="flex flex-wrap items-end justify-between gap-4">
-                <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">Your responsibility</p><h2 className="mt-1 text-xl font-semibold">{collectorMode ? "Daily collection and purchasing" : "Industrial sales and buyer management"}</h2></div>
+                <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">Your responsibility</p><h2 className="mt-1 text-xl font-semibold">{fieldManagerMode ? "Field operations supervision" : collectorMode ? "Daily collection and purchasing" : "Industrial sales and buyer management"}</h2></div>
                 <label className="text-xs font-semibold text-slate-600">Activity date<input type="date" value={activityDate} max={data.operations.operatingDate} onChange={(event) => setActivityDate(event.target.value)} className="mt-1 block border border-blue-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
               </div>
-              <p className="mt-2 text-sm text-slate-600">{collectorMode ? "Record every material purchase with its real kilograms, material type, supplier, price, and date. The totals below match the selected day and the records shown below." : "Use saleable stock to record industry sales, maintain buyer records, issue traceable invoice details, and follow up outstanding payments."}</p>
-              <div className="mt-5 grid gap-px bg-blue-200 sm:grid-cols-4">{(collectorMode?[["Purchases",selectedActivity.purchases],["Kg bought",`${Number(selectedActivity.purchasedKg).toLocaleString()} kg`],["Local sales",selectedActivity.sales],["Kg sold",`${Number(selectedActivity.soldKg).toLocaleString()} kg`]]:[["Sales",selectedActivity.sales],["Kg dispatched",`${Number(selectedActivity.soldKg).toLocaleString()} kg`],["Sales value",money(selectedActivity.saleValueUgx)],["Selected date",activityDate ? new Date(`${activityDate}T00:00:00`).toLocaleDateString("en-GB") : "—"]]).map(([label,value])=><div key={label} className="bg-white p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 font-semibold">{value}</p></div>)}</div>
+              <p className="mt-2 text-sm text-slate-600">{fieldManagerMode ? "Review the whole field team, record or correct physical material movements, and keep purchasing and stock operations current. Finance, company access and permits remain with the company administrator." : collectorMode ? "Record every material purchase with its real kilograms, material type, supplier, price, and date. The totals below match the selected day and the records shown below." : "Use saleable stock to record industry sales, maintain buyer records, issue traceable invoice details, and follow up outstanding payments."}</p>
+              <div className="mt-5 grid gap-px bg-blue-200 sm:grid-cols-4">{(fieldManagerMode?[["Purchases",selectedActivity.purchases],["Kg received",`${Number(selectedActivity.purchasedKg).toLocaleString()} kg`],["Available stock",`${Number(data.summary.availableKg).toLocaleString()} kg`],["Selected date",activityDate ? new Date(`${activityDate}T00:00:00`).toLocaleDateString("en-GB") : "—"]]:collectorMode?[["Purchases",selectedActivity.purchases],["Kg bought",`${Number(selectedActivity.purchasedKg).toLocaleString()} kg`],["Local sales",selectedActivity.sales],["Kg sold",`${Number(selectedActivity.soldKg).toLocaleString()} kg`]]:[["Sales",selectedActivity.sales],["Kg dispatched",`${Number(selectedActivity.soldKg).toLocaleString()} kg`],["Sales value",money(selectedActivity.saleValueUgx)],["Selected date",activityDate ? new Date(`${activityDate}T00:00:00`).toLocaleDateString("en-GB") : "—"]]).map(([label,value])=><div key={label} className="bg-white p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 font-semibold">{value}</p></div>)}</div>
             </section>}
             {workerMode && data.operations.isClosed && <Feedback tone="warning">Today’s business day is closed. You can review records, but new transactions dated today require a company administrator to reopen the day.</Feedback>}
             <section className={`${workerMode ? "hidden" : "mt-7"} border border-slate-200 bg-slate-50 p-5`}>
@@ -1621,7 +1622,8 @@ export default function RecyclingPage() {
                 />
               ))}
             {tab === "float" && <div className="mt-6 space-y-7">
-              <section>
+              {fieldManagerMode && <section className="border-l-2 border-[#3156a3] bg-blue-50 p-5"><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">Field finance</p><h2 className="mt-1 text-xl font-semibold">Employee float control</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Record money issued for field purchasing and expenses, then compare it with employee purchase records and the remaining float. Company banking, payroll, customer billing and full accounting remain restricted.</p><div className="mt-4 grid gap-px bg-blue-200 sm:grid-cols-2"><div className="bg-white p-4"><p className="text-xs text-slate-500">Current field float</p><p className="mt-1 text-xl font-semibold">{money(data.summary.floatBalanceUgx)}</p></div><div className="bg-white p-4"><p className="text-xs text-slate-500">Purchase spending recorded</p><p className="mt-1 text-xl font-semibold">{money(data.summary.purchaseCostUgx)}</p></div></div></section>}
+              {!fieldManagerMode && <><section>
                 <div className="flex flex-wrap items-end justify-between gap-3">
                   <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">Finance control</p><h2 className="mt-1 text-xl font-semibold">Cash, obligations and profitability</h2><p className="mt-1 max-w-3xl text-sm text-slate-500">Cash answers what can be paid now. Receivables and payables show money still due. Profit uses only the cost of material actually sold; unsold material remains inventory.</p></div>
                   <a href="/dashboard/billing" className="border border-[#3156a3] px-4 py-2.5 text-sm font-semibold text-[#3156a3]">Open full finance controls</a>
@@ -1635,7 +1637,7 @@ export default function RecyclingPage() {
                 <div className="border border-slate-200 bg-white p-5"><h3 className="font-semibold">Trading result</h3><div className="mt-3 divide-y text-sm">{[["Sales revenue",data.summary.revenueUgx],["Cost of material sold",-data.summary.costOfGoodsSoldUgx],["Gross profit",data.summary.grossProfitUgx],["Selling expenses",-data.summary.saleExpensesUgx],["Net trading profit / loss",data.summary.profitLossUgx]].map(([label,value])=><div key={String(label)} className="flex justify-between gap-4 py-3"><span>{label}</span><strong className={Number(value)<0?"text-red-700":""}>{money(Number(value))}</strong></div>)}</div></div>
                 <div className="border border-slate-200 bg-white p-5"><h3 className="font-semibold">Stock accounting</h3><div className="mt-3 divide-y text-sm"><div className="flex justify-between py-3"><span>Material purchased</span><strong>{money(data.summary.purchaseCostUgx)}</strong></div><div className="flex justify-between py-3"><span>Processing cost recorded</span><strong>{money(data.summary.processingCostUgx)}</strong></div><div className="flex justify-between py-3"><span>Unsold inventory value</span><strong>{money(data.summary.inventoryValueUgx)}</strong></div><div className="flex justify-between py-3"><span>Physical stock</span><strong>{data.summary.availableKg.toLocaleString()} kg</strong></div></div><p className="mt-3 text-xs leading-5 text-slate-500">Buying stock reduces cash but does not become a trading loss immediately. Its cost moves to cost of goods sold only when that material is sold.</p></div>
               </section>
-              <section className="border-y border-slate-300 bg-slate-50 p-5"><h3 className="font-semibold">How to record money correctly</h3><div className="mt-4 grid gap-4 text-sm md:grid-cols-4">{[["1. Fund the business","Set the verified opening balance under Finance. Do not use a fake sale to create cash."],["2. Buy material","Choose Paid only when cash actually leaves. Choose Credit when the supplier will be paid later."],["3. Record sales","Record the dispatch first. Mark payment only when the buyer’s money is actually received."],["4. Reconcile daily","Review cash, float, receivables and payables, then close the business day after corrections."]].map(([title,description])=><div key={title}><p className="font-semibold text-[#3156a3]">{title}</p><p className="mt-1 leading-6 text-slate-600">{description}</p></div>)}</div></section>
+              <section className="border-y border-slate-300 bg-slate-50 p-5"><h3 className="font-semibold">How to record money correctly</h3><div className="mt-4 grid gap-4 text-sm md:grid-cols-4">{[["1. Fund the business","Set the verified opening balance under Finance. Do not use a fake sale to create cash."],["2. Buy material","Choose Paid only when cash actually leaves. Choose Credit when the supplier will be paid later."],["3. Record sales","Record the dispatch first. Mark payment only when the buyer’s money is actually received."],["4. Reconcile daily","Review cash, float, receivables and payables, then close the business day after corrections."]].map(([title,description])=><div key={title}><p className="font-semibold text-[#3156a3]">{title}</p><p className="mt-1 leading-6 text-slate-600">{description}</p></div>)}</div></section></>}
               <section><div className="flex items-end justify-between gap-3"><div><h3 className="font-semibold">Manager float ledger</h3><p className="mt-1 text-sm text-slate-500">Money issued to field buyers and the purchasing spend recorded against it.</p></div><button onClick={()=>openForm("float")} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">Record float movement</button></div>
               {data.floatTransactions.length ? (
                 <div className="table-wrap mt-4">

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import Image from "next/image";
 import { AppShell } from "@/components/layout/AppShell";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, queueDesktopOperation } from "@/lib/api";
 import { OrganizationWorkspaceNav } from "@/components/layout/OrganizationWorkspaceNav";
 import {PageHeader} from "@/components/ui/System";
 
@@ -81,7 +82,6 @@ function formatJobDate(value: string) {
     year: "numeric",
   }).format(new Date(value));
 }
-
 function statusClass(status: string) {
   if (status === "completed")
     return "bg-emerald-50 text-emerald-700 border-emerald-200";
@@ -150,6 +150,16 @@ export default function DriverMobilePage() {
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [syncNotice,setSyncNotice]=useState("");
+
+  async function queueIfOffline(failure:unknown,endpoint:string,body:unknown={},method:"POST"|"PATCH"="PATCH"){
+    const unavailable=failure instanceof Error&&failure.message.includes("temporarily unavailable");
+    const desktop=await window.kwmsDesktop?.getState();
+    const user=JSON.parse(sessionStorage.getItem("currentUser")||"{}");
+    if(!unavailable||!desktop||!user.id||!user.organizationId)throw failure;
+    await queueDesktopOperation({endpoint,method,body,organizationId:user.organizationId,userId:user.id});
+    setSyncNotice("Saved securely on this computer. Dispatch will receive this update after synchronization.");
+  }
 
   const selectedDriver = useMemo(() => {
     return drivers.find((driver) => driver.id === selectedDriverId);
@@ -258,6 +268,10 @@ export default function DriverMobilePage() {
   async function loadRouteDetails(routeId: string) {
     const response = await apiRequest<ApiResponse<RouteDetails>>(`/api/waste/driver-routes/${routeId}`);
     setSelectedRoute(response.data);
+    try {
+      const user=JSON.parse(sessionStorage.getItem("currentUser")||"{}");
+      if(user.id&&user.organizationId)void window.kwmsDesktop?.setSnapshot({key:"driver-route",organizationId:user.organizationId,userId:user.id,data:response.data}).catch(()=>undefined);
+    } catch {/* The live route remains usable when desktop caching is unavailable. */}
     if (!isDriverAccount) requestAnimationFrame(() => tripDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
 
@@ -267,7 +281,10 @@ export default function DriverMobilePage() {
       await apiRequest(`/api/waste/driver-routes/${routeId}/start`, { method: "PATCH" });
       await loadRoutes(selectedDriverId);
       await loadDriverDashboard();
-    } catch (routeError) { setError(routeError instanceof Error ? routeError.message : "Failed to start route"); }
+    } catch (routeError) {
+      try{await queueIfOffline(routeError,`/api/waste/driver-routes/${routeId}/start`);setSelectedRoute(current=>current&&current.id===routeId?{...current,status:"in_progress"}:current);}
+      catch(failure){setError(failure instanceof Error ? failure.message : "Failed to start route");}
+    }
     finally { setSaving(false); }
   }
 
@@ -287,7 +304,10 @@ export default function DriverMobilePage() {
       setSaving(true); setError("");
       await apiRequest(`/api/waste/driver-route-stops/${stopId}/arrive`, { method: "PATCH" });
       if (selectedRoute) await loadRouteDetails(selectedRoute.id);
-    } catch (stopError) { setError(stopError instanceof Error ? stopError.message : "Failed to record arrival"); }
+    } catch (stopError) {
+      try{await queueIfOffline(stopError,`/api/waste/driver-route-stops/${stopId}/arrive`);setSelectedRoute(current=>current?{...current,stops:current.stops.map(stop=>stop.id===stopId?{...stop,status:"arrived"}:stop)}:current);}
+      catch(failure){setError(failure instanceof Error ? failure.message : "Failed to record arrival");}
+    }
     finally { setSaving(false); }
   }
 
@@ -321,7 +341,15 @@ export default function DriverMobilePage() {
       if(action==='complete'){setProofTarget(null);setProofWeight('');setProofNotes('');setProofPhoto('');setProofLocation('');}
       if (selectedRoute) await loadRouteDetails(selectedRoute.id);
       await loadDriverDashboard();
-    } catch (stopError) { setError(stopError instanceof Error ? stopError.message : "Failed to update household stop"); }
+    } catch (stopError) {
+      try{
+        const body={action,...details};
+        await queueIfOffline(stopError,`/api/waste/customer-collection-stops/${stopId}`,body);
+        setSelectedRoute(current=>current?{...current,stops:current.stops.map(stop=>({...stop,customer_stops:stop.customer_stops.map(customer=>customer.id===stopId?{...customer,status:action==='complete'?'completed':action==='skip'?'skipped':'arrived',completed_at:action==='complete'?new Date().toISOString():customer.completed_at,collected_weight_kg:action==='complete'&&details.collectedWeightKg!==undefined?String(details.collectedWeightKg):customer.collected_weight_kg,completion_notes:action==='complete'?String(details.notes||'')||null:customer.completion_notes,exception_reason:action==='skip'?String(details.exceptionReason||'other'):customer.exception_reason,exception_notes:action==='skip'?String(details.exceptionNotes||'')||null:customer.exception_notes}:customer)}))}:current);
+        if(action==='skip'){setSkipTarget(null);setSkipReason('blocked_access');setSkipNotes('');}
+        if(action==='complete'){setProofTarget(null);setProofWeight('');setProofNotes('');setProofPhoto('');setProofLocation('');}
+      }catch(failure){setError(failure instanceof Error ? failure.message : "Failed to update household stop");}
+    }
     finally { setSaving(false); }
   }
 
@@ -354,23 +382,12 @@ export default function DriverMobilePage() {
       }));
       await loadProblems();
     } catch (reportError) {
-      setError(reportError instanceof Error ? reportError.message : "Failed to report problem");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function updateProblem(problemId: string, status: "acknowledged" | "resolved") {
-    try {
-      setSaving(true);
-      setError("");
-      await apiRequest(`/api/waste/driver-job-problems/${problemId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
-      await loadProblems();
-    } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : "Failed to update problem");
+      try{
+        await queueIfOffline(reportError,`/api/waste/driver-jobs/${jobId}/problems`,draft,"POST");
+        const job=jobs.find(item=>item.id===jobId);
+        setProblems(current=>[{id:`offline-${Date.now()}`,job_id:jobId,category:draft.category,description:draft.description,status:"pending_sync",zone_name:job?.zone_name||null,driver_name:job?.driver_name||"Signed-in driver",plate_number:job?.plate_number||null},...current]);
+        setProblemDrafts(current=>({...current,[jobId]:{category:"blocked_access",description:""}}));
+      }catch(failure){setError(failure instanceof Error ? failure.message : "Failed to report problem");}
     } finally {
       setSaving(false);
     }
@@ -423,7 +440,6 @@ export default function DriverMobilePage() {
         )
         .finally(() => setLoadingDrivers(false));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storedRole]);
 
   function selectDriver(driverId: string) {
@@ -449,6 +465,7 @@ export default function DriverMobilePage() {
             {error}
           </div>
         )}
+        {syncNotice&&<div className="mt-6 flex items-start justify-between gap-4 border-l-4 border-amber-500 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-900"><span>{syncNotice}</span><button type="button" onClick={()=>setSyncNotice("")} className="shrink-0">Dismiss</button></div>}
 
         {isDriverAccount&&driverDashboard&&<DriverOverview data={driverDashboard}/>}
 
@@ -702,7 +719,7 @@ export default function DriverMobilePage() {
             {error&&<p role="alert" className="mt-4 border-l-2 border-red-600 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800">{error}</p>}
             <label className="mt-5 block text-sm font-semibold">Collected weight (kg) <span className="font-normal text-slate-400">(optional)</span><input type="number" min="0" step="0.01" value={proofWeight} onChange={event=>setProofWeight(event.target.value)} className="mt-2 w-full border border-slate-300 px-3 py-3 font-normal"/></label>
             <label className="mt-4 block text-sm font-semibold">Collection photo <span className="font-normal text-slate-400">(optional, maximum 2 MB)</span><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={event=>readProofPhoto(event.target.files?.[0])} className="mt-2 w-full border border-slate-300 px-3 py-3 font-normal"/></label>
-            {proofPhoto&&<img src={proofPhoto} alt="Collection proof preview" className="mt-3 max-h-44 w-full object-contain"/>}
+            {proofPhoto&&<Image src={proofPhoto} alt="Collection proof preview" width={800} height={440} unoptimized className="mt-3 max-h-44 w-full object-contain"/>}
             <div className="mt-4 border-l-2 border-[#3156a3] pl-3"><p className="text-xs font-semibold text-slate-500">Collection location</p><p className="mt-1 text-sm text-slate-700">{proofLocation||"Not captured"}</p></div>
             <label className="mt-4 block text-sm font-semibold">Driver note <span className="font-normal text-slate-400">(optional)</span><textarea value={proofNotes} onChange={event=>setProofNotes(event.target.value)} rows={3} maxLength={700} className="mt-2 w-full resize-none border border-slate-300 px-3 py-3 font-normal" placeholder="Container condition, waste type, or customer instruction"/></label>
             <div className="mt-6 flex justify-end gap-3 border-t border-slate-200 pt-4"><button type="button" disabled={saving} onClick={()=>{setProofTarget(null);setError("");}} className="border border-slate-300 px-4 py-2.5 text-sm font-semibold disabled:opacity-50">Go back</button><button disabled={saving} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving?'Saving collection…':'Confirm collected'}</button></div>
@@ -764,17 +781,5 @@ function ManagementTrips({trips,drivers,onOpen}:{trips:ManagementTrip[];drivers:
       <div className="table-toolbar"><input value={query} onChange={event=>setQuery(event.target.value)} className="table-search" placeholder="Search trip, route, driver or vehicle"/><select value={status} onChange={event=>setStatus(event.target.value)} className="border px-3 py-2 text-sm"><option value="all">All statuses</option><option value="dispatched">Not started</option><option value="in_progress">In progress</option><option value="completed">Completed</option></select><span className="table-count">{filtered.length} results</span></div>
       {filtered.length?<div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-left"><thead><tr><th>Trip / route</th><th>Driver</th><th>Vehicle</th><th>Supervisor</th><th>Customers</th><th>Progress</th><th>Status</th><th>Action</th></tr></thead><tbody>{filtered.map(trip=>{const resolved=trip.collected_count+trip.not_collected_count;return <tr key={trip.id}><td><p className="table-primary">{trip.route_name}</p><p className="table-secondary">{trip.division_name} · {trip.zone_name} · {trip.trip_number}</p></td><td>{trip.driver_name||"Not assigned"}</td><td>{trip.plate_number||"Not assigned"}</td><td>{trip.supervisor_name||"Not assigned"}</td><td>{trip.customer_count}</td><td><p className="font-semibold">{resolved} / {trip.customer_count}</p><p className="table-secondary">{trip.collected_count} collected · {trip.not_collected_count} not collected</p></td><td><StatusText value={trip.status}/></td><td><button onClick={()=>void onOpen(trip.id)} className="font-semibold text-[#3156a3]">View details ↓</button></td></tr>})}</tbody></table></div>:<div className="py-10 text-center"><p className="font-semibold">No trips match this view</p><p className="mt-1 text-sm text-slate-500">Create a trip from Today’s Operations or change the filters.</p></div>}
     </section>
-  </>;
-}
-
-function LegacyManagementTrips({trips,drivers,onOpen}:{trips:ManagementTrip[];drivers:Driver[];onOpen:(id:string)=>Promise<void>}){
-  const [query,setQuery]=useState(""),[status,setStatus]=useState("all");
-  const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Kampala",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
-  const todayTrips=trips.filter(trip=>trip.route_date.slice(0,10)===today);
-  const filtered=todayTrips.filter(trip=>(status==="all"||trip.status===status)&&`${trip.trip_number} ${trip.route_name} ${trip.driver_name} ${trip.plate_number} ${trip.zone_name}`.toLowerCase().includes(query.toLowerCase()));
-  const active=todayTrips.filter(trip=>trip.status==="in_progress").length,waiting=todayTrips.filter(trip=>["planned","dispatched"].includes(trip.status)).length,completed=todayTrips.filter(trip=>trip.status==="completed").length,openProblems=todayTrips.reduce((sum,trip)=>sum+trip.not_collected_count,0);
-  return <>
-    <section className="mt-7 grid border-y border-slate-300 sm:grid-cols-3 lg:grid-cols-6">{[["Trips today",todayTrips.length],["In progress",active],["Completed",completed],["Not started",waiting],["Available drivers",drivers.filter(driver=>driver.status==="available").length],["Not collected",openProblems]].map(([label,value])=><div key={String(label)} className="border-b border-slate-200 py-4 pr-4 sm:border-r lg:border-b-0"><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p></div>)}</section>
-    <section className="mt-9 border-y border-slate-300"><div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 py-4"><div><h2 className="text-xl font-semibold">Today’s driver assignments</h2><p className="mt-1 text-sm text-slate-500">One row per trip. Open it to inspect the route and customer outcomes.</p></div><a href="/dashboard/waste" className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">+ Create trip</a></div><div className="table-toolbar"><input value={query} onChange={event=>setQuery(event.target.value)} className="table-search" placeholder="Search trip, route, driver or vehicle"/><select value={status} onChange={event=>setStatus(event.target.value)} className="border px-3 py-2 text-sm"><option value="all">All statuses</option><option value="dispatched">Not started</option><option value="in_progress">In progress</option><option value="completed">Completed</option></select><span className="table-count">{filtered.length} results</span></div>{filtered.length?<div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-left"><thead><tr><th>Trip / route</th><th>Driver</th><th>Vehicle</th><th>Supervisor</th><th>Customers</th><th>Progress</th><th>Status</th><th>Action</th></tr></thead><tbody>{filtered.map(trip=>{const resolved=trip.collected_count+trip.not_collected_count;return <tr key={trip.id}><td><p className="table-primary">{trip.route_name}</p><p className="table-secondary">{trip.division_name} · {trip.zone_name} · {trip.trip_number}</p></td><td>{trip.driver_name||"Not assigned"}</td><td>{trip.plate_number||"Not assigned"}</td><td>{trip.supervisor_name||"Not assigned"}</td><td>{trip.customer_count}</td><td><p className="font-semibold">{resolved} / {trip.customer_count}</p><p className="table-secondary">{trip.collected_count} collected · {trip.not_collected_count} not collected</p></td><td><StatusText value={trip.status}/></td><td><a href={`/dashboard/driver-mobile?route=${trip.id}`} className="font-semibold text-[#3156a3]">Open trip →</a></td></tr>})}</tbody></table></div>:<div className="py-10 text-center"><p className="font-semibold">No trips match this view</p><p className="mt-1 text-sm text-slate-500">Create today’s first trip or change the search and status filter.</p></div>}</section>
   </>;
 }

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-const migration=fs.readFileSync(path.resolve(__dirname,"../../../infrastructure/database/080_customer_contract_workflow.sql"),"utf8");
+const migration=fs.readFileSync(path.resolve(__dirname,"../../../infrastructure/database/081_customer_contract_workflow.sql"),"utf8");
 const repository=fs.readFileSync(path.resolve(__dirname,"../src/repositories/contract.repository.ts"),"utf8");
 const validator=fs.readFileSync(path.resolve(__dirname,"../src/validators/contract.validator.ts"),"utf8");
 

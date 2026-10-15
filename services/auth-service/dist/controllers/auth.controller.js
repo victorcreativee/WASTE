@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.register = register;
+exports.refresh = refresh;
 exports.registerApplicant = registerApplicant;
 exports.login = login;
 exports.me = me;
@@ -22,6 +23,18 @@ async function register(req, res) {
             success: false,
             message: error instanceof Error ? error.message : "Registration failed",
         });
+    }
+}
+async function refresh(req, res) {
+    try {
+        const token = typeof req.body?.refreshToken === "string" ? req.body.refreshToken : "";
+        if (!token)
+            return res.status(400).json({ success: false, message: "Refresh token is required" });
+        const result = await (0, auth_service_1.refreshUserSession)(token);
+        return res.status(200).json({ success: true, message: "Session refreshed", data: result });
+    }
+    catch (error) {
+        return res.status(error.statusCode || 401).json({ success: false, message: error instanceof Error ? error.message : "Session refresh failed" });
     }
 }
 async function registerApplicant(req, res) {

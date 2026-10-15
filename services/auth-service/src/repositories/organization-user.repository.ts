@@ -20,7 +20,7 @@ export async function findOrganizationUsers(organizationId: string) {
      LEFT JOIN supervisor_drivers sd ON sd.supervisor_user_id = u.id
      WHERE u.organization_id = $1::uuid
        AND EXISTS (SELECT 1 FROM user_roles staff_ur JOIN roles staff_role ON staff_role.id=staff_ur.role_id
-         WHERE staff_ur.user_id=u.id AND staff_role.name IN ('company_admin','supervisor','driver','iot_operator','recycling_collector','recycling_sales'))
+         WHERE staff_ur.user_id=u.id AND staff_role.name IN ('company_admin','supervisor','driver','iot_operator','recycling_collector','recycling_sales','recycling_field_manager'))
        AND NOT EXISTS (
          SELECT 1 FROM user_roles customer_ur
          JOIN roles customer_role ON customer_role.id = customer_ur.role_id
@@ -91,7 +91,7 @@ export async function createOrganizationStaffRecord(
     email: string;
     phone?: string;
     passwordHash: string;
-    role: "supervisor" | "driver" | "recycling_collector" | "recycling_sales";
+    role: "supervisor" | "driver" | "recycling_collector" | "recycling_sales" | "recycling_field_manager";
     licenseNumber?: string;
   }
 ) {

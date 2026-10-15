@@ -12,3 +12,7 @@ export function signRefreshToken(payload: object) {
     expiresIn: env.jwtRefreshExpiresIn,
   });
 }
+
+export function verifyRefreshToken(token:string){
+  return jwt.verify(token,env.jwtRefreshSecret) as{userId:string};
+}

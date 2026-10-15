@@ -96,17 +96,37 @@ export default function DashboardPage() {
           return;
         }
 
-        const [meResult, organizationsResult, summaryResult] = await Promise.allSettled([
-          apiRequest<MeResponse>("/api/auth/me", {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
+        const meResult = await apiRequest<MeResponse>("/api/auth/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setUser(meResult.data);
+
+        const roleNames = meResult.data.roles.map((role) => role.name);
+        const scopedDestination = roleNames.some((role) => ["recycling_collector", "recycling_sales", "recycling_field_manager"].includes(role))
+          ? "/dashboard/recycling"
+          : roleNames.includes("driver")
+            ? "/dashboard/driver-mobile"
+            : roleNames.includes("supervisor")
+              ? "/dashboard/waste"
+              : roleNames.includes("company_admin")
+                ? "/dashboard/company"
+                : roleNames.includes("weighbridge_operator")
+                  ? "/dashboard/weighbridge/operations"
+                  : roleNames.includes("citizen")
+                    ? "/dashboard/citizen-issues"
+                    : roleNames.includes("organization_applicant")
+                      ? "/onboarding"
+                      : "";
+
+        if (scopedDestination) {
+          window.location.replace(scopedDestination);
+          return;
+        }
+
+        const [organizationsResult, summaryResult] = await Promise.allSettled([
           apiRequest<OrganizationsResponse>("/api/organizations"),
           apiRequest<SummaryResponse>("/api/waste/command-center/summary"),
         ]);
-
-        if (meResult.status === "fulfilled") {
-          setUser(meResult.value.data);
-        }
 
         if (organizationsResult.status === "fulfilled") {
           setOrganizations(organizationsResult.value.data);
@@ -116,6 +136,13 @@ export default function DashboardPage() {
         if (summaryResult.status === "fulfilled") {
           setSummary(summaryResult.value.data);
           setSummaryLoaded(true);
+        }
+
+        const desktopUser=JSON.parse(sessionStorage.getItem("currentUser")||"{}");
+        if(desktopUser.id){
+          const dashboardOrganizations=organizationsResult.status==="fulfilled"?organizationsResult.value.data:[];
+          const dashboardSummary=summaryResult.status==="fulfilled"?summaryResult.value.data:EMPTY_SUMMARY;
+          void window.kwmsDesktop?.setSnapshot({key:"platform-dashboard",organizationId:desktopUser.organizationId||"platform",userId:desktopUser.id,data:{user:meResult.data,organizations:dashboardOrganizations,summary:dashboardSummary}}).catch(()=>undefined);
         }
 
         const failedSections = [

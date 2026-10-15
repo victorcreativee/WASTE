@@ -7,7 +7,7 @@ const permission=(code:string)=>requireOrganizationPermission(code);
 r.get('/recycling',permission('recycling.read'),run(getRecycling));
 r.post('/recycling/lots',permission('recycling.purchase.create'),run(postLot));
 r.post('/recycling/sales',requireAnyOrganizationPermission('recycling.local_sale.create','recycling.industrial_sale.manage'),run(postSale));
-r.post('/recycling/manager-float',permission('recycling.finance.manage'),run(postManagerFloat));
+r.post('/recycling/manager-float',requireAnyOrganizationPermission('recycling.finance.manage','recycling.field_float.manage'),run(postManagerFloat));
 r.post('/recycling/sorting',permission('recycling.inventory.manage'),run(postSorting));
 r.post('/recycling/stock-adjustments',permission('recycling.inventory.manage'),run(postStockAdjustment));
 r.post('/recycling/partners',permission('recycling.industrial_sale.manage'),run(postPartner));

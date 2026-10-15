@@ -8,7 +8,7 @@ import {
   updateLastLogin,
 } from "../repositories/auth.repository";
 import type { OrganizationApplicantRegisterInput } from "../validators/auth.validator";
-import { signAccessToken, signRefreshToken } from "../utils/jwt";
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/jwt";
 import {
   assignRoleToUser,
   findRoleByName,
@@ -157,4 +157,11 @@ export async function getCurrentUser(userId: string) {
     roles,
     permissions,
   };
+}
+
+export async function refreshUserSession(refreshToken:string){
+  let payload:{userId:string};
+  try{payload=verifyRefreshToken(refreshToken)}catch{const error=new Error("Refresh token is invalid or expired");(error as any).statusCode=401;throw error}
+  const current=await getCurrentUser(payload.userId),roles=current.roles;
+  return{...current,tokens:{accessToken:signAccessToken({userId:current.user.id,email:current.user.email,organizationId:current.user.organizationId,roles:roles.map(role=>role.name)}),refreshToken:signRefreshToken({userId:current.user.id})}};
 }

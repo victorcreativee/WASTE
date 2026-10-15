@@ -5,6 +5,7 @@ import {
   registerUser,
   getCurrentUser,
   registerOrganizationApplicant,
+  refreshUserSession,
 } from "../services/auth.service";
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 
@@ -26,6 +27,9 @@ export async function register(req: Request, res: Response) {
       message: error instanceof Error ? error.message : "Registration failed",
     });
   }
+}
+export async function refresh(req:Request,res:Response){
+  try{const token=typeof req.body?.refreshToken==="string"?req.body.refreshToken:"";if(!token)return res.status(400).json({success:false,message:"Refresh token is required"});const result=await refreshUserSession(token);return res.status(200).json({success:true,message:"Session refreshed",data:result})}catch(error){return res.status((error as any).statusCode||401).json({success:false,message:error instanceof Error?error.message:"Session refresh failed"})}
 }
 
 export async function registerApplicant(req:Request,res:Response){

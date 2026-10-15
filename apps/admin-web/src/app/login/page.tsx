@@ -29,7 +29,18 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  useEffect(()=>{apiRequest<{data:{setupRequired:boolean}}>("/api/auth/system-bootstrap/status").then(r=>setSetupRequired(r.data.setupRequired)).catch(()=>undefined);},[]);
+  useEffect(()=>{
+    apiRequest<{data:{setupRequired:boolean}}>("/api/auth/system-bootstrap/status").then(r=>setSetupRequired(r.data.setupRequired)).catch(()=>undefined);
+    const desktop=window.kwmsDesktop as (typeof window.kwmsDesktop&{resumeSavedAuth?:()=>Promise<{session:{user:LoginResponse["data"]["user"];roles:string[]};online:boolean;tokens?:LoginResponse["data"]["tokens"]}|null>});
+    void desktop?.resumeSavedAuth?.().then(saved=>{
+      if(!saved?.online||!saved.tokens)return;
+      sessionStorage.setItem("accessToken",saved.tokens.accessToken);
+      sessionStorage.setItem("refreshToken",saved.tokens.refreshToken);
+      sessionStorage.setItem("currentUser",JSON.stringify({...saved.session.user,roles:saved.session.roles}));
+      const roles=saved.session.roles;
+      window.location.href=roles.includes("weighbridge_operator")?"/dashboard/weighbridge/operations":roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":roles.includes("driver")?"/dashboard/driver-mobile":roles.includes("citizen")?"/dashboard/citizen-issues":roles.includes("organization_applicant")?"/onboarding":roles.includes("company_admin")?"/dashboard/company":"/dashboard";
+    }).catch(()=>undefined);
+  },[]);
 
   async function handleLogin(event: React.FormEvent) {
     event.preventDefault();
@@ -37,6 +48,22 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      if(window.kwmsDesktop){
+        const desktop=window.kwmsDesktop as typeof window.kwmsDesktop&{centralLogin:(email:string,password:string)=>Promise<unknown>};
+        try{
+          await desktop.centralLogin(email.trim().toLowerCase(),password);
+          return;
+        }catch(desktopError){
+          const message=desktopError instanceof Error?desktopError.message:String(desktopError||"");
+          if(!/fetch|network|timeout|timed out|offline|unavailable|connect/i.test(message))throw desktopError;
+          const session=await desktop.offlineLogin(email.trim().toLowerCase(),password);
+          sessionStorage.setItem("accessToken","offline-local-session");
+          sessionStorage.removeItem("refreshToken");
+          sessionStorage.setItem("currentUser",JSON.stringify({...session.user,roles:session.roles,offline:true}));
+          window.location.href=session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":session.roles.includes("company_admin")?"/dashboard/company":"/dashboard";
+          return;
+        }
+      }
       const response = await apiRequest<LoginResponse>("/api/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password }),
@@ -47,6 +74,7 @@ export default function LoginPage() {
       sessionStorage.setItem(
         "currentUser",
         JSON.stringify({
+          id: response.data.user.id,
           fullName: response.data.user.fullName,
           email: response.data.user.email,
           organizationId: response.data.user.organizationId,
@@ -56,7 +84,6 @@ export default function LoginPage() {
       localStorage.removeItem("accessToken");
       localStorage.removeItem("refreshToken");
       localStorage.removeItem("currentUser");
-
       const isDriver = response.data.roles.some((role) => role.name === "driver");
       const isCitizen = response.data.roles.some((role) => role.name === "citizen");
       const isCompany = response.data.roles.some((role) => role.name === "company_admin");
@@ -68,7 +95,7 @@ export default function LoginPage() {
       if(isCompany){
         try{const context=await apiRequest<{data:{organization:{type:string}}}>("/api/waste/recycling");isRecyclingCompany=context.data.organization.type==="recycling_company";}catch{}
       }
-      window.location.href = isWeighbridgeWorker
+      const destination = isWeighbridgeWorker
         ? "/dashboard/weighbridge/operations"
         : isRecyclingCollector || isRecyclingWorker
         ? "/dashboard/recycling"
@@ -81,8 +108,19 @@ export default function LoginPage() {
         : isCompany
         ? isRecyclingCompany?"/dashboard/recycling":"/dashboard/company"
         : "/dashboard";
+      window.location.href=destination;
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Login failed");
+      const message=error instanceof Error?error.message:"Login failed";
+      if(window.kwmsDesktop&&message.includes("temporarily unavailable")){
+        try{
+          const session=await window.kwmsDesktop.offlineLogin(email,password);
+          sessionStorage.setItem("accessToken","offline-local-session");
+          sessionStorage.removeItem("refreshToken");
+          sessionStorage.setItem("currentUser",JSON.stringify({...session.user,roles:session.roles,offline:true}));
+          window.location.href=session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":"/dashboard";
+          return;
+        }catch(offlineError){setError(offlineError instanceof Error?offlineError.message:"Offline sign-in failed");}
+      }else setError(message);
     } finally {
       setLoading(false);
     }
@@ -206,7 +244,7 @@ export default function LoginPage() {
               </div>
             </label>
 
-            <p className="text-sm text-slate-500">This sign-in is kept in this browser tab, so another role can be tested in a separate tab.</p>
+            <p className="text-sm text-slate-500">In the installed desktop application, your first sign-in requires internet. After verification, the same credentials can securely unlock approved offline work on this device.</p>
 
             <button
               type="submit"

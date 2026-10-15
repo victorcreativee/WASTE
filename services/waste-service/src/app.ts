@@ -34,6 +34,7 @@ import weighbridgeRoutes from "./routes/weighbridge.routes";
 import complianceRoutes from "./routes/compliance.routes";
 import recyclingRoutes from "./routes/recycling.routes";
 import { requirePackageFeature } from "./middlewares/package-access.middleware";
+import { desktopIdempotency } from "./middlewares/desktop-idempotency.middleware";
 
 const app = express();
 
@@ -46,6 +47,7 @@ app.use(morgan("dev"));
 app.use("/api/waste", healthRoutes);
 app.use("/api/waste/public", regulatoryPublicRoutes);
 app.use("/api/waste", requireAuth);
+app.use("/api/waste", desktopIdempotency);
 app.use("/api/waste/trips",requirePackageFeature("core_operations"));
 app.use("/api/waste/operations",requirePackageFeature("core_operations"));
 app.use("/api/waste/service-areas",requirePackageFeature("service_areas"));

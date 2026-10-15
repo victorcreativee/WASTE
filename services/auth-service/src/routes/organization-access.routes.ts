@@ -8,7 +8,19 @@ import { dbPool } from "../config/database";
 const router=Router();
 const query=z.object({page:z.coerce.number().int().min(1).max(100000).default(1),pageSize:z.coerce.number().int().min(1).max(50).default(10),search:z.string().trim().max(150).default("")});
 const run=(fn:(req:AuthenticatedRequest,res:Response)=>Promise<unknown>)=>async(req:AuthenticatedRequest,res:Response,next:NextFunction)=>{try{await fn(req,res);}catch(e){next(e);}};
-router.use("/organization-access",requireAuth,requireRoles("company_admin","supervisor","driver","iot_operator"));
+router.use(
+  "/organization-access",
+  requireAuth,
+  requireRoles(
+    "company_admin",
+    "supervisor",
+    "driver",
+    "iot_operator",
+    "recycling_collector",
+    "recycling_sales",
+    "recycling_field_manager",
+  ),
+);
 router.get("/organization-access/me",run(async(req,res)=>{
   const result=await dbPool.query("SELECT code FROM organization_effective_permissions($1::uuid,$2::uuid)",[req.user!.userId,req.user!.organizationId]);
   const admin=await dbPool.query("SELECT 1 FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=$1::uuid AND r.name='company_admin'",[req.user!.userId]);

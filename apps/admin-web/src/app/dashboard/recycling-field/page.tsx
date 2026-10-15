@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { EmptyState, Feedback } from "@/components/ui/System";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, queueDesktopOperation } from "@/lib/api";
 
 type Material = { id: string; name: string; active: boolean };
 type Partner = {
@@ -60,9 +60,12 @@ export default function RecyclingFieldPage() {
   async function load() {
     try {
       setError("");
-      setData(
-        (await apiRequest<{ data: Workspace }>("/api/waste/recycling")).data,
-      );
+      const workspace=(await apiRequest<{ data: Workspace }>("/api/waste/recycling")).data;
+      setData(workspace);
+      try {
+        const user=JSON.parse(sessionStorage.getItem("currentUser")||"{}");
+        if(user.id&&user.organizationId)void window.kwmsDesktop?.setSnapshot({key:"recycling-field",organizationId:user.organizationId,userId:user.id,data:workspace}).catch(()=>undefined);
+      } catch {/* The live workspace remains usable when desktop caching is unavailable. */}
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Could not load field workspace",
@@ -70,7 +73,8 @@ export default function RecyclingFieldPage() {
     }
   }
   useEffect(() => {
-    void load();
+    const timer=window.setTimeout(()=>void load(),0);
+    return()=>window.clearTimeout(timer);
   }, []);
   const ownToday = useMemo(
     () =>
@@ -121,9 +125,7 @@ export default function RecyclingFieldPage() {
     try {
       setSaving(true);
       setError("");
-      await apiRequest("/api/waste/recycling/lots", {
-        method: "POST",
-        body: JSON.stringify({
+      const payload = {
           materialType,
           allowNewMaterial: Boolean(customMaterial),
           supplierPartnerId: f.get("supplierPartnerId") || undefined,
@@ -133,8 +135,7 @@ export default function RecyclingFieldPage() {
           collectedOn: f.get("collectedOn"),
           quality: f.get("quality"),
           purchasePaymentStatus: f.get("purchasePaymentStatus"),
-          purchasePaymentReference:
-            f.get("purchasePaymentReference") || undefined,
+          purchasePaymentReference: f.get("purchasePaymentReference") || undefined,
           workerWagesUgx: 0,
           foodUgx: 0,
           transportUgx: Number(f.get("transportUgx") || 0),
@@ -145,7 +146,10 @@ export default function RecyclingFieldPage() {
           collectionLongitude: location?.longitude,
           collectionAccuracyM: location?.accuracy,
           notes: f.get("notes") || undefined,
-        }),
+        };
+      await apiRequest("/api/waste/recycling/lots", {
+        method: "POST",
+        body: JSON.stringify(payload),
       });
       el.reset();
       setQuantity(0);
@@ -155,7 +159,18 @@ export default function RecyclingFieldPage() {
       setView("today");
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save purchase");
+      try {
+        const state=await window.kwmsDesktop?.getState();
+        const user=JSON.parse(sessionStorage.getItem("currentUser")||"{}");
+        const unavailable=e instanceof Error&&e.message.includes("temporarily unavailable");
+        if(!state||!unavailable||!user.id||!user.organizationId)throw e;
+        const f=new FormData(el),customMaterial=String(f.get("customMaterialType")||"").trim();
+        const payload={materialType:customMaterial||String(f.get("materialType")||"").trim(),allowNewMaterial:Boolean(customMaterial),supplierPartnerId:f.get("supplierPartnerId")||undefined,sourceName:f.get("sourceName"),quantityKg:Number(f.get("quantityKg")),unitPurchasePriceUgx:Number(f.get("unitPurchasePriceUgx")),collectedOn:f.get("collectedOn"),quality:f.get("quality"),purchasePaymentStatus:f.get("purchasePaymentStatus"),purchasePaymentReference:f.get("purchasePaymentReference")||undefined,workerWagesUgx:0,foodUgx:0,transportUgx:Number(f.get("transportUgx")||0),driverFeeUgx:0,otherExpenseUgx:0,managerFloatUsedUgx:Number(f.get("managerFloatUsedUgx")||0),collectionLatitude:location?.latitude,collectionLongitude:location?.longitude,collectionAccuracyM:location?.accuracy,notes:f.get("notes")||undefined};
+        await queueDesktopOperation({endpoint:"/api/waste/recycling/lots",method:"POST",body:payload,organizationId:user.organizationId,userId:user.id});
+        el.reset();setQuantity(0);setUnitPrice(0);setLocation(null);setNotice("Purchase saved securely on this computer. It will update company stock after synchronization.");setView("today");
+      } catch (offlineError) {
+        setError(offlineError instanceof Error ? offlineError.message : "Could not save purchase");
+      }
     } finally {
       setSaving(false);
     }

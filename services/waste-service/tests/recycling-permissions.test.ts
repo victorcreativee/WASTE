@@ -4,7 +4,11 @@ import path from "node:path";
 import test from "node:test";
 
 const migration = fs.readFileSync(
-  path.resolve(__dirname, "../../../infrastructure/database/073_recycling_permissions.sql"),
+  path.resolve(__dirname, "../../../infrastructure/database/074_recycling_permissions.sql"),
+  "utf8"
+);
+const fieldFloatMigration = fs.readFileSync(
+  path.resolve(__dirname, "../../../infrastructure/database/086_recycling_field_float.sql"),
   "utf8"
 );
 const routes = fs.readFileSync(
@@ -24,13 +28,15 @@ const permissions = [
 
 test("recycling permissions are catalogued and tenant restricted", () => {
   for (const permission of permissions) assert.match(migration, new RegExp(permission.replace(".", "\\.")));
+  assert.match(fieldFloatMigration, /recycling\.field_float\.manage/);
   assert.match(migration, /organization\.type='recycling_company'/);
   assert.match(migration, /module <> 'recycling' OR org_type='recycling_company'/);
 });
 
 test("every recycling route is guarded by an organization permission", () => {
   assert.doesNotMatch(routes, /const manage=requireRoles/);
-  assert.equal((routes.match(/permission\('recycling\./g) || []).length, 16);
+  assert.equal((routes.match(/permission\('recycling\./g) || []).length, 15);
   assert.match(routes, /requireAnyOrganizationPermission\('recycling\.local_sale\.create','recycling\.industrial_sale\.manage'\)/);
+  assert.match(routes, /requireAnyOrganizationPermission\('recycling\.finance\.manage','recycling\.field_float\.manage'\)/);
   assert.match(routes, /requireRoles\('company_admin'\),permission\('recycling\.daily_close\.manage'\)/);
 });

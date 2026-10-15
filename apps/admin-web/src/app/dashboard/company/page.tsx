@@ -18,7 +18,12 @@ export default function CompanyDashboard(){
  useEffect(()=>{Promise.all([
   apiRequest<Response<Organization[]>>("/api/organizations"),apiRequest<Response<Summary>>("/api/waste/command-center/summary"),
   apiRequest<Response<Billing>>("/api/waste/billing/overview"),apiRequest<Response<Staff[]>>("/api/auth/organization-users"),
- ]).then(([o,s,b,t])=>{setOrganization(o.data[0]||null);setSummary(s.data);setBilling(b.data);setStaff(t.data);}).catch((e:unknown)=>setError(e instanceof Error?e.message:"Failed to load organization operations")).finally(()=>setLoading(false));},[]);
+ ]).then(([o,s,b,t])=>{
+  const selectedOrganization=o.data[0]||null;
+  setOrganization(selectedOrganization);setSummary(s.data);setBilling(b.data);setStaff(t.data);
+  const user=JSON.parse(sessionStorage.getItem("currentUser")||"{}");
+  if(user.id&&user.organizationId)void window.kwmsDesktop?.setSnapshot({key:"company-dashboard",organizationId:user.organizationId,userId:user.id,data:{organization:selectedOrganization,summary:s.data,billing:b.data,staff:t.data}}).catch(()=>undefined);
+ }).catch((e:unknown)=>setError(e instanceof Error?e.message:"Failed to load organization operations")).finally(()=>setLoading(false));},[]);
  const finance=useMemo(()=>({outstanding:billing.invoices.reduce((n,i)=>n+Number(i.balance_ugx),0),billed:billing.invoices.reduce((n,i)=>n+Number(i.amount_ugx),0),received:billing.payments.filter(p=>p.status==="successful").reduce((n,p)=>n+Number(p.amount_ugx),0),pending:billing.payments.filter(p=>p.status==="pending").length}),[billing]);
  const activeStaff=staff.filter(p=>p.status==="active"),drivers=staff.filter(p=>p.roles.includes("driver")),supervisors=staff.filter(p=>p.roles.includes("supervisor"));
  const attentionItems=[
