@@ -181,6 +181,8 @@ export async function findDriverRouteDetails(routeId: string, organizationId: st
   const route = await dbPool.query(
     `SELECT cr.id, cr.name, cr.route_date, cr.status, cr.total_distance_km,
        cr.estimated_duration_minutes, cr.started_at, cr.completed_at,
+       (cr.status='completed' AND cr.completed_at>LOCALTIMESTAMP-interval '6 hours'
+         AND NOT EXISTS(SELECT 1 FROM weighbridge_transactions w WHERE w.trip_id=cr.id AND w.status='completed')) AS disposal_leg_open,
        CASE WHEN cr.route_geometry IS NULL THEN NULL ELSE ST_AsGeoJSON(cr.route_geometry)::json END AS route_geometry,
        wt.plate_number, wt.truck_name, d.full_name AS driver_name
      FROM collection_routes cr JOIN drivers d ON d.id = cr.driver_id

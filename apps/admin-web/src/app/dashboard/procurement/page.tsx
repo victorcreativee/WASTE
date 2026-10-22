@@ -142,7 +142,7 @@ export default function ProcurementPage() {
           action={
             <button
               onClick={() => setForm("order")}
-              className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white"
+              className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white"
             >
               Create purchase order
             </button>
@@ -159,7 +159,7 @@ export default function ProcurementPage() {
             <button
               key={v}
               onClick={() => {setTab(v as typeof tab);setQuery("");setStatus("all")}}
-              className={`border-b-2 pb-3 text-sm font-semibold ${tab === v ? "border-[#3156a3] text-[#3156a3]" : "border-transparent text-slate-500"}`}
+              className={`border-b-2 pb-3 text-sm font-semibold ${tab === v ? "border-[var(--color-action)] text-[var(--color-action)]" : "border-transparent text-slate-500"}`}
             >
               {l}
             </button>
@@ -226,7 +226,7 @@ export default function ProcurementPage() {
                 </>
               )}
             </div>
-            <div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" onClick={()=>setForm("none")} className="border px-4">Cancel</button><button disabled={saving} className="bg-[#3156a3] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving?"Saving...":"Save"}</button></div>
+            <div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" onClick={()=>setForm("none")} className="border px-4">Cancel</button><button disabled={saving} className="bg-[var(--color-action)] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving?"Saving...":"Save"}</button></div>
           </form>
           </Modal>
         )}
@@ -303,7 +303,7 @@ export default function ProcurementPage() {
                 action={
                   <button
                     onClick={() => setForm("order")}
-                    className="bg-[#3156a3] px-4 py-2 text-sm font-semibold text-white"
+                    className="bg-[var(--color-action)] px-4 py-2 text-sm font-semibold text-white"
                   >
                     Create first order
                   </button>
@@ -317,7 +317,7 @@ export default function ProcurementPage() {
             <div className="mb-4 text-right">
               <button
                 onClick={() => setForm("supplier")}
-                className="border border-[#3156a3] px-4 py-2 text-sm font-semibold text-[#3156a3]"
+                className="border border-[var(--color-action)] px-4 py-2 text-sm font-semibold text-[var(--color-action)]"
               >
                 Add supplier
               </button>
@@ -416,7 +416,7 @@ function Step({
           `Order marked ${next}.`,
         )
       }
-      className="border border-[#3156a3] px-3 py-2 text-xs font-semibold capitalize text-[#3156a3]"
+      className="border border-[var(--color-action)] px-3 py-2 text-xs font-semibold capitalize text-[var(--color-action)]"
     >
       Mark {next}
     </button>

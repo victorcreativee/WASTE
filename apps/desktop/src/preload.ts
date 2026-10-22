@@ -1,0 +1,26 @@
+import{contextBridge,ipcRenderer}from"electron";
+import type{DesktopState,LocalAuthInput,OfflineSession,QueueInput,SavedAuthResult,SnapshotInput,SnapshotRecord}from"./types";
+contextBridge.exposeInMainWorld("kwmsDesktop",{
+  getState:():Promise<DesktopState>=>ipcRenderer.invoke("desktop:get-state"),
+  reconnect:():Promise<DesktopState>=>ipcRenderer.invoke("desktop:reconnect"),
+  initializeOfflineAuth:(input:LocalAuthInput):Promise<OfflineSession>=>ipcRenderer.invoke("desktop:initialize-auth",input),
+  centralLogin:(email:string,password:string):Promise<OfflineSession>=>ipcRenderer.invoke("desktop:central-login",{email,password}),
+  centralApiRequest:(input:{path:string;method?:string;headers?:Record<string,string>;body?:string|null}):Promise<{status:number;headers:Record<string,string>;body:string}>=>ipcRenderer.invoke("desktop:central-api",input),
+  resumeSavedAuth:():Promise<SavedAuthResult|null>=>ipcRenderer.invoke("desktop:resume-auth"),
+  offlineLogin:(email:string,password:string):Promise<OfflineSession>=>ipcRenderer.invoke("desktop:offline-login",{email,password}),
+  offlineLogout:():Promise<boolean>=>ipcRenderer.invoke("desktop:offline-logout"),
+  revokeOfflineAuth:(userId:string):Promise<boolean>=>ipcRenderer.invoke("desktop:revoke-auth",userId),
+  getSnapshots:():Promise<SnapshotRecord[]>=>ipcRenderer.invoke("desktop:get-snapshots"),
+  setSnapshot:(input:SnapshotInput):Promise<SnapshotRecord>=>ipcRenderer.invoke("desktop:set-snapshot",input),
+  cacheApiResponse:(path:string,data:unknown):Promise<boolean>=>ipcRenderer.invoke("desktop:cache-api",{path,data}),
+  getCachedApiResponse:(path:string):Promise<{data:unknown;updatedAt:string}|null>=>ipcRenderer.invoke("desktop:get-cached-api",path),
+  queue:(input:QueueInput)=>ipcRenderer.invoke("desktop:queue",input),
+  queueOffline:(input:Omit<QueueInput,"organizationId"|"userId">)=>ipcRenderer.invoke("desktop:offline-queue",input),
+  syncNow:(accessToken:string)=>ipcRenderer.invoke("desktop:sync",accessToken),
+  retry:(id:string)=>ipcRenderer.invoke("desktop:retry",id),
+  discard:(id:string)=>ipcRenderer.invoke("desktop:discard",id),
+  checkForUpdates:():Promise<DesktopState>=>ipcRenderer.invoke("desktop:update-check"),
+  downloadUpdate:():Promise<DesktopState>=>ipcRenderer.invoke("desktop:update-download"),
+  installUpdate:():Promise<boolean>=>ipcRenderer.invoke("desktop:update-install"),
+  onState:(callback:(state:DesktopState)=>void)=>{const listener=(_:Electron.IpcRendererEvent,state:DesktopState)=>callback(state);ipcRenderer.on("desktop:state",listener);return()=>ipcRenderer.removeListener("desktop:state",listener);},
+});

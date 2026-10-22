@@ -1,3 +1,4 @@
+import type { Page } from "../utils/pagination";
 import {
   assignCitizenIssue,
   CitizenIssueScope,
@@ -11,8 +12,8 @@ import {
   UpdateCitizenIssueStatusInput,
 } from "../validators/citizen-issue.validator";
 
-export function listCitizenIssues(scope: CitizenIssueScope) {
-  return findCitizenIssues(scope);
+export function listCitizenIssues(scope: CitizenIssueScope, page?: Page) {
+  return findCitizenIssues(scope, page);
 }
 
 export function submitCitizenIssue(userId: string, input: CreateCitizenIssueInput) {

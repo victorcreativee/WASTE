@@ -1,0 +1,75 @@
+{
+  "name": "kampala-wms-desktop",
+  "version": "1.0.5",
+  "private": true,
+  "description": "Secure desktop client for Kampala Waste Management System",
+  "main": "dist/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "npm run build && cross-env KWMS_SERVER_URL=http://localhost:3000 electron .",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "electron .",
+    "prepare:web": "node scripts/prepare-web.cjs",
+    "package": "npm run build --prefix ../admin-web && npm run prepare:web && npm run build && electron-builder --dir",
+    "package:mac": "npm run build --prefix ../admin-web && npm run prepare:web && npm run build && electron-builder --mac",
+    "package:windows": "npm run build && electron-builder --win"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "cross-env": "^7.0.3",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "typescript": "^6.0.3"
+  },
+  "build": {
+    "appId": "ug.kampalawms.desktop",
+    "productName": "Kampala Waste Management System",
+    "icon": "build/kwms-icon.png",
+    "asar": true,
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "build/kwms-icon.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../admin-web/.next/standalone",
+        "to": "web"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://kampalawms.com/desktop-updates/mac"
+      }
+    ],
+    "mac": {
+      "icon": "build/kwms-icon.png",
+      "category": "public.app-category.business",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "icon": "build/kwms-icon.png",
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "Kampala-WMS-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "electron-updater": "^6.8.9"
+  }
+}

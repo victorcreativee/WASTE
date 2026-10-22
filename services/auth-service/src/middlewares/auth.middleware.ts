@@ -5,16 +5,18 @@ import { env } from "../config/env";
 import { getUserPermissions } from "../repositories/role.repository";
 import { getUserRoles } from "../repositories/role.repository";
 import { findUserById } from "../repositories/auth.repository";
+import { sessionIsActive } from "../repositories/session.repository";
 
 export type AuthenticatedRequest = Request & {
   user?: {
     userId: string;
     email?: string;
     organizationId?: string | null;
+    sid?: string;
   };
 };
 
-export function requireAuth(
+export async function requireAuth(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
@@ -35,7 +37,11 @@ export function requireAuth(
       userId: string;
       email?: string;
       organizationId?: string | null;
+      sid?: string;
     };
+    if (!(await sessionIsActive(decoded.sid, decoded.userId))) {
+      return res.status(401).json({ success: false, message: "This session has ended. Sign in again." });
+    }
 
     req.user = decoded;
     next();
@@ -62,6 +68,7 @@ export function requireRoles(...allowedRoles: string[]) {
     req.user = {
       userId,
       email: req.user?.email,
+      sid: req.user?.sid,
       organizationId: user.organization_id,
     };
     next();

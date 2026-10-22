@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  cashMovementSchema,
   dailyCloseSchema,
   dailyReopenSchema,
   lotSchema,
+  lotUpdateSchema,
+  managerFloatSchema,
   materialCatalogSchema,
   salePaymentSchema,
   saleSchema,
+  saleUpdateSchema,
   sortingSchema,
 } from "../src/validators/recycling.validator";
 
@@ -54,11 +58,19 @@ test("sorting cannot create more output and rejected material than its input", (
     outputMaterialType: "Clean PET",
     outputKg: 85,
     rejectedKg: 15,
-    processingCostUgx: 20000,
+    workerWagesUgx:10000,utilitiesUgx:5000,transportUgx:2000,consumablesUgx:3000,otherExpenseUgx:0,managerFloatUsedUgx:10000,
   };
 
   assert.equal(sortingSchema.parse(batch).outputKg, 85);
   assert.throws(() => sortingSchema.parse({ ...batch, outputKg: 90 }));
+  assert.throws(() => sortingSchema.parse({ ...batch, managerFloatUsedUgx: 25000 }));
+});
+
+test("cash and float movements require traceable references and controlled purposes",()=>{
+  assert.equal(managerFloatSchema.parse({transactionDate:"2026-10-19",transactionType:"returned",amountUgx:50000,reference:"FLT-RET-001",notes:"Unused purchasing float returned"}).transactionType,"returned");
+  assert.throws(()=>managerFloatSchema.parse({transactionDate:"2026-10-19",transactionType:"spent",amountUgx:50000,reference:"",notes:"Fuel"}));
+  assert.equal(cashMovementSchema.parse({movementDate:"2026-10-19",direction:"in",category:"capital_contribution",amountUgx:1000000,reference:"BANK-001",counterparty:"Owner",notes:"Additional operating capital"}).direction,"in");
+  assert.throws(()=>cashMovementSchema.parse({movementDate:"2026-10-19",direction:"out",category:"other_income",amountUgx:1000,reference:"BAD-001",notes:"Invalid direction"}));
 });
 
 test("sales distinguish local buyers from industrial buyers", () => {
@@ -78,6 +90,25 @@ test("sales distinguish local buyers from industrial buyers", () => {
   assert.equal(saleSchema.parse({ ...baseSale, saleChannel: "local" }).saleChannel, "local");
   assert.equal(saleSchema.parse({ ...baseSale, saleChannel: "industrial" }).saleChannel, "industrial");
   assert.throws(() => saleSchema.parse({ ...baseSale, buyerName: "" }));
+});
+
+test("transaction corrections reuse controlled purchase and sale fields", () => {
+  const purchase = lotUpdateSchema.parse({
+    materialType: "PET bottles", sourceName: "Kisenyi collection point", quantityKg: 200,
+    unitPurchasePriceUgx: 1200, collectedOn: "2026-10-18", quality: "clean",
+    workerWagesUgx: 10000, foodUgx: 5000, transportUgx: 15000, driverFeeUgx: 0,
+    otherExpenseUgx: 0, purchasePaymentStatus: "paid", managerFloatUsedUgx: 999999,
+  });
+  assert.equal(purchase.quantityKg, 200);
+  assert.equal("purchasePaymentStatus" in purchase, false);
+  assert.equal("managerFloatUsedUgx" in purchase, false);
+  const sale = saleUpdateSchema.parse({
+    lotId, buyerName: "Kampala Plastics", saleChannel: "industrial", industry: "Plastic manufacturing",
+    quantityKg: 40, unitPriceUgx: 2000, soldOn: "2026-10-18", workerWagesUgx: 0,
+    foodUgx: 0, transportUgx: 0, otherExpenseUgx: 0,
+  });
+  assert.equal(sale.quantityKg, 40);
+  assert.throws(() => saleUpdateSchema.parse({...sale,quantityKg:0}));
 });
 
 test("sale payments require a positive amount, date and traceable reference", () => {

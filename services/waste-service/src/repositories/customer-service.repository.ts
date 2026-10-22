@@ -1,3 +1,4 @@
+import { Page, queryPage } from "../utils/pagination";
 import { dbPool } from "../config/database";
 
 export async function upsertCustomerService(
@@ -102,8 +103,8 @@ export async function findCustomerServiceOverview(userId: string) {
   };
 }
 
-export async function findCustomers(organizationId: string | null) {
-  const result = await dbPool.query(
+export async function findCustomers(organizationId: string | null, page?: Page) {
+  const result = await queryPage<any>(
     `SELECT cp.id, cp.customer_number, u.full_name, u.email, u.phone, cp.customer_type, cp.service_status,
        csl.address, wz.name AS zone_name, o.name AS organization_name,
        csr.id relationship_id,csr.status relationship_status,csr.effective_from relationship_started_on,
@@ -126,10 +127,11 @@ export async function findCustomers(organizationId: string | null) {
      LEFT JOIN waste_zones wz ON wz.id = csl.zone_id AND wz.organization_id=csr.organization_id
      JOIN organizations o ON o.id = csr.organization_id
      WHERE csr.organization_id = $1::uuid
-     ORDER BY u.full_name`,
-    [organizationId]
+     ORDER BY u.full_name, cp.id`,
+    [organizationId],
+    page
   );
-  return result.rows.map(row=>{
+  const rows = result.rows.map(row=>{
     const planning_reasons:string[]=[];
     if(row.account_status!=='active')planning_reasons.push('Customer account is not active');
     if(row.service_status!=='active')planning_reasons.push('Customer service is not active');
@@ -138,6 +140,7 @@ export async function findCustomers(organizationId: string | null) {
     if(!row.agreement_confirmed)planning_reasons.push('Current matching contract and subscription required');
     return {...row,planning_ready:planning_reasons.length===0,planning_reasons};
   });
+  return { rows, total: result.total };
 }
 
 export async function updateCustomerServiceStatus(

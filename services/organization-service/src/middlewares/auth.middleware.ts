@@ -7,6 +7,20 @@ export type AuthenticatedRequest = Request & {
   auth?: { userId: string; organizationId: string | null; roles: string[] };
 };
 
+/** Rejects access tokens whose sign-in session was ended (migration 096). Tokens without a session id are accepted. */
+async function sessionEnded(sessionId: unknown, userId: string) {
+  if (typeof sessionId !== "string") return false;
+  try {
+    const result = await dbPool.query("SELECT 1 FROM user_sessions WHERE id=$1::uuid AND user_id=$2::uuid AND revoked_at IS NULL", [sessionId, userId]);
+    return !result.rowCount;
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "42P01") return false;
+    if (code === "22P02") return true;
+    throw error;
+  }
+}
+
 export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authorization = req.headers.authorization;
   if (!authorization?.startsWith("Bearer ")) {
@@ -18,6 +32,9 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
   try {
     const claims = jwt.verify(authorization.slice(7), env.jwtAccessSecret) as jwt.JwtPayload & { userId?: string };
     if (!claims.userId) throw new Error("Missing user identity");
+    if (await sessionEnded(claims.sid, claims.userId)) {
+      return res.status(401).json({ success: false, message: "This session has ended. Sign in again." });
+    }
     const result = await dbPool.query(
       `SELECT u.status, u.organization_id, o.is_active AS organization_active,
               EXISTS(SELECT 1 FROM organization_memberships m WHERE m.user_id=u.id AND m.organization_id=u.organization_id AND m.status='active') AS membership_active,

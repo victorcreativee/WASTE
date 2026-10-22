@@ -8,6 +8,8 @@ export const env = {
   serviceName: process.env.SERVICE_NAME || "waste-service",
   databaseUrl: process.env.DATABASE_URL || "",
   jwtAccessSecret: process.env.JWT_ACCESS_SECRET || "",
+  /** Public web address printed on certificates for QR verification. */
+  publicAppUrl: (process.env.PUBLIC_APP_URL || "http://localhost:3000").replace(/\/+$/, ""),
 
   routingProvider: process.env.ROUTING_PROVIDER || "osrm",
 

@@ -1,4 +1,6 @@
+import { Page, queryPage } from "../utils/pagination";
 import { dbPool } from "../config/database";
+import { createReport } from "./dumping.repository";
 import { CreateCitizenIssueInput, UpdateCitizenIssueStatusInput } from "../validators/citizen-issue.validator";
 
 export type CitizenIssueScope = {
@@ -19,20 +21,28 @@ const issueSelect = `
   JOIN users u ON u.id = ci.reporter_user_id
   LEFT JOIN organizations o ON o.id = ci.assigned_organization_id`;
 
-export async function findCitizenIssues(scope: CitizenIssueScope) {
-  const result = await dbPool.query(
+export async function findCitizenIssues(scope: CitizenIssueScope, page?: Page) {
+  return queryPage(
     `${issueSelect}
      WHERE ($2::boolean = false OR ci.reporter_user_id = $1::uuid)
        AND ($3::boolean = false OR ci.assigned_organization_id = $4::uuid)
-     ORDER BY ci.created_at DESC`,
-    [scope.userId, scope.isCitizen, scope.isCompany, scope.organizationId]
+     ORDER BY ci.created_at DESC, ci.id`,
+    [scope.userId, scope.isCitizen, scope.isCompany, scope.organizationId],
+    page
   );
-  return result.rows;
 }
 
+/**
+ * Records a resident's issue. An illegal-dumping issue with a location also becomes a report of a dumping site (Module 9),
+ * in the same transaction, so the issue's status follows KCCA's handling of the site.
+ */
 export async function createCitizenIssue(userId: string, input: CreateCitizenIssueInput) {
   const hasLocation = input.latitude !== undefined && input.longitude !== undefined;
-  const result = await dbPool.query(
+  const client = await dbPool.connect();
+  let issueId: string, dumping: { site_number: string; outcome: string } | null = null;
+  try {
+    await client.query("BEGIN");
+    const result = await client.query(
     `INSERT INTO citizen_issues (
        reporter_user_id, category, title, description, address, location
      ) VALUES ($1::uuid, $2, $3, $4, $5,
@@ -41,8 +51,24 @@ export async function createCitizenIssue(userId: string, input: CreateCitizenIss
     hasLocation
       ? [userId, input.category, input.title, input.description, input.address ?? null, input.latitude, input.longitude]
       : [userId, input.category, input.title, input.description, input.address ?? null]
-  );
-  return findCitizenIssueById(result.rows[0].id, { userId, organizationId: null, isCitizen: true, isCompany: false });
+    );
+    issueId = result.rows[0].id;
+    if (input.category === "illegal_dumping" && hasLocation) {
+      const report = await createReport({
+        userId, source: "resident", organizationId: null, latitude: input.latitude!, longitude: input.longitude!, landmark: input.address ?? null,
+        divisionId: input.divisionId ?? null, description: `${input.title}. ${input.description}`.slice(0, 2000), photo: input.photo ?? null, citizenIssueId: issueId,
+      }, client);
+      dumping = { site_number: report.site_number, outcome: report.outcome };
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+  const issue = await findCitizenIssueById(issueId, { userId, organizationId: null, isCitizen: true, isCompany: false });
+  return { ...issue, dumping_site: dumping };
 }
 
 export async function findCitizenIssueById(id: string, scope: CitizenIssueScope) {

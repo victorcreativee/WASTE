@@ -12,6 +12,9 @@ export const createCitizenIssueSchema = z.object({
   address: z.string().trim().max(500).optional(),
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
+  // Illegal dumping only: a photo and the division, passed on to the dumping site the report joins.
+  photo: z.string().max(2_800_000, "The photo must be 2 MB or smaller").regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/, "Use a JPG, PNG or WebP photo").optional(),
+  divisionId: z.string().uuid().optional(),
 }).refine(
   (value) =>
     (value.latitude === undefined && value.longitude === undefined) ||

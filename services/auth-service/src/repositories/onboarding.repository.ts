@@ -13,8 +13,8 @@ async function platformActor(client:PoolClient,actor:string){
 }
 async function company(client:PoolClient,org:string){
  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`access:${org}`]);
- const result=await client.query("SELECT id,name FROM organizations WHERE id=$1::uuid AND is_active AND type='waste_collection_company' FOR UPDATE",[org]);
- if(!result.rowCount)throw failure('An active waste-collection company is required',404);
+ const result=await client.query("SELECT id,name FROM organizations WHERE id=$1::uuid AND is_active AND type IN('waste_collection_company','processing_plant') FOR UPDATE",[org]);
+ if(!result.rowCount)throw failure('An active waste-collection company or recycling factory is required',404);
  const admin=await client.query(`SELECT 1 FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
  WHERE u.organization_id=$1::uuid AND r.name='company_admin'`,[org]);
  if(admin.rowCount)throw failure('This company already has an administrator. First-admin setup cannot replace or recover an existing account.');
@@ -51,7 +51,7 @@ export async function revokeAdminInvitation(org:string,actor:string,id:string){
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
 export async function onboardingStatus(org:string){
- const organization=await dbPool.query("SELECT id FROM organizations WHERE id=$1::uuid AND type='waste_collection_company'",[org]);
+ const organization=await dbPool.query("SELECT id FROM organizations WHERE id=$1::uuid AND type IN('waste_collection_company','processing_plant')",[org]);
  if(!organization.rowCount)throw failure('Company not found',404);
  const admin=await dbPool.query("SELECT 1 FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE u.organization_id=$1::uuid AND r.name='company_admin'",[org]);
  const invitations=await dbPool.query(`SELECT id,email,created_at,expires_at,revoked_at,accepted_at,expires_at<=CURRENT_TIMESTAMP AS expired FROM organization_admin_invitations

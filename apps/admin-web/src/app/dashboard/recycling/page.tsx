@@ -1,4 +1,5 @@
 "use client";
+import { FactoryBuyerSelect } from "@/components/factory/FactoryBuyerSelect";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import {
@@ -27,6 +28,14 @@ type Lot = {
   purchase_paid_on: string | null;
   purchase_due_on: string | null;
   purchase_payment_state: "paid" | "credit" | "partially_paid" | "due_soon" | "overdue";
+  supplier_partner_id: string | null;
+  worker_wages_ugx: string;
+  food_ugx: string;
+  transport_ugx: string;
+  driver_fee_ugx: string;
+  other_expense_ugx: string;
+  manager_float_used_ugx: string;
+  notes: string | null;
   paid_ugx: string;
   balance_ugx: string;
   recorded_by_name: string | null;
@@ -58,6 +67,13 @@ type Sale = {
   paid_ugx: string;
   balance_ugx: string;
   recorded_by_name: string | null;
+  lot_id: string;
+  buyer_partner_id: string | null;
+  worker_wages_ugx: string;
+  food_ugx: string;
+  transport_ugx: string;
+  other_expense_ugx: string;
+  notes: string | null;
 };
 type Partner = {
   id: string;
@@ -79,11 +95,13 @@ type MaterialCatalogItem = {
 type FloatTx = {
   id: string;
   transaction_date: string;
-  transaction_type: "given" | "spent";
+  transaction_type: "given" | "spent" | "returned";
   amount_ugx: string;
   running_balance_ugx: string;
+  reference: string | null;
   notes: string | null;
 };
+type CashMovement={id:string;movement_date:string;direction:"in"|"out";category:string;amount_ugx:string;reference:string;counterparty:string|null;notes:string;recorded_by_name:string};
 type SortingBatch = {
   id: string;
   processed_on: string;
@@ -93,6 +111,7 @@ type SortingBatch = {
   output_kg: string;
   rejected_kg: string;
   processing_cost_ugx: string;
+  worker_wages_ugx:string;utilities_ugx:string;transport_ugx:string;consumables_ugx:string;other_expense_ugx:string;manager_float_used_ugx:string;
 };
 type StockAdjustment = {
   id: string;
@@ -139,6 +158,7 @@ type Summary = {
   processingCostUgx: number;
   profitLossUgx: number;
   floatBalanceUgx: number;
+  officeCashUgx:number;
   openingBalanceUgx: number;
   openingBalanceConfigured: boolean;
   cashPositionUgx: number;
@@ -190,14 +210,25 @@ type DailyClosure = {
   reopened_at: string | null;
   reopen_reason: string | null;
 };
+type TransactionEdit = {
+  id: string;
+  transaction_type: "purchase" | "sale";
+  transaction_id: string;
+  before_state: Record<string, unknown>;
+  after_state: Record<string, unknown>;
+  edited_by_name: string;
+  edited_at: string;
+};
 type Data = {
   organization: { name: string; type: string };
   summary: Summary;
   operations: Operations;
   dailyClosures: DailyClosure[];
+  transactionEdits: TransactionEdit[];
   lots: Lot[];
   sales: Sale[];
   floatTransactions: FloatTx[];
+  cashMovements:CashMovement[];
   sortingBatches: SortingBatch[];
   stockAdjustments: StockAdjustment[];
   partners: Partner[];
@@ -219,6 +250,7 @@ type FormKind =
   | "adjustment"
   | "sale"
   | "float"
+  | "cash"
   | "partner"
   | "payment"
   | "purchasePayment"
@@ -227,12 +259,41 @@ type FormKind =
   | "followUp"
   | "saleHistory"
   | "purchaseHistory"
+  | "partnerLedger"
   | "material"
   | "dailyClose"
   | "dailyReopen";
 const today = () => new Date().toISOString().slice(0, 10),
   field = "mt-1 w-full border border-slate-300 px-3 py-2.5 font-normal",
   money = (n: string | number) => `UGX ${Number(n).toLocaleString()}`;
+const auditLabels: Record<string, string> = {
+  material_type: "Material",
+  source_name: "Supplier / source",
+  buyer_name: "Buyer",
+  quantity_kg: "Quantity (kg)",
+  unit_purchase_price_ugx: "Purchase price / kg",
+  unit_price_ugx: "Sale price / kg",
+  collected_on: "Purchase date",
+  sold_on: "Sale date",
+  quality: "Condition",
+  sale_channel: "Sale channel",
+  industry: "Buyer category",
+  invoice_number: "Invoice number",
+  worker_wages_ugx: "Worker wages",
+  food_ugx: "Food",
+  transport_ugx: "Transport",
+  driver_fee_ugx: "Driver fee",
+  other_expense_ugx: "Other expenses",
+  notes: "Notes",
+};
+const auditChanges = (edit: TransactionEdit) =>
+  Object.keys(auditLabels)
+    .filter((key) => String(edit.before_state[key] ?? "") !== String(edit.after_state[key] ?? ""))
+    .map((key) => ({ key, label: auditLabels[key], before: edit.before_state[key], after: edit.after_state[key] }));
+const auditValue = (key: string, value: unknown) => {
+  if (value === null || value === undefined || value === "") return "Not recorded";
+  return key.endsWith("_ugx") ? money(Number(value)) : String(value);
+};
 const expenseFields = [
   ["workerWagesUgx", "Worker wages"],
   ["foodUgx", "Food"],
@@ -245,7 +306,8 @@ export default function RecyclingPage() {
     salesMode = roleSnapshot.includes("recycling_sales"),
     fieldManagerMode = roleSnapshot.includes("recycling_field_manager"),
     companyAdminMode = roleSnapshot.includes("company_admin"),
-    workerMode = collectorMode || salesMode || fieldManagerMode,
+    limitedWorkerMode = collectorMode || salesMode,
+    workerMode = limitedWorkerMode || fieldManagerMode,
     [data, setData] = useState<Data | null>(null),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -253,6 +315,13 @@ export default function RecyclingPage() {
     [actionMenu, setActionMenu] = useState(false),
     [selectedSaleId, setSelectedSaleId] = useState(""),
     [selectedPurchaseId, setSelectedPurchaseId] = useState(""),
+    [editingSaleId, setEditingSaleId] = useState(""),
+    [editingPurchaseId, setEditingPurchaseId] = useState(""),
+    [editingPartnerId, setEditingPartnerId] = useState(""),
+    [selectedPartnerId, setSelectedPartnerId] = useState(""),
+    [stockQuery, setStockQuery] = useState(""),
+    [salesQuery, setSalesQuery] = useState(""),
+    [salesStatus, setSalesStatus] = useState("all"),
     [activityDate, setActivityDate] = useState(""),
     [saving, setSaving] = useState(false),
     [tab, setTab] = useState<
@@ -263,9 +332,16 @@ export default function RecyclingPage() {
       | "stock"
       | "sales"
       | "float"
+      | "history"
     >(collectorMode ? "purchases" : salesMode ? "sales" : fieldManagerMode ? "purchases" : "insights");
   const selectedSale = data?.sales.find((item) => item.id === selectedSaleId),
     selectedPurchase = data?.lots.find((item) => item.id === selectedPurchaseId),
+    editingSale = data?.sales.find((item) => item.id === editingSaleId),
+    editingPurchase = data?.lots.find((item) => item.id === editingPurchaseId),
+    editingPartner = data?.partners.find((item) => item.id === editingPartnerId),
+    selectedPartner = data?.partners.find((item) => item.id === selectedPartnerId),
+    selectedPartnerPurchases = data?.lots.filter((item) => item.origin === "purchase" && item.supplier_partner_id === selectedPartnerId) || [],
+    selectedPartnerSales = data?.sales.filter((item) => item.buyer_partner_id === selectedPartnerId) || [],
     selectedSalePayments = data?.salePayments.filter((item) => item.sale_id === selectedSaleId) || [],
     selectedPurchasePayments = data?.purchasePayments.filter((item) => item.lot_id === selectedPurchaseId) || [];
   async function load() {
@@ -282,6 +358,19 @@ export default function RecyclingPage() {
   }
   useEffect(() => {
     void load();
+    const refresh = () => { if (navigator.onLine && document.visibilityState === "visible") void load(); };
+    const timer = window.setInterval(refresh, 60_000);
+    window.addEventListener("online", refresh);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("kwms-sync-complete", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("online", refresh);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("kwms-sync-complete", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, []);
   function openForm(next: FormKind) {
     setError("");
@@ -293,7 +382,16 @@ export default function RecyclingPage() {
     Object.fromEntries(names.map((name) => [name, Number(f.get(name) || 0)]));
   const selectedActivity = data?.dailyActivity?.find((item) => item.date === activityDate) ?? { date: activityDate, purchases: 0, purchasedKg: 0, sales: 0, soldKg: 0, saleValueUgx: 0, purchaseIds: [], saleIds: [] };
   const visiblePurchaseLots = data?.lots.filter((item) => item.origin === "purchase" && (!collectorMode || selectedActivity.purchaseIds.includes(item.id))) ?? [];
-  const visibleSales = data?.sales.filter((item) => !workerMode || selectedActivity.saleIds.includes(item.id)) ?? [];
+  const visibleSales = data?.sales.filter((item) => !limitedWorkerMode || selectedActivity.saleIds.includes(item.id)) ?? [];
+  const filteredStock = (data?.lots ?? []).filter((item) =>
+      Number(item.available_kg) > 0 &&
+      `${item.material_type} ${item.source_name} ${item.quality}`.toLowerCase().includes(stockQuery.trim().toLowerCase()),
+    ),
+    filteredSales = visibleSales.filter((item) => {
+      const matchesQuery = `${item.material_type} ${item.buyer_name} ${item.invoice_number ?? ""}`.toLowerCase().includes(salesQuery.trim().toLowerCase());
+      const matchesStatus = salesStatus === "all" || item.payment_state === salesStatus;
+      return matchesQuery && matchesStatus;
+    });
   async function submitPurchase(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const el = e.currentTarget,
@@ -307,8 +405,8 @@ export default function RecyclingPage() {
     try {
       setSaving(true);
       setError("");
-      await apiRequest("/api/waste/recycling/lots", {
-        method: "POST",
+      await apiRequest(editingPurchaseId ? `/api/waste/recycling/lots/${editingPurchaseId}` : "/api/waste/recycling/lots", {
+        method: editingPurchaseId ? "PATCH" : "POST",
         body: JSON.stringify({
           materialType,
           allowNewMaterial: Boolean(customMaterial),
@@ -318,23 +416,22 @@ export default function RecyclingPage() {
           unitPurchasePriceUgx: Number(f.get("unitPurchasePriceUgx")),
           collectedOn: f.get("collectedOn"),
           quality: f.get("quality"),
-          purchasePaymentStatus: f.get("purchasePaymentStatus"),
-          purchasePaymentReference:
-            f.get("purchasePaymentReference") || undefined,
+          ...(editingPurchaseId ? {} : {purchasePaymentStatus: f.get("purchasePaymentStatus"),purchasePaymentReference:f.get("purchasePaymentReference") || undefined}),
           ...values(f, [
             "workerWagesUgx",
             "foodUgx",
             "transportUgx",
             "driverFeeUgx",
             "otherExpenseUgx",
-            "managerFloatUsedUgx",
+            ...(editingPurchaseId ? [] : ["managerFloatUsedUgx"]),
           ]),
           notes: f.get("notes") || undefined,
         }),
       });
       el.reset();
+      setEditingPurchaseId("");
       setForm("");
-      setNotice("Material purchase and costs recorded.");
+      setNotice(editingPurchaseId ? "Purchase transaction updated and stock reconciled." : "Material purchase and costs recorded.");
       await load();
     } catch (x) {
       setError(x instanceof Error ? x.message : "Could not record purchase");
@@ -349,11 +446,12 @@ export default function RecyclingPage() {
     try {
       setSaving(true);
       setError("");
-      await apiRequest("/api/waste/recycling/sales", {
-        method: "POST",
+      await apiRequest(editingSaleId ? `/api/waste/recycling/sales/${editingSaleId}` : "/api/waste/recycling/sales", {
+        method: editingSaleId ? "PATCH" : "POST",
         body: JSON.stringify({
           lotId: f.get("lotId"),
           buyerPartnerId: f.get("buyerPartnerId") || undefined,
+          buyerOrganizationId: f.get("buyerOrganizationId") || undefined,
           buyerName: f.get("buyerName") || undefined,
           saleChannel: f.get("saleChannel") || (collectorMode ? "local" : "industrial"),
           industry: f.get("industry"),
@@ -371,8 +469,9 @@ export default function RecyclingPage() {
         }),
       });
       el.reset();
+      setEditingSaleId("");
       setForm("");
-      setNotice("Industrial sale, expenses and stock movement recorded.");
+      setNotice(editingSaleId ? "Sale transaction updated and stock reconciled." : "Industrial sale, expenses and stock movement recorded.");
       await load();
     } catch (x) {
       setError(x instanceof Error ? x.message : "Could not record sale");
@@ -393,12 +492,13 @@ export default function RecyclingPage() {
           transactionDate: f.get("transactionDate"),
           transactionType: f.get("transactionType"),
           amountUgx: Number(f.get("amountUgx")),
-          notes: f.get("notes") || undefined,
+          reference: f.get("reference"),
+          notes: f.get("notes"),
         }),
       });
       el.reset();
       setForm("");
-      setNotice("Manager float updated.");
+      setNotice("Manager float movement posted to the accountable ledger.");
       await load();
     } catch (x) {
       setError(
@@ -408,6 +508,7 @@ export default function RecyclingPage() {
       setSaving(false);
     }
   }
+  async function submitCash(e:React.FormEvent<HTMLFormElement>){e.preventDefault();const el=e.currentTarget,f=new FormData(el);try{setSaving(true);setError("");await apiRequest("/api/waste/recycling/cash-movements",{method:"POST",body:JSON.stringify({movementDate:f.get("movementDate"),direction:f.get("direction"),category:f.get("category"),amountUgx:Number(f.get("amountUgx")),reference:f.get("reference"),counterparty:f.get("counterparty")||undefined,notes:f.get("notes")})});el.reset();setForm("");setNotice("Cash movement posted. The audit record is permanent.");await load()}catch(x){setError(x instanceof Error?x.message:"Could not post cash movement")}finally{setSaving(false)}}
   async function submitSorting(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const el = e.currentTarget,
@@ -431,7 +532,12 @@ export default function RecyclingPage() {
           allowNewMaterial: Boolean(customMaterial),
           outputKg: Number(f.get("outputKg")),
           rejectedKg: Number(f.get("rejectedKg") || 0),
-          processingCostUgx: Number(f.get("processingCostUgx") || 0),
+          workerWagesUgx:Number(f.get("workerWagesUgx")||0),
+          utilitiesUgx:Number(f.get("utilitiesUgx")||0),
+          transportUgx:Number(f.get("transportUgx")||0),
+          consumablesUgx:Number(f.get("consumablesUgx")||0),
+          otherExpenseUgx:Number(f.get("otherExpenseUgx")||0),
+          managerFloatUsedUgx:Number(f.get("managerFloatUsedUgx")||0),
           notes: f.get("notes") || undefined,
         }),
       });
@@ -482,8 +588,8 @@ export default function RecyclingPage() {
     try {
       setSaving(true);
       setError("");
-      await apiRequest("/api/waste/recycling/partners", {
-        method: "POST",
+      await apiRequest(editingPartnerId ? `/api/waste/recycling/partners/${editingPartnerId}` : "/api/waste/recycling/partners", {
+        method: editingPartnerId ? "PATCH" : "POST",
         body: JSON.stringify({
           partnerType: f.get("partnerType"),
           name: f.get("name"),
@@ -496,8 +602,9 @@ export default function RecyclingPage() {
       });
       el.reset();
       setForm("");
+      setEditingPartnerId("");
       setTab("partners");
-      setNotice("Trade partner saved.");
+      setNotice(editingPartnerId ? "Trade partner details updated." : "Trade partner saved.");
       await load();
     } catch (x) {
       setError(x instanceof Error ? x.message : "Could not save trade partner");
@@ -749,18 +856,30 @@ export default function RecyclingPage() {
       ["stock", "Material stock"],
       ["sales", "Industrial sales"],
       ["float", "Finance & accounting"],
-    ] as const).filter(([id]) => !workerMode || (fieldManagerMode ? ["purchases", "sorting", "stock", "float"].includes(id) : collectorMode ? ["purchases", "sales"].includes(id) : ["partners", "stock", "sales"].includes(id)));
+      ["history", "Corrections history"],
+    ] as const).filter(([id]) => !workerMode || (fieldManagerMode ? ["insights", "partners", "purchases", "sorting", "stock", "sales", "float", "history"].includes(id) : collectorMode ? ["purchases", "sales"].includes(id) : ["partners", "stock", "sales"].includes(id))),
+    tabHelp: Record<(typeof tabs)[number][0], string> = {
+      insights: "Today’s priorities, material flow and business performance.",
+      partners: "Suppliers and buyers, contacts and outstanding balances.",
+      purchases: "Material received, supplier costs and purchase payments.",
+      sorting: "Processing batches, recovery, rejected weight and processing cost.",
+      stock: "Available quantities, inventory value and verified adjustments.",
+      sales: "Dispatches, invoices, customer payments and follow-up.",
+      float: "Office cash, field float, obligations and trading result.",
+      history: "Permanent audit trail of authorized transaction corrections.",
+    },
+    activeTabLabel = tabs.find(([id]) => id === tab)?.[1] ?? "Workspace";
   return (
     <AppShell>
-      <div className="mx-auto max-w-7xl">
+      <div className="mx-auto max-w-[1500px]">
         <PageHeader
           eyebrow="Recycling company operations"
-          title="EcoTrade workspace"
-          description={fieldManagerMode ? "Supervise field purchasing, sorting, material stock and daily worker activity." : collectorMode ? "Record material bought each day and any approved sale to a local buyer." : salesMode ? "Manage saleable stock, industrial buyers, dispatches, invoices and payment follow-up." : "Track manager float, purchases, sorting, industrial sales, expenses and profit in one connected workflow."}
+          title="Recycling operations"
+          description={fieldManagerMode ? "Run purchasing, processing, stock, trade partners, sales, field finance and the daily operations team from one connected workspace." : collectorMode ? "Record material bought each day and any approved sale to a local buyer." : salesMode ? "Manage saleable stock, industrial buyers, dispatches, invoices and payment follow-up." : "Track manager float, purchases, sorting, industrial sales, expenses and profit in one connected workflow."}
           action={
             recycling ? (
               <div className="relative flex gap-2">
-                {!workerMode && <button
+                {!limitedWorkerMode && <button
                   onClick={exportRecords}
                   className="border border-slate-400 px-4 py-2.5 text-sm font-semibold"
                 >
@@ -769,7 +888,7 @@ export default function RecyclingPage() {
                 <button
                   onClick={() => setActionMenu((open) => !open)}
                   aria-expanded={actionMenu}
-                  className="bg-[#3156a3] px-5 py-2.5 text-sm font-semibold text-white"
+                  className="bg-[var(--color-action)] px-5 py-2.5 text-sm font-semibold text-white"
                 >
                   + New transaction
                 </button>
@@ -799,7 +918,12 @@ export default function RecyclingPage() {
                       [
                         "float",
                         "Update manager float",
-                        "Record money given or other spending",
+                        "Issue, use or return accountable field cash",
+                      ],
+                      [
+                        "cash",
+                        "Post cash movement",
+                        "Record referenced business cash in or cash out",
                       ],
                       [
                         "partner",
@@ -811,7 +935,7 @@ export default function RecyclingPage() {
                         "Add material type",
                         "Extend the company material catalogue",
                       ],
-                    ].filter(([kind]) => !workerMode || (fieldManagerMode ? ["purchase", "sorting", "adjustment", "material", "float"].includes(kind) : collectorMode ? ["purchase", "sale"].includes(kind) : ["sale", "partner"].includes(kind))).map(([kind, title, description]) => {
+                    ].filter(([kind]) => !workerMode || (fieldManagerMode ? ["purchase", "sorting", "adjustment", "sale", "float", "partner", "material"].includes(kind) : collectorMode ? ["purchase", "sale"].includes(kind) : ["sale", "partner"].includes(kind))).map(([kind, title, description]) => {
                       const disabled =
                         kind === "sorting"
                           ? !data?.lots.some(
@@ -857,19 +981,50 @@ export default function RecyclingPage() {
         )}
         {data && recycling && (
           <>
-            {workerMode && <section className="mt-7 border-l-2 border-[#3156a3] bg-blue-50 p-5">
+            <nav className="sticky top-0 z-20 mt-5 border border-slate-200 bg-white shadow-sm" aria-label="Recycling workspace sections">
+              <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8">
+                {tabs.map(([id, label]) => (
+                  <button
+                    key={id}
+                    onClick={() => {
+                      setTab(id);
+                      setError("");
+                      setNotice("");
+                    }}
+                    aria-current={tab === id ? "page" : undefined}
+                    className={`min-h-12 border-b border-r border-slate-100 px-3 py-2 text-left text-sm font-semibold transition-colors xl:text-center ${tab === id ? "bg-[var(--color-action)] text-white" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{activeTabLabel}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{tabHelp[tab]}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {tab === "purchases" && <button onClick={() => openForm("purchase")} className="bg-[var(--color-action)] px-3 py-2 text-xs font-semibold text-white">Record purchase</button>}
+                  {tab === "sorting" && <button disabled={!data.lots.some((item) => item.origin === "purchase" && Number(item.available_kg) > 0)} onClick={() => openForm("sorting")} className="bg-[var(--color-action)] px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">Record sorting</button>}
+                  {tab === "partners" && <button onClick={() => openForm("partner")} className="bg-[var(--color-action)] px-3 py-2 text-xs font-semibold text-white">Add trade partner</button>}
+                  {tab === "stock" && <button onClick={() => openForm("material")} className="border border-[var(--color-action)] bg-white px-3 py-2 text-xs font-semibold text-[var(--color-action)]">Add material type</button>}
+                  {tab === "float" && <button onClick={() => openForm("float")} className="bg-[var(--color-action)] px-3 py-2 text-xs font-semibold text-white">Record float movement</button>}
+                </div>
+              </div>
+            </nav>
+            {workerMode && (limitedWorkerMode || tab === "insights") && <section className="mt-5 border-l-2 border-[var(--color-action)] bg-blue-50 p-4">
               <div className="flex flex-wrap items-end justify-between gap-4">
-                <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">Your responsibility</p><h2 className="mt-1 text-xl font-semibold">{fieldManagerMode ? "Field operations supervision" : collectorMode ? "Daily collection and purchasing" : "Industrial sales and buyer management"}</h2></div>
+                <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--color-action)]">Your responsibility</p><h2 className="mt-1 text-xl font-semibold">{fieldManagerMode ? "Field operations supervision" : collectorMode ? "Daily collection and purchasing" : "Industrial sales and buyer management"}</h2></div>
                 <label className="text-xs font-semibold text-slate-600">Activity date<input type="date" value={activityDate} max={data.operations.operatingDate} onChange={(event) => setActivityDate(event.target.value)} className="mt-1 block border border-blue-200 bg-white px-3 py-2 text-sm text-slate-900" /></label>
               </div>
-              <p className="mt-2 text-sm text-slate-600">{fieldManagerMode ? "Review the whole field team, record or correct physical material movements, and keep purchasing and stock operations current. Finance, company access and permits remain with the company administrator." : collectorMode ? "Record every material purchase with its real kilograms, material type, supplier, price, and date. The totals below match the selected day and the records shown below." : "Use saleable stock to record industry sales, maintain buyer records, issue traceable invoice details, and follow up outstanding payments."}</p>
-              <div className="mt-5 grid gap-px bg-blue-200 sm:grid-cols-4">{(fieldManagerMode?[["Purchases",selectedActivity.purchases],["Kg received",`${Number(selectedActivity.purchasedKg).toLocaleString()} kg`],["Available stock",`${Number(data.summary.availableKg).toLocaleString()} kg`],["Selected date",activityDate ? new Date(`${activityDate}T00:00:00`).toLocaleDateString("en-GB") : "—"]]:collectorMode?[["Purchases",selectedActivity.purchases],["Kg bought",`${Number(selectedActivity.purchasedKg).toLocaleString()} kg`],["Local sales",selectedActivity.sales],["Kg sold",`${Number(selectedActivity.soldKg).toLocaleString()} kg`]]:[["Sales",selectedActivity.sales],["Kg dispatched",`${Number(selectedActivity.soldKg).toLocaleString()} kg`],["Sales value",money(selectedActivity.saleValueUgx)],["Selected date",activityDate ? new Date(`${activityDate}T00:00:00`).toLocaleDateString("en-GB") : "—"]]).map(([label,value])=><div key={label} className="bg-white p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 font-semibold">{value}</p></div>)}</div>
+              <p className="mt-2 text-sm text-slate-600">{fieldManagerMode ? "Run purchasing, processing, stock, sales and field finance from one workspace." : collectorMode ? "Record every material purchase with its real kilograms, material type, supplier, price, and date." : "Manage saleable stock, industrial buyers, dispatches and payment follow-up."}</p>
+              <div className="mt-3 grid gap-px bg-blue-200 sm:grid-cols-4">{(fieldManagerMode?[["Purchases",selectedActivity.purchases],["Kg received",`${Number(selectedActivity.purchasedKg).toLocaleString()} kg`],["Available stock",`${Number(data.summary.availableKg).toLocaleString()} kg`],["Selected date",activityDate ? new Date(`${activityDate}T00:00:00`).toLocaleDateString("en-GB") : "—"]]:collectorMode?[["Purchases",selectedActivity.purchases],["Kg bought",`${Number(selectedActivity.purchasedKg).toLocaleString()} kg`],["Local sales",selectedActivity.sales],["Kg sold",`${Number(selectedActivity.soldKg).toLocaleString()} kg`]]:[["Sales",selectedActivity.sales],["Kg dispatched",`${Number(selectedActivity.soldKg).toLocaleString()} kg`],["Sales value",money(selectedActivity.saleValueUgx)],["Selected date",activityDate ? new Date(`${activityDate}T00:00:00`).toLocaleDateString("en-GB") : "—"]]).map(([label,value])=><div key={label} className="bg-white px-3 py-2.5"><p className="text-xs text-slate-500">{label}</p><p className="mt-0.5 font-semibold">{value}</p></div>)}</div>
             </section>}
-            {workerMode && data.operations.isClosed && <Feedback tone="warning">Today’s business day is closed. You can review records, but new transactions dated today require a company administrator to reopen the day.</Feedback>}
-            <section className={`${workerMode ? "hidden" : "mt-7"} border border-slate-200 bg-slate-50 p-5`}>
+            {limitedWorkerMode && data.operations.isClosed && <Feedback tone="warning">Today’s business day is closed. You can review records, but new transactions dated today require an operations manager or company administrator to reopen the day.</Feedback>}
+            <section className={`${limitedWorkerMode || tab !== "insights" ? "hidden" : "mt-5"} border border-slate-200 bg-slate-50 p-5`}>
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">
+                  <p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--color-action)]">
                     Daily workflow
                   </p>
                   <h2 className="mt-1 text-xl font-semibold">
@@ -884,14 +1039,14 @@ export default function RecyclingPage() {
                   {data.operations.isClosed ? (
                     <>
                       <span className="border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">Day closed ✓</span>
-                      {companyAdminMode && <button onClick={() => openForm("dailyReopen")} className="border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-[#3156a3]">Reopen day</button>}
+                      {(companyAdminMode || fieldManagerMode) && <button onClick={() => openForm("dailyReopen")} className="border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-[var(--color-action)]">Reopen day</button>}
                     </>
                   ) : (
-                    <button onClick={() => openForm("dailyClose")} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">Close business day</button>
+                    <button onClick={() => openForm("dailyClose")} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">Close business day</button>
                   )}
                 </div>
               </div>
-              {data.operations.isClosed && <div className="mt-4 border-l-2 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-900">Transactions dated {new Date(`${data.operations.operatingDate}T00:00:00`).toLocaleDateString("en-GB")} are locked. The recorded daily summary will not change unless a company administrator reopens the day.</div>}
+              {data.operations.isClosed && <div className="mt-4 border-l-2 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-900">Transactions dated {new Date(`${data.operations.operatingDate}T00:00:00`).toLocaleDateString("en-GB")} are locked. The recorded daily summary will not change unless an operations manager or company administrator reopens the day.</div>}
               <div className="mt-5 grid gap-px bg-slate-200 md:grid-cols-4">
                 {[
                   {
@@ -933,7 +1088,7 @@ export default function RecyclingPage() {
                   },
                 ].map((item) => (
                   <div key={item.step} className="bg-white p-4">
-                    <p className="text-xs font-semibold text-[#c6842f]">
+                    <p className="text-xs font-semibold text-[var(--color-accent)]">
                       STEP {item.step}
                     </p>
                     <h3 className="mt-2 font-semibold">{item.title}</h3>
@@ -947,7 +1102,7 @@ export default function RecyclingPage() {
                           ? openForm(item.form)
                           : setTab("sales")
                       }
-                      className="mt-3 text-sm font-semibold text-[#3156a3] disabled:cursor-not-allowed disabled:text-slate-400"
+                      className="mt-3 text-sm font-semibold text-[var(--color-action)] disabled:cursor-not-allowed disabled:text-slate-400"
                     >
                       {item.disabled ? "Complete previous step" : item.action} →
                     </button>
@@ -955,7 +1110,7 @@ export default function RecyclingPage() {
                 ))}
               </div>
             </section>
-            <section className={`${workerMode ? "hidden" : "mt-7"} grid border-y border-slate-300 sm:grid-cols-2 lg:grid-cols-5`}>
+            <section className={`${limitedWorkerMode || tab !== "insights" ? "hidden" : "mt-5"} grid border-y border-slate-300 sm:grid-cols-2 lg:grid-cols-5`}>
               {[
                 [
                   "Purchased",
@@ -982,61 +1137,46 @@ export default function RecyclingPage() {
                 </div>
               ))}
             </section>
-            {!workerMode && (data.summary.overdueReceivablesUgx > 0 ||
+            {!limitedWorkerMode && tab === "insights" && (data.summary.overdueReceivablesUgx > 0 ||
               data.summary.overduePayablesUgx > 0 ||
               data.summary.dueSoonReceivablesUgx > 0 ||
               data.summary.dueSoonPayablesUgx > 0) && (
               <section className="mt-5 grid gap-3 md:grid-cols-2" aria-label="Payment deadlines">
                 <button onClick={() => setTab("sales")} className="border-l-2 border-red-600 bg-red-50 p-4 text-left text-sm">
                   <strong>Customer payments:</strong> {money(data.summary.overdueReceivablesUgx)} overdue · {money(data.summary.dueSoonReceivablesUgx)} due within 7 days
-                  <span className="mt-1 block font-semibold text-[#3156a3]">Review industrial sales →</span>
+                  <span className="mt-1 block font-semibold text-[var(--color-action)]">Review industrial sales →</span>
                 </button>
-                <button onClick={() => setTab("purchases")} className="border-l-2 border-[#c6842f] bg-amber-50 p-4 text-left text-sm">
+                <button onClick={() => setTab("purchases")} className="border-l-2 border-[var(--color-accent)] bg-amber-50 p-4 text-left text-sm">
                   <strong>Supplier payments:</strong> {money(data.summary.overduePayablesUgx)} overdue · {money(data.summary.dueSoonPayablesUgx)} due within 7 days
-                  <span className="mt-1 block font-semibold text-[#3156a3]">Review credit purchases →</span>
+                  <span className="mt-1 block font-semibold text-[var(--color-action)]">Review credit purchases →</span>
                 </button>
               </section>
             )}
-            {!workerMode && <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <div className="flex items-center justify-between border-l-2 border-[#c6842f] bg-amber-50 p-4 text-sm">
+            {!limitedWorkerMode && tab === "insights" && <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div className="flex items-center justify-between border-l-2 border-[var(--color-accent)] bg-amber-50 p-4 text-sm">
                 <span>
                   <strong>Manager float:</strong>{" "}
                   {money(data.summary.floatBalanceUgx)}
                 </span>
                 <button
                   onClick={() => setForm("float")}
-                  className="font-semibold text-[#3156a3]"
+                  className="font-semibold text-[var(--color-action)]"
                 >
                   Record movement
                 </button>
               </div>
-              <div className="border-l-2 border-[#3156a3] bg-blue-50 p-4 text-sm">
+              <div className="border-l-2 border-[var(--color-action)] bg-blue-50 p-4 text-sm">
                 <strong>Processing cost:</strong>{" "}
                 {money(data.summary.processingCostUgx)} · included in
                 profit/loss
               </div>
             </div>}
-            <nav className="mt-8 flex gap-6 overflow-x-auto border-b">
-              {tabs.map(([id, label]) => (
-                <button
-                  key={id}
-                  onClick={() => {
-                    setTab(id);
-                    setError("");
-                    setNotice("");
-                  }}
-                  className={`whitespace-nowrap pb-3 text-sm font-semibold ${tab === id ? "border-b-2 border-[#3156a3] text-[#3156a3]" : "text-slate-500"}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </nav>
             {tab === "insights" && (
               <div className="mt-6 space-y-7">
                 <section>
                   <div className="flex flex-wrap items-end justify-between gap-3">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">Today&apos;s operations</p>
+                      <p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--color-action)]">Today&apos;s operations</p>
                       <h2 className="mt-1 text-xl font-semibold">Material movement and work queue</h2>
                       <p className="mt-1 text-sm text-slate-500">A daily view of material received, processed, ready, and dispatched.</p>
                     </div>
@@ -1052,41 +1192,41 @@ export default function RecyclingPage() {
                   </div>
                   <div className="mt-5 grid gap-6 lg:grid-cols-[1.4fr_.6fr]">
                     <div>
-                      <div className="flex items-center justify-between gap-3"><h3 className="font-semibold">Materials awaiting processing</h3><button onClick={() => openForm("sorting")} disabled={!data.operations.workQueue.length} className="text-sm font-semibold text-[#3156a3] disabled:text-slate-400">Record sorting →</button></div>
+                      <div className="flex items-center justify-between gap-3"><h3 className="font-semibold">Materials awaiting processing</h3><button onClick={() => openForm("sorting")} disabled={!data.operations.workQueue.length} className="text-sm font-semibold text-[var(--color-action)] disabled:text-slate-400">Record sorting →</button></div>
                       {data.operations.workQueue.length ? <div className="mt-2 divide-y border-y text-sm">{data.operations.workQueue.map(item => <div key={item.lotId} className="grid gap-2 py-3 sm:grid-cols-[1fr_auto] sm:items-center"><div><p className="font-semibold">{item.materialType}</p><p className="text-xs text-slate-500">{item.sourceName} · received {new Date(item.receivedOn).toLocaleDateString("en-GB")} · {item.quality}</p></div><p className="font-semibold">{item.availableKg.toLocaleString()} kg available</p></div>)}</div> : <p className="mt-2 border-y py-5 text-sm text-slate-500">No purchased material is waiting. Record the next material purchase when it arrives.</p>}
                     </div>
                     <div className="border border-slate-200 p-4">
                       <h3 className="font-semibold">Stock position</h3>
                       <div className="mt-3 divide-y text-sm"><div className="flex justify-between py-3"><span>Incoming / unsorted</span><strong>{data.operations.awaitingSortingKg.toLocaleString()} kg</strong></div><div className="flex justify-between py-3"><span>Sorted saleable stock</span><strong>{data.operations.saleableStockKg.toLocaleString()} kg</strong></div></div>
-                      <button onClick={() => setTab("stock")} className="mt-3 text-sm font-semibold text-[#3156a3]">Open material stock →</button>
+                      <button onClick={() => setTab("stock")} className="mt-3 text-sm font-semibold text-[var(--color-action)]">Open material stock →</button>
                     </div>
                   </div>
                 </section>
-                {!workerMode && <section>
+                {!limitedWorkerMode && <section>
                   <div className="flex flex-wrap items-end justify-between gap-3 border-t pt-6">
                     <div>
                       <h2 className="text-xl font-semibold">Material catalogue</h2>
                       <p className="mt-1 text-sm text-slate-500">The same controlled material names are used when receiving, sorting, reporting, and selling stock.</p>
                     </div>
-                    <button onClick={() => openForm("material")} className="border border-[#3156a3] px-4 py-2.5 text-sm font-semibold text-[#3156a3]">Add material type</button>
+                    <button onClick={() => openForm("material")} className="border border-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-[var(--color-action)]">Add material type</button>
                   </div>
                   <div className="mt-4 grid gap-px bg-slate-200 sm:grid-cols-2 lg:grid-cols-3">
                     {data.materials.map((material) => (
                       <div key={material.id} className="flex items-center justify-between gap-3 bg-white p-4">
                         <div><p className="font-semibold">{material.name}</p><p className="text-xs capitalize text-slate-500">{material.category} · {material.active ? "Active" : "Inactive"}</p></div>
-                        <button disabled={saving} onClick={() => void toggleMaterial(material)} className="text-xs font-semibold text-[#3156a3]">{material.active ? "Deactivate" : "Activate"}</button>
+                        <button disabled={saving} onClick={() => void toggleMaterial(material)} className="text-xs font-semibold text-[var(--color-action)]">{material.active ? "Deactivate" : "Activate"}</button>
                       </div>
                     ))}
                   </div>
                 </section>}
                 <section>
-                  <p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">Payment control</p>
+                  <p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--color-action)]">Payment control</p>
                   <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
                     <div>
                       <h2 className="text-xl font-semibold">What must be collected or paid next</h2>
                       <p className="mt-1 text-sm text-slate-500">Balances are grouped by days past their payment deadline.</p>
                     </div>
-                    <button onClick={() => setTab("sales")} className="text-sm font-semibold text-[#3156a3]">Open industrial sales →</button>
+                    <button onClick={() => setTab("sales")} className="text-sm font-semibold text-[var(--color-action)]">Open industrial sales →</button>
                   </div>
                   <div className="mt-4 grid gap-5 lg:grid-cols-2">
                     {([
@@ -1111,12 +1251,12 @@ export default function RecyclingPage() {
                     </div>
                     <div>
                       <h3 className="font-semibold">Scheduled follow-ups</h3>
-                      {data.upcomingFollowUps.length ? <div className="mt-2 divide-y border-y text-sm">{data.upcomingFollowUps.slice(0,5).map(x=><button key={x.saleId} onClick={()=>setTab("sales")} className="flex w-full items-center justify-between gap-4 py-3 text-left"><span><strong>{x.buyerName}</strong><span className="block text-xs text-slate-500">{x.invoiceNumber||"No invoice number"} · {new Date(x.nextFollowUpOn).toLocaleDateString("en-GB")}</span></span><span className="font-semibold text-[#3156a3]">{money(x.amountUgx)} →</span></button>)}</div>:<p className="mt-2 border-y py-5 text-sm text-slate-500">No payment follow-ups scheduled.</p>}
+                      {data.upcomingFollowUps.length ? <div className="mt-2 divide-y border-y text-sm">{data.upcomingFollowUps.slice(0,5).map(x=><button key={x.saleId} onClick={()=>setTab("sales")} className="flex w-full items-center justify-between gap-4 py-3 text-left"><span><strong>{x.buyerName}</strong><span className="block text-xs text-slate-500">{x.invoiceNumber||"No invoice number"} · {new Date(x.nextFollowUpOn).toLocaleDateString("en-GB")}</span></span><span className="font-semibold text-[var(--color-action)]">{money(x.amountUgx)} →</span></button>)}</div>:<p className="mt-2 border-y py-5 text-sm text-slate-500">No payment follow-ups scheduled.</p>}
                     </div>
                   </div>
                 </section>
                 <section>
-                  <p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">
+                  <p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--color-action)]">
                     Material recovery
                   </p>
                   <h2 className="mt-1 text-xl font-semibold">
@@ -1272,7 +1412,8 @@ export default function RecyclingPage() {
                         <th>Partner</th>
                         <th>Role</th>
                         <th>Contact</th>
-                        <th>Tax number</th>
+                        <th>Business activity</th>
+                        <th>Outstanding</th>
                         <th>Status</th>
                         <th>Action</th>
                       </tr>
@@ -1295,20 +1436,43 @@ export default function RecyclingPage() {
                                 .join(" · ") || "No contact recorded"}
                             </p>
                           </td>
-                          <td>{partner.tax_number || "—"}</td>
+                          <td>
+                            <p>{data.lots.filter((item) => item.origin === "purchase" && item.supplier_partner_id === partner.id).length} purchases</p>
+                            <p className="table-secondary">{data.sales.filter((item) => item.buyer_partner_id === partner.id).length} sales</p>
+                          </td>
+                          <td>
+                            <p>{money(data.lots.filter((item) => item.origin === "purchase" && item.supplier_partner_id === partner.id).reduce((sum, item) => sum + Number(item.balance_ugx), 0))}</p>
+                            <p className="table-secondary">payable</p>
+                            <p className="mt-1">{money(data.sales.filter((item) => item.buyer_partner_id === partner.id).reduce((sum, item) => sum + Number(item.balance_ugx), 0))}</p>
+                            <p className="table-secondary">receivable</p>
+                          </td>
                           <td>
                             <Status
                               value={partner.active ? "active" : "inactive"}
                             />
                           </td>
                           <td>
-                            <button
-                              disabled={saving}
-                              onClick={() => void togglePartner(partner)}
-                              className="text-sm font-semibold text-[#3156a3]"
-                            >
-                              {partner.active ? "Deactivate" : "Activate"}
-                            </button>
+                            <div className="flex flex-wrap gap-3">
+                              <button
+                                onClick={() => { setSelectedPartnerId(partner.id); setForm("partnerLedger"); }}
+                                className="text-sm font-semibold text-[var(--color-action)]"
+                              >
+                                View ledger
+                              </button>
+                              <button
+                                onClick={() => { setEditingPartnerId(partner.id); setForm("partner"); }}
+                                className="text-sm font-semibold text-[var(--color-action)]"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                disabled={saving}
+                                onClick={() => void togglePartner(partner)}
+                                className="text-sm font-semibold text-[var(--color-action)]"
+                              >
+                                {partner.active ? "Deactivate" : "Activate"}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1322,11 +1486,50 @@ export default function RecyclingPage() {
                   action={
                     <button
                       onClick={() => setForm("partner")}
-                      className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white"
+                      className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white"
                     >
                       Add first partner
                     </button>
                   }
+                />
+              ))}
+            {tab === "history" &&
+              ((data.transactionEdits ?? []).length ? (
+                <div className="mt-5 space-y-4">
+                  <div className="border-l-2 border-[var(--color-action)] bg-blue-50 p-4 text-sm text-slate-700">
+                    Every purchase and sale correction is kept here. Original and corrected values remain visible for accountability; closed operating days must be reopened before a correction.
+                  </div>
+                  {(data.transactionEdits ?? []).map((edit) => {
+                    const changes = auditChanges(edit);
+                    return (
+                      <article key={edit.id} className="border border-slate-200 bg-white p-4 sm:p-5">
+                        <div className="flex flex-col justify-between gap-2 border-b border-slate-200 pb-3 sm:flex-row sm:items-start">
+                          <div>
+                            <p className="font-semibold capitalize">{edit.transaction_type} corrected</p>
+                            <p className="mt-1 text-xs text-slate-500">Record {edit.transaction_id.slice(0, 8).toUpperCase()}</p>
+                          </div>
+                          <div className="text-sm text-slate-600 sm:text-right">
+                            <p>{edit.edited_by_name}</p>
+                            <p className="text-xs">{new Date(edit.edited_at).toLocaleString()}</p>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-3 md:grid-cols-2">
+                          {changes.map((change) => (
+                            <div key={change.key} className="bg-slate-50 p-3 text-sm">
+                              <p className="font-semibold">{change.label}</p>
+                              <p className="mt-1 text-slate-500 line-through">{auditValue(change.key, change.before)}</p>
+                              <p className="mt-1 text-[var(--color-action)]">→ {auditValue(change.key, change.after)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyState
+                  title="No transaction corrections"
+                  description="When an authorized manager corrects a purchase or sale, the complete change history will appear here."
                 />
               ))}
             {tab === "purchases" &&
@@ -1377,17 +1580,18 @@ export default function RecyclingPage() {
                                 </p>
                               )}
                               {Number(x.paid_ugx) > 0 && (
-                                <button onClick={() => { setSelectedPurchaseId(x.id); setForm("purchaseHistory"); }} className="mt-2 block text-xs font-semibold text-[#3156a3]">View payment history</button>
+                                <button onClick={() => { setSelectedPurchaseId(x.id); setForm("purchaseHistory"); }} className="mt-2 block text-xs font-semibold text-[var(--color-action)]">View payment history</button>
                               )}
-                              {x.purchase_payment_status !== "paid" && !workerMode && (
+                              {x.purchase_payment_status !== "paid" && !limitedWorkerMode && (
                                 <div className="mt-2 flex flex-wrap gap-3">
-                                  <button disabled={saving} onClick={() => { setSelectedPurchaseId(x.id); setForm("purchasePayment"); }} className="text-xs font-semibold text-[#3156a3]">Record payment</button>
-                                  <button disabled={saving} onClick={() => { setSelectedPurchaseId(x.id); setForm("purchaseDue"); }} className="text-xs font-semibold text-[#3156a3]">Change due date</button>
+                                  <button disabled={saving} onClick={() => { setSelectedPurchaseId(x.id); setForm("purchasePayment"); }} className="text-xs font-semibold text-[var(--color-action)]">Record payment</button>
+                                  <button disabled={saving} onClick={() => { setSelectedPurchaseId(x.id); setForm("purchaseDue"); }} className="text-xs font-semibold text-[var(--color-action)]">Change due date</button>
                                 </div>
                               )}
                             </td>
                             <td>
                               <Status value={x.status} />
+                              {(fieldManagerMode || companyAdminMode) && <button onClick={() => { setEditingPurchaseId(x.id); setForm("purchase"); }} className="mt-2 block text-xs font-semibold text-[var(--color-action)]">Edit purchase</button>}
                             </td>
                           </tr>
                         ))}
@@ -1443,25 +1647,26 @@ export default function RecyclingPage() {
                 />
               ))}
             {tab === "stock" && (
-              <div className="mt-5 space-y-7">
-                <section>
-                  <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="mt-5 space-y-4">
+                <section className="border border-slate-200 bg-white">
+                  <div className="flex flex-col gap-4 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                      <h2 className="text-xl font-semibold">Available material</h2>
-                      <p className="mt-1 text-sm text-slate-500">
-                        Current stock after purchases, sorting, sales, and approved corrections.
-                      </p>
+                      <p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--color-action)]">Inventory control</p>
+                      <h2 className="mt-1 text-xl font-semibold">Material stock</h2>
+                      <p className="mt-1 text-sm text-slate-500">Live quantities after receiving, processing, sales and corrections.</p>
                     </div>
-                    <button
-                      disabled={!data.lots.length}
-                      onClick={() => openForm("adjustment")}
-                      className="border border-[#3156a3] px-4 py-2.5 text-sm font-semibold text-[#3156a3] disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Adjust stock
-                    </button>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input aria-label="Search material stock" value={stockQuery} onChange={(event) => setStockQuery(event.target.value)} placeholder="Search material, source or quality" className="min-w-64 border border-slate-300 px-3 py-2 text-sm" />
+                      <button disabled={!data.lots.length} onClick={() => openForm("adjustment")} className="bg-[var(--color-action)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">Adjust stock</button>
+                    </div>
                   </div>
-                  {data.lots.some((x) => Number(x.available_kg) > 0) ? (
-                    <div className="table-wrap mt-4">
+                  <div className="grid gap-px bg-slate-200 sm:grid-cols-3">
+                    <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Available</p><p className="mt-1 text-lg font-semibold">{data.summary.availableKg.toLocaleString()} kg</p></div>
+                    <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Inventory value</p><p className="mt-1 text-lg font-semibold">{money(data.summary.inventoryValueUgx)}</p></div>
+                    <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Active material lots</p><p className="mt-1 text-lg font-semibold">{data.lots.filter((item) => Number(item.available_kg) > 0).length}</p></div>
+                  </div>
+                  {filteredStock.length ? (
+                    <div className="table-wrap">
                   <table>
                     <thead>
                       <tr>
@@ -1474,9 +1679,7 @@ export default function RecyclingPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {data.lots
-                        .filter((x) => Number(x.available_kg) > 0)
-                        .map((x) => (
+                      {filteredStock.map((x) => (
                           <tr key={x.id}>
                             <td className="table-primary">{x.material_type}</td>
                             <td>
@@ -1499,15 +1702,15 @@ export default function RecyclingPage() {
                     </div>
                   ) : (
                     <EmptyState
-                      title="No stock available"
-                      description="Material stock appears after the first purchase or sorting output is recorded."
+                      title={stockQuery ? "No matching material" : "No stock available"}
+                      description={stockQuery ? "Try another material, source, or quality." : "Material stock appears after the first purchase or sorting output is recorded."}
                     />
                   )}
                 </section>
-                <section>
-                  <div className="flex flex-wrap items-end justify-between gap-3 border-t pt-6">
+                <section className="border border-slate-200 bg-white p-4">
+                  <div className="flex flex-wrap items-end justify-between gap-3">
                     <div>
-                      <h2 className="text-xl font-semibold">Adjustment history</h2>
+                      <h2 className="font-semibold">Recent stock adjustments</h2>
                       <p className="mt-1 text-sm text-slate-500">
                         A permanent audit trail for loss, damage, and verified stock-count corrections.
                       </p>
@@ -1517,7 +1720,7 @@ export default function RecyclingPage() {
                     </p>
                   </div>
                   {data.stockAdjustments.length ? (
-                    <div className="table-wrap mt-4">
+                    <div className="table-wrap mt-3">
                       <table>
                         <thead>
                           <tr>
@@ -1525,7 +1728,7 @@ export default function RecyclingPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {data.stockAdjustments.map((x) => (
+                          {data.stockAdjustments.slice(0, 8).map((x) => (
                             <tr key={x.id}>
                               <td>{new Date(x.adjustment_date).toLocaleDateString("en-GB")}</td>
                               <td><p className="table-primary">{x.material_type}</p><p className="table-secondary">{x.source_name}</p></td>
@@ -1546,24 +1749,36 @@ export default function RecyclingPage() {
               </div>
             )}
             {tab === "sales" &&
-              (visibleSales.length ? (
-                <div className="table-wrap mt-5">
+              (<section className="mt-5 border border-slate-200 bg-white">
+                <div className="flex flex-col gap-4 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--color-action)]">Sales control</p><h2 className="mt-1 text-xl font-semibold">Industrial sales</h2><p className="mt-1 text-sm text-slate-500">Dispatch, payment and buyer follow-up in one compact view.</p></div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input aria-label="Search industrial sales" value={salesQuery} onChange={(event) => setSalesQuery(event.target.value)} placeholder="Search buyer, material or invoice" className="min-w-64 border border-slate-300 px-3 py-2 text-sm" />
+                    <select aria-label="Filter sales by payment status" value={salesStatus} onChange={(event) => setSalesStatus(event.target.value)} className="border border-slate-300 bg-white px-3 py-2 text-sm"><option value="all">All payments</option><option value="paid">Paid</option><option value="partially_paid">Partially paid</option><option value="credit">Credit</option><option value="due_soon">Due soon</option><option value="overdue">Overdue</option></select>
+                    <button disabled={!data.lots.some((item) => Number(item.available_kg) > 0)} onClick={() => openForm("sale")} className="bg-[var(--color-action)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">Record sale</button>
+                  </div>
+                </div>
+                <div className="grid gap-px bg-slate-200 sm:grid-cols-4">
+                  <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Sales revenue</p><p className="mt-1 text-lg font-semibold">{money(data.summary.revenueUgx)}</p></div>
+                  <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Receivables</p><p className="mt-1 text-lg font-semibold">{money(data.summary.unpaidSalesUgx)}</p></div>
+                  <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Quantity sold</p><p className="mt-1 text-lg font-semibold">{data.summary.soldKg.toLocaleString()} kg</p></div>
+                  <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Net trading result</p><p className={`mt-1 text-lg font-semibold ${data.summary.profitLossUgx < 0 ? "text-red-700" : ""}`}>{money(data.summary.profitLossUgx)}</p></div>
+                </div>
+              {filteredSales.length ? (
+                <div className="table-wrap">
                   <table>
                     <thead>
                       <tr>
                         <th>Date / material</th>
                         <th>Buyer</th>
-                        <th>Recorded by</th>
                         <th>Invoice</th>
                         <th>Quantity</th>
-                        <th>Gross sale</th>
-                        <th>Sale expenses</th>
-                        <th>Net income</th>
-                        <th>Status</th>
+                        <th>Value / balance</th>
+                        <th>Payment & actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {visibleSales.map((x) => (
+                      {filteredSales.map((x) => (
                         <tr key={x.id}>
                           <td>
                             <p className="table-primary">
@@ -1575,7 +1790,6 @@ export default function RecyclingPage() {
                             <p>{x.buyer_name}</p>
                             <p className="table-secondary capitalize">{x.sale_channel} · {x.industry}</p>
                           </td>
-                          <td>{x.recorded_by_name || "System"}</td>
                           <td>
                             <p>{x.invoice_number || "—"}</p>
                             {x.due_on && x.status !== "paid" && <p className="table-secondary">Due {new Date(x.due_on).toLocaleDateString("en-GB")}</p>}
@@ -1592,23 +1806,21 @@ export default function RecyclingPage() {
                             )}
                           </td>
                           <td>{Number(x.quantity_kg).toLocaleString()} kg</td>
-                          <td>{money(x.total_ugx)}{Number(x.paid_ugx) > 0 && <p className="table-secondary">Paid {money(x.paid_ugx)} · Balance {money(x.balance_ugx)}</p>}</td>
-                          <td>{money(x.expenses_ugx)}</td>
-                          <td className="font-semibold">
-                            {money(x.net_income_ugx)}
-                          </td>
+                          <td><p className="font-semibold">{money(x.total_ugx)}</p><p className="table-secondary">Net {money(x.net_income_ugx)} · Expenses {money(x.expenses_ugx)}</p><p className="table-secondary">Paid {money(x.paid_ugx)} · Balance {money(x.balance_ugx)}</p></td>
                           <td>
-                            <div className="flex gap-2">
+                            <div className="flex items-center gap-2">
                               <Status value={x.payment_state} />
-                              {x.status !== "paid" && !collectorMode && (
-                                <>
-                                  <button disabled={saving} onClick={() => { setSelectedSaleId(x.id); setForm("payment"); }} className="text-xs font-semibold text-[#3156a3]">Mark paid</button>
-                                  <button disabled={saving} onClick={() => { setSelectedSaleId(x.id); setForm("saleDue"); }} className="text-xs font-semibold text-[#3156a3]">Change due date</button>
-                                  <button disabled={saving} onClick={() => { setSelectedSaleId(x.id); setForm("followUp"); }} className="text-xs font-semibold text-[#3156a3]">Record follow-up</button>
-                                </>
-                              )}
+                              <details className="relative">
+                                <summary className="cursor-pointer list-none border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-[var(--color-action)]">Actions</summary>
+                                <div className="absolute right-0 z-20 mt-1 w-44 border border-slate-200 bg-white p-1 shadow-lg">
+                                  {x.status !== "paid" && !collectorMode && <button disabled={saving} onClick={() => { setSelectedSaleId(x.id); setForm("payment"); }} className="block w-full px-3 py-2 text-left text-xs font-semibold hover:bg-slate-50">Record payment</button>}
+                                  {x.status !== "paid" && !collectorMode && <button disabled={saving} onClick={() => { setSelectedSaleId(x.id); setForm("saleDue"); }} className="block w-full px-3 py-2 text-left text-xs font-semibold hover:bg-slate-50">Change due date</button>}
+                                  {x.status !== "paid" && !collectorMode && <button disabled={saving} onClick={() => { setSelectedSaleId(x.id); setForm("followUp"); }} className="block w-full px-3 py-2 text-left text-xs font-semibold hover:bg-slate-50">Record follow-up</button>}
+                                  {(fieldManagerMode || companyAdminMode) && <button onClick={() => { setEditingSaleId(x.id); setForm("sale"); }} className="block w-full px-3 py-2 text-left text-xs font-semibold hover:bg-slate-50">Edit sale</button>}
+                                  {Number(x.paid_ugx) > 0 && <button onClick={() => { setSelectedSaleId(x.id); setForm("saleHistory"); }} className="block w-full px-3 py-2 text-left text-xs font-semibold hover:bg-slate-50">Payment history</button>}
+                                </div>
+                              </details>
                             </div>
-                            {Number(x.paid_ugx) > 0 && <button onClick={() => { setSelectedSaleId(x.id); setForm("saleHistory"); }} className="mt-2 text-xs font-semibold text-[#3156a3]">View payment history</button>}
                           </td>
                         </tr>
                       ))}
@@ -1616,29 +1828,27 @@ export default function RecyclingPage() {
                   </table>
                 </div>
               ) : (
-                <EmptyState
-                  title="No industrial sales"
-                  description="Record a sale from available graded material stock, including its buyer, price and selling expenses."
-                />
-              ))}
+                <EmptyState title={salesQuery || salesStatus !== "all" ? "No matching sales" : "No industrial sales"} description={salesQuery || salesStatus !== "all" ? "Clear the search or payment filter to see other sales." : "Record a sale from available graded material stock, including its buyer, price and selling expenses."} />
+              )}</section>)}
             {tab === "float" && <div className="mt-6 space-y-7">
-              {fieldManagerMode && <section className="border-l-2 border-[#3156a3] bg-blue-50 p-5"><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">Field finance</p><h2 className="mt-1 text-xl font-semibold">Employee float control</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Record money issued for field purchasing and expenses, then compare it with employee purchase records and the remaining float. Company banking, payroll, customer billing and full accounting remain restricted.</p><div className="mt-4 grid gap-px bg-blue-200 sm:grid-cols-2"><div className="bg-white p-4"><p className="text-xs text-slate-500">Current field float</p><p className="mt-1 text-xl font-semibold">{money(data.summary.floatBalanceUgx)}</p></div><div className="bg-white p-4"><p className="text-xs text-slate-500">Purchase spending recorded</p><p className="mt-1 text-xl font-semibold">{money(data.summary.purchaseCostUgx)}</p></div></div></section>}
+              {fieldManagerMode && <section className="border-l-2 border-[var(--color-action)] bg-blue-50 p-5"><p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--color-action)]">Field finance</p><h2 className="mt-1 text-xl font-semibold">Employee float control</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Record money issued for field purchasing and expenses, then compare it with employee purchase records and the remaining float. Company banking, payroll, customer billing and full accounting remain restricted.</p><div className="mt-4 grid gap-px bg-blue-200 sm:grid-cols-2"><div className="bg-white p-4"><p className="text-xs text-slate-500">Current field float</p><p className="mt-1 text-xl font-semibold">{money(data.summary.floatBalanceUgx)}</p></div><div className="bg-white p-4"><p className="text-xs text-slate-500">Purchase spending recorded</p><p className="mt-1 text-xl font-semibold">{money(data.summary.purchaseCostUgx)}</p></div></div></section>}
               {!fieldManagerMode && <><section>
                 <div className="flex flex-wrap items-end justify-between gap-3">
-                  <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#3156a3]">Finance control</p><h2 className="mt-1 text-xl font-semibold">Cash, obligations and profitability</h2><p className="mt-1 max-w-3xl text-sm text-slate-500">Cash answers what can be paid now. Receivables and payables show money still due. Profit uses only the cost of material actually sold; unsold material remains inventory.</p></div>
-                  <a href="/dashboard/billing" className="border border-[#3156a3] px-4 py-2.5 text-sm font-semibold text-[#3156a3]">Open full finance controls</a>
+                  <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--color-action)]">Finance control</p><h2 className="mt-1 text-xl font-semibold">Cash, obligations and profitability</h2><p className="mt-1 max-w-3xl text-sm text-slate-500">Cash answers what can be paid now. Receivables and payables show money still due. Profit uses only the cost of material actually sold; unsold material remains inventory.</p></div>
+                  <a href="/dashboard/billing" className="border border-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-[var(--color-action)]">Open full finance controls</a>
                 </div>
-                {!data.summary.openingBalanceConfigured && <div className="mt-4 border-l-4 border-[#c6842f] bg-amber-50 p-4 text-sm text-amber-950"><strong>Finance setup required.</strong> Set the verified opening balance before recording paid purchases or allocating manager float. <a href="/dashboard/billing" className="font-semibold text-[#3156a3] underline">Set opening balance →</a></div>}
+                {!data.summary.openingBalanceConfigured && <div className="mt-4 border-l-4 border-[var(--color-accent)] bg-amber-50 p-4 text-sm text-amber-950"><strong>Finance setup required.</strong> Set the verified opening balance before recording paid purchases or allocating manager float. <a href="/dashboard/billing" className="font-semibold text-[var(--color-action)] underline">Set opening balance →</a></div>}
                 <div className="mt-5 grid gap-px bg-slate-300 sm:grid-cols-2 lg:grid-cols-3">
-                  {[["Cash available",data.summary.cashPositionUgx,"Money currently available after received and paid transactions"],["Committed funds",data.summary.committedFundsUgx,"Approved or unpaid obligations reserved from cash"],["Available to commit",data.summary.availableToCommitUgx,"Maximum safe value for new credit commitments"],["Customer receivables",data.summary.unpaidSalesUgx,"Sales recorded but not yet fully collected"],["Supplier payables",data.summary.creditPurchasesUgx,"Material purchases still owed to suppliers"],["Manager float",data.summary.floatBalanceUgx,"Cash currently held for field purchasing"]].map(([label,value,help])=><div key={String(label)} className="bg-white p-4"><p className="text-xs font-semibold text-slate-500">{label}</p><p className={`mt-1 text-xl font-semibold ${Number(value)<0?"text-red-700":""}`}>{money(Number(value))}</p><p className="mt-2 text-xs leading-5 text-slate-500">{help}</p></div>)}
+                  {[["Office cash",data.summary.officeCashUgx,"Cash controlled by the office, excluding float"],["Manager float",data.summary.floatBalanceUgx,"Accountable cash currently held for field operations"],["Total controlled cash",data.summary.cashPositionUgx,"Office cash plus field cash after recorded spending"],["Committed funds",data.summary.committedFundsUgx,"Approved or unpaid obligations reserved from cash"],["Customer receivables",data.summary.unpaidSalesUgx,"Sales recorded but not yet collected"],["Supplier payables",data.summary.creditPurchasesUgx,"Material purchases still owed to suppliers"]].map(([label,value,help])=><div key={String(label)} className="bg-white p-4"><p className="text-xs font-semibold text-slate-500">{label}</p><p className={`mt-1 text-xl font-semibold ${Number(value)<0?"text-red-700":""}`}>{money(Number(value))}</p><p className="mt-2 text-xs leading-5 text-slate-500">{help}</p></div>)}
                 </div>
               </section>
               <section className="grid gap-5 lg:grid-cols-2">
                 <div className="border border-slate-200 bg-white p-5"><h3 className="font-semibold">Trading result</h3><div className="mt-3 divide-y text-sm">{[["Sales revenue",data.summary.revenueUgx],["Cost of material sold",-data.summary.costOfGoodsSoldUgx],["Gross profit",data.summary.grossProfitUgx],["Selling expenses",-data.summary.saleExpensesUgx],["Net trading profit / loss",data.summary.profitLossUgx]].map(([label,value])=><div key={String(label)} className="flex justify-between gap-4 py-3"><span>{label}</span><strong className={Number(value)<0?"text-red-700":""}>{money(Number(value))}</strong></div>)}</div></div>
                 <div className="border border-slate-200 bg-white p-5"><h3 className="font-semibold">Stock accounting</h3><div className="mt-3 divide-y text-sm"><div className="flex justify-between py-3"><span>Material purchased</span><strong>{money(data.summary.purchaseCostUgx)}</strong></div><div className="flex justify-between py-3"><span>Processing cost recorded</span><strong>{money(data.summary.processingCostUgx)}</strong></div><div className="flex justify-between py-3"><span>Unsold inventory value</span><strong>{money(data.summary.inventoryValueUgx)}</strong></div><div className="flex justify-between py-3"><span>Physical stock</span><strong>{data.summary.availableKg.toLocaleString()} kg</strong></div></div><p className="mt-3 text-xs leading-5 text-slate-500">Buying stock reduces cash but does not become a trading loss immediately. Its cost moves to cost of goods sold only when that material is sold.</p></div>
               </section>
-              <section className="border-y border-slate-300 bg-slate-50 p-5"><h3 className="font-semibold">How to record money correctly</h3><div className="mt-4 grid gap-4 text-sm md:grid-cols-4">{[["1. Fund the business","Set the verified opening balance under Finance. Do not use a fake sale to create cash."],["2. Buy material","Choose Paid only when cash actually leaves. Choose Credit when the supplier will be paid later."],["3. Record sales","Record the dispatch first. Mark payment only when the buyer’s money is actually received."],["4. Reconcile daily","Review cash, float, receivables and payables, then close the business day after corrections."]].map(([title,description])=><div key={title}><p className="font-semibold text-[#3156a3]">{title}</p><p className="mt-1 leading-6 text-slate-600">{description}</p></div>)}</div></section></>}
-              <section><div className="flex items-end justify-between gap-3"><div><h3 className="font-semibold">Manager float ledger</h3><p className="mt-1 text-sm text-slate-500">Money issued to field buyers and the purchasing spend recorded against it.</p></div><button onClick={()=>openForm("float")} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">Record float movement</button></div>
+              <section className="border-y border-slate-300 bg-slate-50 p-5"><h3 className="font-semibold">How to record money correctly</h3><div className="mt-4 grid gap-4 text-sm md:grid-cols-4">{[["1. Fund the business","Set the verified opening balance under Finance. Do not use a fake sale to create cash."],["2. Buy material","Choose Paid only when cash actually leaves. Choose Credit when the supplier will be paid later."],["3. Record sales","Record the dispatch first. Mark payment only when the buyer’s money is actually received."],["4. Reconcile daily","Review cash, float, receivables and payables, then close the business day after corrections."]].map(([title,description])=><div key={title}><p className="font-semibold text-[var(--color-action)]">{title}</p><p className="mt-1 leading-6 text-slate-600">{description}</p></div>)}</div></section></>}
+              {!fieldManagerMode&&<section><div className="flex flex-wrap items-end justify-between gap-3"><div><h3 className="font-semibold">Business cash movement ledger</h3><p className="mt-1 text-sm text-slate-500">Referenced owner funding, other non-sale income, withdrawals and corrections.</p></div><button onClick={()=>openForm("cash")} className="border border-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-[var(--color-action)]">Post cash movement</button></div>{data.cashMovements.length?<div className="table-wrap mt-4"><table><thead><tr><th>Date</th><th>Direction</th><th>Category</th><th>Reference</th><th>Amount</th><th>Recorded by</th></tr></thead><tbody>{data.cashMovements.map(x=><tr key={x.id}><td>{new Date(x.movement_date).toLocaleDateString("en-GB")}</td><td><Status value={x.direction}/></td><td className="capitalize">{x.category.replaceAll("_"," ")}</td><td>{x.reference}</td><td className={x.direction==="out"?"text-red-700":"text-green-700"}>{x.direction==="out"?"− ":"+ "}{money(x.amount_ugx)}</td><td>{x.recorded_by_name}</td></tr>)}</tbody></table></div>:<EmptyState title="No cash movements" description="Post only cash movements that are not already captured by a sale, purchase or expense."/>}</section>}
+              <section><div className="flex items-end justify-between gap-3"><div><h3 className="font-semibold">Manager float ledger</h3><p className="mt-1 text-sm text-slate-500">Money issued to field operations, used by linked work, and returned when unused.</p></div><button onClick={()=>openForm("float")} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">Record float movement</button></div>
               {data.floatTransactions.length ? (
                 <div className="table-wrap mt-4">
                   <table>
@@ -1659,12 +1869,12 @@ export default function RecyclingPage() {
                               "en-GB",
                             )}
                           </td>
-                          <td className="capitalize">{x.transaction_type}</td>
+                          <td>{x.transaction_type==="given"?"Issued to manager":x.transaction_type==="returned"?"Returned to office":"Used / spent"}</td>
                           <td>{money(x.amount_ugx)}</td>
                           <td className="font-semibold">
                             {money(x.running_balance_ugx)}
                           </td>
-                          <td>{x.notes || "—"}</td>
+                          <td><span className="block font-medium">{x.reference||"Automatic"}</span><span className="text-xs text-slate-500">{x.notes || "—"}</span></td>
                         </tr>
                       ))}
                     </tbody>
@@ -1691,8 +1901,8 @@ export default function RecyclingPage() {
               <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Material sold</p><p className="font-semibold">{Number(data?.operations.soldTodayKg || 0).toLocaleString()} kg</p></div>
             </div>
             <label className="block text-sm font-semibold">Closing note (optional)<textarea name="notes" rows={3} maxLength={500} placeholder="Handover note, variance explanation, or manager comment" className={field} /></label>
-            <div className="border-l-2 border-[#c6842f] bg-amber-50 p-3 text-sm text-slate-700">After closing, records dated {data?.operations.operatingDate} cannot be added or changed. A company administrator can reopen the day with a mandatory reason.</div>
-            <button disabled={saving} className="w-full bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white">{saving ? "Closing…" : "Confirm and close day"}</button>
+            <div className="border-l-2 border-[var(--color-accent)] bg-amber-50 p-3 text-sm text-slate-700">After closing, records dated {data?.operations.operatingDate} cannot be added or changed. A company administrator can reopen the day with a mandatory reason.</div>
+            <button disabled={saving} className="w-full bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white">{saving ? "Closing…" : "Confirm and close day"}</button>
           </form>
         </Modal>
         <Modal
@@ -1703,7 +1913,7 @@ export default function RecyclingPage() {
         >
           <form onSubmit={submitDailyReopen} className="space-y-4">
             <label className="block text-sm font-semibold">Reason for reopening<textarea required minLength={5} maxLength={500} name="reason" rows={4} placeholder="Explain the correction that must be made" className={field} /></label>
-            <button disabled={saving} className="w-full bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white">{saving ? "Reopening…" : "Reopen business day"}</button>
+            <button disabled={saving} className="w-full bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white">{saving ? "Reopening…" : "Reopen business day"}</button>
           </form>
         </Modal>
         <Modal
@@ -1723,20 +1933,20 @@ export default function RecyclingPage() {
                 <option value="plastic">Plastic</option><option value="paper">Paper</option><option value="metal">Metal</option><option value="glass">Glass</option><option value="organic">Organic</option><option value="textile">Textile</option><option value="other">Other</option>
               </select>
             </label>
-            <div className="border-l-2 border-[#3156a3] bg-blue-50 p-3 text-xs text-slate-700 sm:col-span-2">Use a specific commercial grade where possible. Existing transaction records will remain unchanged if this material is later deactivated.</div>
-            <button disabled={saving} className="bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white sm:col-span-2">{saving ? "Saving…" : "Add material type"}</button>
+            <div className="border-l-2 border-[var(--color-action)] bg-blue-50 p-3 text-xs text-slate-700 sm:col-span-2">Use a specific commercial grade where possible. Existing transaction records will remain unchanged if this material is later deactivated.</div>
+            <button disabled={saving} className="bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white sm:col-span-2">{saving ? "Saving…" : "Add material type"}</button>
           </form>
         </Modal>
         <Modal
           open={form === "purchase"}
-          title="Record material purchase"
-          description="Use a separate purchase for each material bought at a different price."
-          onClose={() => setForm("")}
+          title={editingPurchase ? "Edit material purchase" : "Record material purchase"}
+          description={editingPurchase ? "Correct the transaction. Stock already used or sold and payments already made remain protected." : "Use a separate purchase for each material bought at a different price."}
+          onClose={() => {setForm("");setEditingPurchaseId("");}}
         >
-          <form onSubmit={submitPurchase} className="grid gap-4 sm:grid-cols-2">
+          <form key={editingPurchase?.id || "new-purchase"} onSubmit={submitPurchase} className="grid gap-4 sm:grid-cols-2">
             <label className="text-sm font-semibold">
               Material type
-              <select name="materialType" defaultValue="" className={field}>
+              <select name="materialType" defaultValue={editingPurchase?.material_type || ""} className={field}>
                 <option value="">Choose material</option>
                 {data?.materials.filter((x) => x.active).map((x) => (
                   <option key={x.id} value={x.name}>{x.name}</option>
@@ -1750,7 +1960,7 @@ export default function RecyclingPage() {
             </label>
             <label className="text-sm font-semibold">
               Saved supplier (optional)
-              <select name="supplierPartnerId" className={field}>
+              <select name="supplierPartnerId" defaultValue={editingPurchase?.supplier_partner_id || ""} className={field}>
                 <option value="">Choose saved supplier</option>
                 {data?.partners
                   .filter(
@@ -1768,7 +1978,7 @@ export default function RecyclingPage() {
             </label>
             <label className="text-sm font-semibold">
               Supplier / collection source
-              <input required name="sourceName" className={field} />
+              <input required name="sourceName" defaultValue={editingPurchase?.source_name || ""} className={field} />
             </label>
             <label className="text-sm font-semibold">
               Kg bought
@@ -1778,6 +1988,7 @@ export default function RecyclingPage() {
                 min=".01"
                 step=".01"
                 name="quantityKg"
+                defaultValue={editingPurchase?.quantity_kg || ""}
                 className={field}
               />
             </label>
@@ -1788,6 +1999,7 @@ export default function RecyclingPage() {
                 type="number"
                 min="0"
                 name="unitPurchasePriceUgx"
+                defaultValue={editingPurchase?.unit_purchase_price_ugx || ""}
                 className={field}
               />
             </label>
@@ -1797,20 +2009,20 @@ export default function RecyclingPage() {
                 required
                 type="date"
                 name="collectedOn"
-                defaultValue={today()}
+                defaultValue={editingPurchase ? String(editingPurchase.collected_on).slice(0,10) : today()}
                 className={field}
               />
             </label>
             <label className="text-sm font-semibold">
               Material condition
-              <select name="quality" defaultValue="mixed" className={field}>
+              <select name="quality" defaultValue={editingPurchase?.quality || "mixed"} className={field}>
                 <option value="mixed">Mixed</option>
                 <option value="sorted">Sorted</option>
                 <option value="clean">Clean</option>
                 <option value="contaminated">Contaminated</option>
               </select>
             </label>
-            <label className="text-sm font-semibold">
+            {!editingPurchase && <label className="text-sm font-semibold">
               Purchase payment
               <select
                 name="purchasePaymentStatus"
@@ -1820,11 +2032,11 @@ export default function RecyclingPage() {
                 <option value="paid">Paid</option>
                 <option value="credit">Bought on credit</option>
               </select>
-            </label>
-            <label className="text-sm font-semibold">
+            </label>}
+            {!editingPurchase && <label className="text-sm font-semibold">
               Payment reference (optional)
               <input name="purchasePaymentReference" className={field} />
-            </label>
+            </label>}
             {expenseFields.map(([name, label]) => (
               <label key={name} className="text-sm font-semibold">
                 {label} (UGX)
@@ -1832,7 +2044,7 @@ export default function RecyclingPage() {
                   type="number"
                   min="0"
                   name={name}
-                  defaultValue="0"
+                  defaultValue={editingPurchase ? String(editingPurchase[name === "workerWagesUgx" ? "worker_wages_ugx" : name === "foodUgx" ? "food_ugx" : name === "transportUgx" ? "transport_ugx" : "other_expense_ugx"]) : "0"}
                   className={field}
                 />
               </label>
@@ -1843,11 +2055,11 @@ export default function RecyclingPage() {
                 type="number"
                 min="0"
                 name="driverFeeUgx"
-                defaultValue="0"
+                defaultValue={editingPurchase?.driver_fee_ugx || "0"}
                 className={field}
               />
             </label>
-            <label className="text-sm font-semibold">
+            {!editingPurchase && <label className="text-sm font-semibold">
               Paid from manager float (UGX)
               <input
                 type="number"
@@ -1856,16 +2068,16 @@ export default function RecyclingPage() {
                 defaultValue="0"
                 className={field}
               />
-            </label>
+            </label>}
             <label className="text-sm font-semibold sm:col-span-2">
               Notes
-              <textarea name="notes" rows={2} className={field} />
+              <textarea name="notes" rows={2} defaultValue={editingPurchase?.notes || ""} className={field} />
             </label>
             <button
               disabled={saving}
-              className="bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white sm:col-span-2"
+              className="bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white sm:col-span-2"
             >
-              {saving ? "Saving…" : "Save purchase"}
+              {saving ? "Saving…" : editingPurchase ? "Update purchase" : "Save purchase"}
             </button>
           </form>
         </Modal>
@@ -1955,28 +2167,19 @@ export default function RecyclingPage() {
                 className={field}
               />
             </label>
-            <label className="text-sm font-semibold">
-              Processing cost (UGX)
-              <input
-                type="number"
-                min="0"
-                name="processingCostUgx"
-                defaultValue="0"
-                className={field}
-              />
-            </label>
+            <div className="sm:col-span-2 border-y border-slate-200 py-4"><h3 className="font-semibold">Processing cost breakdown</h3><p className="mt-1 text-xs text-slate-500">Enter the real costs. The system totals them and adds them to this material batch.</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{[["workerWagesUgx","Worker wages"],["utilitiesUgx","Power / utilities"],["transportUgx","Processing transport"],["consumablesUgx","Bags and consumables"],["otherExpenseUgx","Other processing cost"]].map(([name,label])=><label key={name} className="text-sm font-semibold">{label} (UGX)<input type="number" min="0" name={name} defaultValue="0" className={field}/></label>)}<label className="text-sm font-semibold">Paid from manager float (UGX)<input type="number" min="0" name="managerFloatUsedUgx" defaultValue="0" className={field}/><span className="mt-1 block text-xs font-normal text-slate-500">Cannot exceed the total costs or available float.</span></label></div></div>
             <label className="text-sm font-semibold sm:col-span-2">
               Notes
               <textarea name="notes" rows={2} className={field} />
             </label>
-            <div className="border-l-2 border-[#c6842f] bg-amber-50 p-3 text-xs text-slate-700 sm:col-span-2">
+            <div className="border-l-2 border-[var(--color-accent)] bg-amber-50 p-3 text-xs text-slate-700 sm:col-span-2">
               Saleable output plus rejected weight cannot exceed the input
               weight. Any difference remains recorded as unclassified processing
               loss.
             </div>
             <button
               disabled={saving}
-              className="bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white sm:col-span-2"
+              className="bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white sm:col-span-2"
             >
               {saving ? "Saving…" : "Save sorting output"}
             </button>
@@ -2024,28 +2227,28 @@ export default function RecyclingPage() {
               Additional notes (optional)
               <textarea name="notes" rows={3} className={field} />
             </label>
-            <div className="border-l-2 border-[#c6842f] bg-amber-50 p-3 text-xs text-slate-700 sm:col-span-2">
+            <div className="border-l-2 border-[var(--color-accent)] bg-amber-50 p-3 text-xs text-slate-700 sm:col-span-2">
               This action changes available stock and creates a permanent audit record. It does not edit the original purchase, sorting, or sale record.
             </div>
-            <button disabled={saving} className="bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white sm:col-span-2">
+            <button disabled={saving} className="bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white sm:col-span-2">
               {saving ? "Saving…" : "Record stock adjustment"}
             </button>
           </form>
         </Modal>
         <Modal
           open={form === "sale"}
-          title={collectorMode ? "Record local sale" : "Record industrial sale"}
-          description="Stock reduces automatically and the sale remains traceable to the responsible worker."
-          onClose={() => setForm("")}
+          title={editingSale ? "Edit sale transaction" : collectorMode ? "Record local sale" : "Record industrial sale"}
+          description={editingSale ? "Correct sale details. Available stock is restored and recalculated automatically, while received payments remain protected." : "Stock reduces automatically and the sale remains traceable to the responsible worker."}
+          onClose={() => {setForm("");setEditingSaleId("");}}
         >
-          <form onSubmit={submitSale} className="grid gap-4 sm:grid-cols-2">
-            {workerMode ? <input type="hidden" name="saleChannel" value={collectorMode ? "local" : "industrial"} /> : <label className="text-sm font-semibold sm:col-span-2">Sale channel<select name="saleChannel" defaultValue="industrial" className={field}><option value="industrial">Industry buyer</option><option value="local">Local buyer</option></select></label>}
+          <form key={editingSale?.id || "new-sale"} onSubmit={submitSale} className="grid gap-4 sm:grid-cols-2">
+            {limitedWorkerMode ? <input type="hidden" name="saleChannel" value={editingSale?.sale_channel || (collectorMode ? "local" : "industrial")} /> : <label className="text-sm font-semibold sm:col-span-2">Sale channel<select name="saleChannel" defaultValue={editingSale?.sale_channel || "industrial"} className={field}><option value="industrial">Industry buyer</option><option value="local">Local buyer</option></select></label>}
             <label className="text-sm font-semibold sm:col-span-2">
               Material stock
-              <select required name="lotId" className={field}>
+              <select required name="lotId" defaultValue={editingSale?.lot_id || ""} className={field}>
                 <option value="">Choose available material</option>
                 {data?.lots
-                  .filter((x) => Number(x.available_kg) > 0)
+                  .filter((x) => Number(x.available_kg) > 0 || x.id === editingSale?.lot_id)
                   .map((x) => (
                     <option key={x.id} value={x.id}>
                       {x.material_type} ·{" "}
@@ -2056,7 +2259,7 @@ export default function RecyclingPage() {
             </label>
             <label className="text-sm font-semibold">
               Saved {collectorMode ? "local" : "industrial"} buyer
-              <select name="buyerPartnerId" className={field}>
+              <select name="buyerPartnerId" defaultValue={editingSale?.buyer_partner_id || ""} className={field}>
                 <option value="">Choose saved buyer</option>
                 {data?.partners
                   .filter(
@@ -2071,13 +2274,14 @@ export default function RecyclingPage() {
                   ))}
               </select>
             </label>
+            {!collectorMode&&<FactoryBuyerSelect defaultValue={(editingSale as {buyer_organization_id?:string|null}|null|undefined)?.buyer_organization_id} className={field}/>}
             <label className="text-sm font-semibold">
               New buyer name (if not saved)
-              <input name="buyerName" className={field} />
+              <input name="buyerName" defaultValue={editingSale?.buyer_partner_id ? "" : editingSale?.buyer_name || ""} className={field} />
             </label>
             <label className="text-sm font-semibold">
               Buyer category
-              <input required name="industry" placeholder={collectorMode ? "Local trader, shop, community buyer" : "Manufacturing or recycling industry"} className={field} />
+              <input required name="industry" defaultValue={editingSale?.industry || ""} placeholder={collectorMode ? "Local trader, shop, community buyer" : "Manufacturing or recycling industry"} className={field} />
             </label>
             <label className="text-sm font-semibold">
               Quantity (kg)
@@ -2087,6 +2291,7 @@ export default function RecyclingPage() {
                 min=".01"
                 step=".01"
                 name="quantityKg"
+                defaultValue={editingSale?.quantity_kg || ""}
                 className={field}
               />
             </label>
@@ -2097,12 +2302,13 @@ export default function RecyclingPage() {
                 type="number"
                 min="1"
                 name="unitPriceUgx"
+                defaultValue={editingSale?.unit_price_ugx || ""}
                 className={field}
               />
             </label>
             <label className="text-sm font-semibold">
               Invoice number (optional)
-              <input name="invoiceNumber" className={field} />
+              <input name="invoiceNumber" defaultValue={editingSale?.invoice_number || ""} className={field} />
             </label>
             <label className="text-sm font-semibold">
               Sale date
@@ -2110,7 +2316,7 @@ export default function RecyclingPage() {
                 required
                 type="date"
                 name="soldOn"
-                defaultValue={today()}
+                defaultValue={editingSale ? String(editingSale.sold_on).slice(0,10) : today()}
                 className={field}
               />
             </label>
@@ -2121,27 +2327,27 @@ export default function RecyclingPage() {
                   type="number"
                   min="0"
                   name={name}
-                  defaultValue="0"
+                  defaultValue={editingSale ? String(editingSale[name === "workerWagesUgx" ? "worker_wages_ugx" : name === "foodUgx" ? "food_ugx" : name === "transportUgx" ? "transport_ugx" : "other_expense_ugx"]) : "0"}
                   className={field}
                 />
               </label>
             ))}
             <label className="text-sm font-semibold sm:col-span-2">
               Notes
-              <textarea name="notes" rows={2} className={field} />
+              <textarea name="notes" rows={2} defaultValue={editingSale?.notes || ""} className={field} />
             </label>
             <button
               disabled={saving}
-              className="bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white sm:col-span-2"
+              className="bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white sm:col-span-2"
             >
-              {saving ? "Saving…" : "Save sale"}
+              {saving ? "Saving…" : editingSale ? "Update sale" : "Save sale"}
             </button>
           </form>
         </Modal>
         <Modal
           open={form === "float"}
-          title="Manager float"
-          description="Record money given to the manager or a separate reported expense. Purchase float use is deducted automatically."
+          title="Manager float movement"
+          description="Issue accountable cash, record a separate supported expense, or return unused money. Purchase and processing float use is recorded automatically."
           onClose={() => setForm("")}
         >
           <form onSubmit={submitFloat} className="space-y-4">
@@ -2163,10 +2369,12 @@ export default function RecyclingPage() {
                 defaultValue="given"
                 className={field}
               >
-                <option value="given">Money given</option>
-                <option value="spent">Other money spent</option>
+                <option value="given">Issue money to manager</option>
+                <option value="returned">Return unused money to office</option>
+                <option value="spent">Other supported field expense</option>
               </select>
             </label>
+            <label className="block text-sm font-semibold">Receipt / handover reference<input required minLength={2} maxLength={120} name="reference" placeholder="Example: FLT-2026-001" className={field}/><span className="mt-1 block text-xs font-normal text-slate-500">Use the cash voucher, receipt or signed handover number. References cannot be reused.</span></label>
             <label className="block text-sm font-semibold">
               Amount (UGX)
               <input
@@ -2179,28 +2387,31 @@ export default function RecyclingPage() {
             </label>
             <label className="block text-sm font-semibold">
               Notes
-              <textarea name="notes" rows={3} className={field} />
+              <textarea required minLength={3} name="notes" rows={3} placeholder="Purpose, recipient or explanation" className={field} />
             </label>
             <button
               disabled={saving}
-              className="w-full bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white"
+              className="w-full bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white"
             >
               {saving ? "Saving…" : "Save float movement"}
             </button>
           </form>
         </Modal>
+        <Modal open={form==="cash"} title="Post business cash movement" description="Use this only for money entering or leaving the business outside normal sales, purchases and expenses. Posted records remain in the audit trail." onClose={()=>setForm("")}>
+          <form onSubmit={submitCash} className="space-y-4"><div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-semibold">Date<input required type="date" name="movementDate" defaultValue={today()} className={field}/></label><label className="text-sm font-semibold">Direction<select required name="direction" defaultValue="in" className={field}><option value="in">Cash in</option><option value="out">Cash out</option></select></label><label className="text-sm font-semibold">Category<select required name="category" defaultValue="capital_contribution" className={field}><option value="capital_contribution">Owner capital contribution</option><option value="other_income">Other non-sale income</option><option value="owner_withdrawal">Owner withdrawal</option><option value="correction">Explained correction</option></select></label><label className="text-sm font-semibold">Amount (UGX)<input required type="number" min="1" name="amountUgx" className={field}/></label><label className="text-sm font-semibold">Reference<input required minLength={2} maxLength={120} name="reference" placeholder="Bank slip or voucher number" className={field}/></label><label className="text-sm font-semibold">Source / recipient<input maxLength={160} name="counterparty" placeholder="Owner, bank or other party" className={field}/></label></div><label className="block text-sm font-semibold">Explanation<textarea required minLength={5} maxLength={500} name="notes" rows={3} className={field}/></label><div className="border-l-2 border-amber-500 bg-amber-50 p-3 text-xs text-amber-950">Do not record customer payments here. Record them against the related sale so receivables and profit remain correct.</div><button disabled={saving} className="w-full bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white">{saving?"Posting…":"Post permanent cash movement"}</button></form>
+        </Modal>
         <Modal
           open={form === "partner"}
-          title="Add trade partner"
-          description="Save a supplier, industrial buyer, or a business that performs both roles."
-          onClose={() => setForm("")}
+          title={editingPartner ? "Edit trade partner" : "Add trade partner"}
+          description={editingPartner ? "Correct supplier or buyer details without changing linked transactions." : "Save a supplier, industrial buyer, or a business that performs both roles."}
+          onClose={() => { setForm(""); setEditingPartnerId(""); }}
         >
-          <form onSubmit={submitPartner} className="grid gap-4 sm:grid-cols-2">
+          <form key={editingPartner?.id || "new-partner"} onSubmit={submitPartner} className="grid gap-4 sm:grid-cols-2">
             <label className="text-sm font-semibold">
               Partner role
               <select
                 name="partnerType"
-                defaultValue="supplier"
+                defaultValue={editingPartner?.partner_type || "supplier"}
                 className={field}
               >
                 <option value="supplier">Material supplier</option>
@@ -2210,16 +2421,17 @@ export default function RecyclingPage() {
             </label>
             <label className="text-sm font-semibold">
               Business name
-              <input required name="name" className={field} />
+              <input required name="name" defaultValue={editingPartner?.name || ""} className={field} />
             </label>
             <label className="text-sm font-semibold">
               Contact person
-              <input name="contactPerson" className={field} />
+              <input name="contactPerson" defaultValue={editingPartner?.contact_person || ""} className={field} />
             </label>
             <label className="text-sm font-semibold">
               Phone
               <input
                 name="phone"
+                defaultValue={editingPartner?.phone || ""}
                 inputMode="tel"
                 placeholder="+256782390653"
                 maxLength={13}
@@ -2228,21 +2440,21 @@ export default function RecyclingPage() {
             </label>
             <label className="text-sm font-semibold">
               Email
-              <input name="email" type="email" className={field} />
+              <input name="email" defaultValue={editingPartner?.email || ""} type="email" className={field} />
             </label>
             <label className="text-sm font-semibold">
               Tax / TIN number
-              <input name="taxNumber" className={field} />
+              <input name="taxNumber" defaultValue={editingPartner?.tax_number || ""} className={field} />
             </label>
             <label className="text-sm font-semibold sm:col-span-2">
               Address
-              <textarea name="address" rows={2} className={field} />
+              <textarea name="address" defaultValue={editingPartner?.address || ""} rows={2} className={field} />
             </label>
             <button
               disabled={saving}
-              className="bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white sm:col-span-2"
+              className="bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white sm:col-span-2"
             >
-              {saving ? "Saving…" : "Save trade partner"}
+              {saving ? "Saving…" : editingPartner ? "Update trade partner" : "Save trade partner"}
             </button>
           </form>
         </Modal>
@@ -2253,6 +2465,46 @@ export default function RecyclingPage() {
           onClose={() => { setForm(""); setSelectedPurchaseId(""); }}
         >
           <PaymentHistory records={selectedPurchasePayments} total={selectedPurchase?.total_cost_ugx || 0} balance={selectedPurchase?.balance_ugx || 0} empty="No supplier payments have been recorded." />
+        </Modal>
+        <Modal
+          open={form === "partnerLedger"}
+          title={`${selectedPartner?.name || "Trade partner"} ledger`}
+          description="A single account of linked purchases, sales, payments and balances."
+          onClose={() => { setForm(""); setSelectedPartnerId(""); }}
+        >
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 border-y border-slate-300 text-sm sm:grid-cols-4">
+              {([
+                ["Purchases", selectedPartnerPurchases.reduce((sum, item) => sum + Number(item.total_cost_ugx), 0)],
+                ["Supplier balance", selectedPartnerPurchases.reduce((sum, item) => sum + Number(item.balance_ugx), 0)],
+                ["Sales", selectedPartnerSales.reduce((sum, item) => sum + Number(item.total_ugx), 0)],
+                ["Buyer balance", selectedPartnerSales.reduce((sum, item) => sum + Number(item.balance_ugx), 0)],
+              ] as const).map(([label, value]) => (
+                <div key={label} className="border-b border-r p-3 last:border-r-0 sm:border-b-0">
+                  <p className="text-xs text-slate-500">{label}</p>
+                  <p className="mt-1 font-semibold">{money(value)}</p>
+                </div>
+              ))}
+            </div>
+            <section>
+              <h3 className="font-semibold">Purchases from this supplier</h3>
+              {selectedPartnerPurchases.length ? <div className="mt-2 divide-y border-y border-slate-200">
+                {selectedPartnerPurchases.map((item) => <div key={item.id} className="grid gap-2 py-3 text-sm sm:grid-cols-[1fr_auto]">
+                  <div><p className="font-semibold">{item.material_type} · {Number(item.quantity_kg).toLocaleString()} kg</p><p className="text-xs text-slate-500">{new Date(item.collected_on).toLocaleDateString("en-GB")} · {item.purchase_payment_state.replaceAll("_", " ")}</p></div>
+                  <div className="sm:text-right"><p>{money(item.total_cost_ugx)}</p><p className="text-xs text-slate-500">Balance {money(item.balance_ugx)}</p></div>
+                </div>)}
+              </div> : <p className="mt-2 text-sm text-slate-500">No linked purchases.</p>}
+            </section>
+            <section>
+              <h3 className="font-semibold">Sales to this buyer</h3>
+              {selectedPartnerSales.length ? <div className="mt-2 divide-y border-y border-slate-200">
+                {selectedPartnerSales.map((item) => <div key={item.id} className="grid gap-2 py-3 text-sm sm:grid-cols-[1fr_auto]">
+                  <div><p className="font-semibold">{item.material_type} · {Number(item.quantity_kg).toLocaleString()} kg</p><p className="text-xs text-slate-500">{new Date(item.sold_on).toLocaleDateString("en-GB")} · {item.payment_state.replaceAll("_", " ")}</p></div>
+                  <div className="sm:text-right"><p>{money(item.total_ugx)}</p><p className="text-xs text-slate-500">Balance {money(item.balance_ugx)}</p></div>
+                </div>)}
+              </div> : <p className="mt-2 text-sm text-slate-500">No linked sales.</p>}
+            </section>
+          </div>
         </Modal>
         <Modal
           open={form === "saleHistory"}
@@ -2298,7 +2550,7 @@ export default function RecyclingPage() {
             </label>
             <button
               disabled={saving || !selectedPurchaseId}
-              className="w-full bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white disabled:opacity-40"
+              className="w-full bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-40"
             >
               {saving ? "Saving…" : "Confirm supplier payment"}
             </button>
@@ -2340,7 +2592,7 @@ export default function RecyclingPage() {
             </label>
             <button
               disabled={saving || !selectedSaleId}
-              className="w-full bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white disabled:opacity-40"
+              className="w-full bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-40"
             >
               {saving ? "Saving…" : "Confirm payment"}
             </button>
@@ -2357,7 +2609,7 @@ export default function RecyclingPage() {
               Payment due on
               <input required type="date" name="dueOn" defaultValue={today()} className={field} />
             </label>
-            <button disabled={saving} className="w-full bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white disabled:opacity-40">
+            <button disabled={saving} className="w-full bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-40">
               {saving ? "Saving…" : "Save deadline"}
             </button>
           </form>
@@ -2373,7 +2625,7 @@ export default function RecyclingPage() {
             <label className="text-sm font-semibold">Outcome<select required name="outcome" defaultValue="contacted" className={field}><option value="contacted">Contacted</option><option value="promise_to_pay">Promise to pay</option><option value="no_response">No response</option><option value="disputed">Invoice disputed</option><option value="escalated">Escalated</option></select></label>
             <label className="text-sm font-semibold sm:col-span-2">Follow-up note<textarea required minLength={3} maxLength={1000} name="note" rows={4} placeholder="What was agreed or what should happen next?" className={field} /></label>
             <label className="text-sm font-semibold sm:col-span-2">Next follow-up date (optional)<input type="date" name="nextFollowUpOn" min={today()} className={field} /></label>
-            <button disabled={saving || !selectedSaleId} className="bg-[#3156a3] px-4 py-3 text-sm font-semibold text-white sm:col-span-2 disabled:opacity-40">{saving ? "Saving…" : "Save follow-up"}</button>
+            <button disabled={saving || !selectedSaleId} className="bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white sm:col-span-2 disabled:opacity-40">{saving ? "Saving…" : "Save follow-up"}</button>
           </form>
         </Modal>
       </div>

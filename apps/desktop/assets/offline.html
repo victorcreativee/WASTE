@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'"
+    />
+    <title>Kampala WMS — Offline</title>
+    <link rel="stylesheet" href="offline.css" />
+  </head>
+  <body>
+    <header>
+      <span class="mark">KW</span>
+      <div>
+        <strong>Kampala WMS</strong><small>Secure desktop workspace</small>
+      </div>
+    </header>
+    <main>
+      <section id="login-panel" class="login-panel">
+        <p class="eyebrow">SECURE OFFLINE ACCESS</p>
+        <h1>Sign in on this computer</h1>
+        <p class="lead">
+          Your first sign-in on this device must be online. After that, the same
+          credentials securely unlock approved offline operations.
+        </p>
+        <form id="offline-login">
+          <label
+            >Work email<input
+              id="email"
+              type="email"
+              autocomplete="username"
+              required /></label
+          ><label
+            >Password<input
+              id="password"
+              type="password"
+              autocomplete="current-password"
+              required
+          /></label>
+          <p id="login-error" class="error" role="alert"></p>
+          <button type="submit">Sign in offline</button>
+        </form>
+        <div class="actions">
+          <button id="login-retry" type="button" class="secondary">
+            Try online connection</button
+          ><span
+            >Passwords are verified locally using a salted cryptographic hash
+            and are never stored.</span
+          >
+        </div>
+      </section>
+      <section id="workspace" hidden>
+        <div class="workspace-title">
+          <div>
+            <p class="eyebrow">OFFLINE OPERATIONS</p>
+            <h1 id="welcome">Offline workspace</h1>
+            <p class="lead">
+              Saved work remains on this computer and synchronizes automatically
+              when the server returns.
+            </p>
+          </div>
+          <button id="logout" class="secondary">Sign out</button>
+        </div>
+        <section class="metrics">
+          <article>
+            <small>Connection</small><strong id="connection">Offline</strong>
+          </article>
+          <article>
+            <small>Waiting to sync</small><strong id="pending">0</strong>
+          </article>
+          <article>
+            <small>Needs attention</small><strong id="failed">0</strong>
+          </article>
+        </section>
+        <div class="actions">
+          <button id="retry">Try connection again</button
+          ><span id="checked"></span>
+        </div>
+        <section class="update-card">
+          <div>
+            <strong>Desktop application</strong>
+            <small id="update-status">Automatic update checks enabled</small>
+          </div>
+          <div class="update-actions">
+            <button id="update-check" class="secondary">Check updates</button>
+            <button id="update-download" hidden>Download update</button>
+            <button id="update-install" hidden>Restart and install</button>
+          </div>
+        </section>
+        <p id="notice" class="notice" role="status"></p>
+        <section class="activity">
+          <h2>Essential offline work</h2>
+          <p>Only actions approved for offline operation are available.</p>
+          <div id="operations"></div>
+        </section>
+        <section class="activity">
+          <h2>Available reference data</h2>
+          <p>
+            Your latest assigned route and recycling field references are
+            encrypted in SQLite on this computer.
+          </p>
+          <div id="reference" class="reference"></div>
+        </section>
+        <section class="activity">
+          <h2>Synchronization outbox</h2>
+          <p>
+            Records synchronize in order with duplicate protection when the
+            server returns.
+          </p>
+          <div id="queue" class="queue"></div>
+        </section>
+        <aside>
+          Payments, contracts, permits, payroll, access changes and official
+          weighbridge verification always require an online connection.
+        </aside>
+      </section>
+    </main>
+    <script src="offline.js"></script>
+  </body>
+</html>

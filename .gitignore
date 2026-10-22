@@ -1,2 +1,38 @@
 
 /infrastructure/production/.env
+/apps/desktop/node_modules/
+/apps/desktop/dist/
+/apps/desktop/release/
+# Desktop release artifacts
+**/release/
+**/releases/
+**/dist-electron/
+**/*.exe
+**/*.msi
+**/*.dmg
+**/*.AppImage
+
+# Android release artifacts
+**/*.apk
+**/*.aab
+apps/recycling-mobile/android/
+apps/recycling-mobile/ios/
+
+# --- Dependencies, build output and local secrets (never commit) ---
+**/node_modules/
+**/dist/
+**/.next/
+**/.expo/
+**/dist-android*/
+**/dist-ios/
+**/dist-offline-check/
+**/dist-shared-platform-check/
+*.tsbuildinfo
+**/.env
+**/.env.*
+!**/.env.example
+.DS_Store
+backups/
+
+# Local editor and agent settings
+.claude/

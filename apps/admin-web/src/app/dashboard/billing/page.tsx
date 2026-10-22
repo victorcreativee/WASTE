@@ -580,13 +580,13 @@ export default function BillingPage() {
             <nav aria-label="Finance sections" className="flex gap-6 border-b border-slate-300 pt-5">
               <button
                 onClick={() => setFinanceTab("income")}
-                className={`border-b-2 pb-2 text-sm font-bold ${financeTab === "income" ? "border-[#3156a3] text-[#3156a3]" : "border-transparent text-slate-500"}`}
+                className={`border-b-2 pb-2 text-sm font-bold ${financeTab === "income" ? "border-[var(--color-action)] text-[var(--color-action)]" : "border-transparent text-slate-500"}`}
               >
                 {isRecycling ? "Income & receivables" : "Income & billing"}
               </button>
               <button
                 onClick={() => setFinanceTab("expenses")}
-                className={`border-b-2 pb-2 text-sm font-bold ${financeTab === "expenses" ? "border-[#3156a3] text-[#3156a3]" : "border-transparent text-slate-500"}`}
+                className={`border-b-2 pb-2 text-sm font-bold ${financeTab === "expenses" ? "border-[var(--color-action)] text-[var(--color-action)]" : "border-transparent text-slate-500"}`}
               >
                 Expenses
               </button>
@@ -594,7 +594,7 @@ export default function BillingPage() {
           )}
         {error&&<Feedback tone="error">{error}</Feedback>}
         {message&&<Feedback tone="success">{message}</Feedback>}
-        {!loading&&!isRecycling&&isCompanyAdmin&&plans.length===0&&<section className="mt-8 border-y border-slate-300 py-6"><p className="text-xs font-semibold uppercase tracking-[.14em] text-[#3156a3]">Required before contracts</p><div className="mt-2 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h2 className="text-xl font-semibold">Create your first service package</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">A package defines the price, billing period, included collections and response target. Contracts can only use a package created here.</p></div><button onClick={openCreatePlan} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">Create service package</button></div></section>}
+        {!loading&&!isRecycling&&isCompanyAdmin&&plans.length===0&&<section className="mt-8 border-y border-slate-300 py-6"><p className="text-xs font-semibold uppercase tracking-[.14em] text-[var(--color-action)]">Required before contracts</p><div className="mt-2 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h2 className="text-xl font-semibold">Create your first service package</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">A package defines the price, billing period, included collections and response target. Contracts can only use a package created here.</p></div><button onClick={openCreatePlan} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">Create service package</button></div></section>}
         {hasOrganizationContext && (
           <Modal
             open={balanceOpen}
@@ -642,7 +642,7 @@ export default function BillingPage() {
                 </button>
                 <button
                   disabled={saving || position.opening_balance_locked}
-                  className="bg-[#3156a3] px-5 py-2.5 text-white disabled:opacity-50"
+                  className="bg-[var(--color-action)] px-5 py-2.5 text-white disabled:opacity-50"
                 >
                   {position.opening_balance_locked ? "Opening balance locked" : saving ? "Saving..." : "Save opening balance"}
                 </button>
@@ -671,7 +671,7 @@ export default function BillingPage() {
                   {isCompanyAdmin && (
                     <button
                       onClick={() => { setError(""); setBalanceOpen(true); }}
-                      className="border border-[#3156a3] px-4 py-2.5 text-sm font-semibold text-[#3156a3]"
+                      className="border border-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-[var(--color-action)]"
                     >
                       {position.opening_balance_configured ? "View opening balance" : "Set opening balance"}
                     </button>
@@ -727,7 +727,7 @@ export default function BillingPage() {
                         .length,
                     ],
                   ].map(([l, v]) => (
-                    <div key={l} className="bg-[#f7f7f5] py-5 pr-5">
+                    <div key={l} className="bg-[var(--background)] py-5 pr-5">
                       <p className="text-sm font-bold text-slate-500">{l}</p>
                       <p className="mt-2 text-3xl font-semibold">{v}</p>
                     </div>
@@ -795,7 +795,7 @@ export default function BillingPage() {
                           </button>
                           <button
                             disabled={saving}
-                            className="bg-[#3156a3] px-5 py-2.5 text-white disabled:opacity-50"
+                            className="bg-[var(--color-action)] px-5 py-2.5 text-white disabled:opacity-50"
                           >
                             {saving ? "Recording..." : "Record payment"}
                           </button>
@@ -941,7 +941,7 @@ export default function BillingPage() {
                           </button>
                           <button
                             disabled={saving}
-                            className="bg-[#3156a3] px-5 text-white disabled:opacity-50"
+                            className="bg-[var(--color-action)] px-5 text-white disabled:opacity-50"
                           >
                             {editingPlanId ? "Save changes" : "Create package"}
                           </button>
@@ -971,7 +971,7 @@ export default function BillingPage() {
                           {isCompanyAdmin && (
                             <button
                               onClick={openCreatePlan}
-                              className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white"
+                              className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white"
                             >
                               Create service package
                             </button>
@@ -1059,7 +1059,7 @@ export default function BillingPage() {
                                           <button
                                             disabled={saving}
                                             onClick={() => changePlanStatus(p)}
-                                            className={`border px-3 ${p.is_active ? "border-red-300 text-red-700" : "border-[#3156a3] text-[#3156a3]"}`}
+                                            className={`border px-3 ${p.is_active ? "border-red-300 text-red-700" : "border-[var(--color-action)] text-[var(--color-action)]"}`}
                                           >
                                             {p.is_active
                                               ? "Deactivate"
@@ -1103,7 +1103,7 @@ export default function BillingPage() {
                           <button
                             disabled={saving}
                             onClick={generateDueInvoices}
-                            className="border border-[#3156a3] px-4 py-2.5 text-sm font-semibold text-[#3156a3] disabled:opacity-50"
+                            className="border border-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-[var(--color-action)] disabled:opacity-50"
                           >
                             {saving ? "Working..." : "Generate due invoices"}
                           </button>
@@ -1215,7 +1215,7 @@ export default function BillingPage() {
                                                   "active",
                                                 )
                                               }
-                                              className="border border-[#3156a3] px-3 text-[#3156a3]"
+                                              className="border border-[var(--color-action)] px-3 text-[var(--color-action)]"
                                             >
                                               Resume
                                             </button>
@@ -1407,7 +1407,7 @@ export default function BillingPage() {
                                             <button
                                               disabled={saving}
                                               onClick={() => pay(i)}
-                                              className="border border-[#3156a3] px-3 text-[#3156a3]"
+                                              className="border border-[var(--color-action)] px-3 text-[var(--color-action)]"
                                             >
                                               Pay
                                             </button>
@@ -1419,7 +1419,7 @@ export default function BillingPage() {
                                               onClick={() =>
                                                 setRecordingInvoice(i)
                                               }
-                                              className="border border-[#3156a3] px-3 text-[#3156a3]"
+                                              className="border border-[var(--color-action)] px-3 text-[var(--color-action)]"
                                             >
                                               Record payment
                                             </button>
@@ -1537,12 +1537,12 @@ export default function BillingPage() {
                                             <button
                                               disabled={saving}
                                               onClick={() => confirm(p.id)}
-                                              className="border border-[#3156a3] px-3 text-[#3156a3]"
+                                              className="border border-[var(--color-action)] px-3 text-[var(--color-action)]"
                                             >
                                               Confirm received
                                             </button>
                                           )}
-                                        {p.status==="successful"&&p.receipt_number&&<a href={`/dashboard/billing/receipt/${p.id}`} className="border border-[#3156a3] px-3 py-2 text-xs font-semibold text-[#3156a3]">View receipt</a>}
+                                        {p.status==="successful"&&p.receipt_number&&<a href={`/dashboard/billing/receipt/${p.id}`} className="border border-[var(--color-action)] px-3 py-2 text-xs font-semibold text-[var(--color-action)]">View receipt</a>}
                                       </div>
                                     </td>
                                   </tr>
@@ -1598,7 +1598,7 @@ function RecyclingFinanceSummary({ position }: { position: FinancialPosition }) 
   return (
     <div className="py-8">
       <div className="border-b pb-3">
-        <p className="text-xs font-semibold uppercase tracking-[.14em] text-[#3156a3]">
+        <p className="text-xs font-semibold uppercase tracking-[.14em] text-[var(--color-action)]">
           Recycling trade ledger
         </p>
         <h2 className="mt-1 text-xl font-semibold">Industrial income and costs</h2>
@@ -1615,7 +1615,7 @@ function RecyclingFinanceSummary({ position }: { position: FinancialPosition }) 
       {(Number(position.recycling_overdue_receivables_ugx || 0) > 0 || Number(position.recycling_overdue_payables_ugx || 0) > 0) && (
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <div className="border-l-2 border-red-600 bg-red-50 p-4 text-sm"><strong>Overdue industrial invoices:</strong> {money(position.recycling_overdue_receivables_ugx || 0)}</div>
-          <div className="border-l-2 border-[#c6842f] bg-amber-50 p-4 text-sm"><strong>Overdue supplier purchases:</strong> {money(position.recycling_overdue_payables_ugx || 0)}</div>
+          <div className="border-l-2 border-[var(--color-accent)] bg-amber-50 p-4 text-sm"><strong>Overdue supplier purchases:</strong> {money(position.recycling_overdue_payables_ugx || 0)}</div>
         </div>
       )}
       <div className="mt-7 grid gap-5 lg:grid-cols-2">
@@ -1760,7 +1760,7 @@ function ExpenseWorkspace({
             </button>
             <button
               disabled={saving}
-              className="bg-[#3156a3] px-5 py-2.5 text-white disabled:opacity-50"
+              className="bg-[var(--color-action)] px-5 py-2.5 text-white disabled:opacity-50"
             >
               {saving ? "Submitting..." : "Submit for approval"}
             </button>
@@ -1777,7 +1777,7 @@ function ExpenseWorkspace({
           </div>
           <button
             onClick={() => setOpen(true)}
-            className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white"
+            className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white"
           >
             Record expense
           </button>
@@ -1859,7 +1859,7 @@ function ExpenseWorkspace({
                                 aria-describedby={`expense-funding-${x.id}`}
                                 title={Number(x.amount_ugx)>availableToCommit?`Needs ${money(x.amount_ugx)}, but only ${money(availableToCommit)} is available for approval.`:undefined}
                                 onClick={() => onStatus(x.id, "approved")}
-                                className="border border-[#3156a3] px-3 text-[#3156a3]"
+                                className="border border-[var(--color-action)] px-3 text-[var(--color-action)]"
                               >
                                 Approve
                               </button>
@@ -1872,7 +1872,7 @@ function ExpenseWorkspace({
                                 onClick={() => {
                                   if (window.confirm(`Confirm ${money(x.amount_ugx)} has actually been paid for ${x.expense_number}? This records a cash outflow and cannot be voided from this page.`)) onStatus(x.id, "paid");
                                 }}
-                                className="border border-[#3156a3] px-3 text-[#3156a3]"
+                                className="border border-[var(--color-action)] px-3 text-[var(--color-action)]"
                               >
                                 Mark paid
                               </button>

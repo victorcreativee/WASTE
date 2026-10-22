@@ -7,16 +7,23 @@ import healthRoutes from "./routes/health.routes";
 import organizationRoutes from "./routes/organization.routes";
 import workspaceRoutes from "./routes/workspace.routes";
 import { requireAuth } from "./middlewares/auth.middleware";
+import { dbPool } from "./config/database";
+import { corsOptions, createErrorHandler, readinessHandler, requestContext, trustProxySetting } from "./runtime";
 
 const app = express();
 
+app.set("trust proxy", trustProxySetting());
+app.disable("x-powered-by");
+
 app.use(helmet());
-app.use(cors());
+app.use(cors(corsOptions()));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use(morgan("dev"));
+app.use(requestContext("organization-service"));
+if (process.env.NODE_ENV !== "production") app.use(morgan("dev"));
 
 app.use("/api/organizations", healthRoutes);
+app.get("/api/organizations/ready", readinessHandler("organization-service", (sql, params) => dbPool.query(sql, params), ["organizations", "organization_memberships"]));
 app.use("/api/organizations", requireAuth);
 app.use("/api/organizations", workspaceRoutes);
 app.use("/api/organizations", organizationRoutes);
@@ -28,5 +35,7 @@ app.use((req, res) => {
     path: req.originalUrl,
   });
 });
+
+app.use(createErrorHandler({ serviceName: "organization-service" }));
 
 export default app;

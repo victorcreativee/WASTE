@@ -6,19 +6,29 @@ import { apiRequest } from "@/lib/api";
 import { usePathname } from "next/navigation";
 import { WeighbridgeReconciliation } from "@/components/weighbridge/WeighbridgeReconciliation";
 import { DesktopSyncCenter } from "@/components/layout/DesktopSyncCenter";
+import { AccountMenu } from "@/components/layout/AccountMenu";
+import { NotificationBell } from "@/components/layout/NotificationBell";
 
 const cityNav:NavItem[] = [
   {group:"Overview",label:"Control room",href:"/dashboard"},
-  {group:"Regulation",label:"Permit applications",href:"/dashboard/permits"},
+  {group:"Overview",label:"Live command centre",href:"/dashboard/command-center"},
+  {group:"Regulation",label:"Permits & renewals",href:"/dashboard/permits"},
+  {group:"Regulation",label:"Monthly returns",href:"/dashboard/returns-register"},
+  {group:"Regulation",label:"Penalties",href:"/dashboard/penalties"},
   {group:"City oversight",label:"Licensed operators",href:"/dashboard/organizations"},
   {group:"City oversight",label:"Live operations",href:"/dashboard/waste"},
   {group:"City oversight",label:"Weighbridge operations",href:"/dashboard/weighbridge"},
+  {group:"City oversight",label:"Disposal verification",href:"/dashboard/disposal-oversight"},
+  {group:"City oversight",label:"GPS track checks",href:"/dashboard/track-checks"},
+  {group:"City oversight",label:"Illegal dumping",href:"/dashboard/dumping"},
+  {group:"City oversight",label:"Recycling oversight",href:"/dashboard/recycling-oversight"},
+  {group:"City oversight",label:"City reports",href:"/dashboard/city-report"},
   {group:"City oversight",label:"Issues",href:"/dashboard/citizen-issues"},
   {group:"City oversight",label:"Coverage map",href:"/dashboard/gis"},
   {group:"City oversight",label:"Collector performance",href:"/dashboard/city-reports"},
   {group:"City oversight",label:"Compliance cases",href:"/dashboard/compliance"},
 ];
-const systemNav:NavItem[]=[{group:"Platform",label:"Platform overview",href:"/dashboard"},{group:"Platform",label:"Company applications",href:"/dashboard/account-applications"},{group:"Platform",label:"Account verification",href:"/dashboard/account-verification"},{group:"Platform",label:"Platform packages",href:"/dashboard/platform-packages"},{group:"Platform",label:"Platform users",href:"/dashboard/platform-users"},{group:"Platform",label:"Weighbridge workers",href:"/dashboard/weighbridge-workers"},{group:"Platform",label:"Organizations",href:"/dashboard/organizations"},{group:"Reference",label:"KCCA permit register",href:"/dashboard/permits"},{group:"Reference",label:"Collector performance",href:"/dashboard/city-reports"}];
+const systemNav:NavItem[]=[{group:"Platform",label:"Platform overview",href:"/dashboard"},{group:"Platform",label:"Company applications",href:"/dashboard/account-applications"},{group:"Platform",label:"Account verification",href:"/dashboard/account-verification"},{group:"Platform",label:"Platform packages",href:"/dashboard/platform-packages"},{group:"Platform",label:"Platform users",href:"/dashboard/platform-users"},{group:"Platform",label:"Weighbridge workers",href:"/dashboard/weighbridge-workers"},{group:"Platform",label:"Organizations",href:"/dashboard/organizations"},{group:"Platform",label:"Subscriptions",href:"/dashboard/subscriptions"},{group:"Reference",label:"Recycling oversight",href:"/dashboard/recycling-oversight"},{group:"Reference",label:"Disposal verification",href:"/dashboard/disposal-oversight"},{group:"Reference",label:"Illegal dumping",href:"/dashboard/dumping"},{group:"Reference",label:"Penalties",href:"/dashboard/penalties"},{group:"Reference",label:"City reports",href:"/dashboard/city-report"},{group:"Reference",label:"KCCA permit register",href:"/dashboard/permits"},{group:"Reference",label:"Collector performance",href:"/dashboard/city-reports"}];
 type NavItem={label:string;href:string;group?:string;packageFeature?:string};
 const companyNav:NavItem[] = [
   {group:"Overview",label:"Organization overview",href:"/dashboard/company"},
@@ -37,8 +47,15 @@ const companyNav:NavItem[] = [
   {group:"Supply",label:"Inventory",href:"/dashboard/inventory",packageFeature:"inventory"},
   {group:"Supply",label:"Procurement",href:"/dashboard/procurement",packageFeature:"procurement"},
   {group:"Insights",label:"Reports",href:"/dashboard/reports",packageFeature:"reports"},
-  {group:"Insights",label:"KCCA compliance",href:"/dashboard/compliance",packageFeature:"compliance"},
+  {group:"KCCA regulation",label:"Regulatory overview",href:"/dashboard/regulatory"},
+  {group:"KCCA regulation",label:"Permit",href:"/dashboard/permit"},
+  {group:"KCCA regulation",label:"Compliance cases",href:"/dashboard/compliance"},
+  {group:"KCCA regulation",label:"Monthly returns",href:"/dashboard/returns"},
+  {group:"KCCA regulation",label:"Disposal records",href:"/dashboard/disposal"},
+  {group:"KCCA regulation",label:"Dumping cleanups",href:"/dashboard/cleanup-orders"},
+  {group:"KCCA regulation",label:"Penalty notices",href:"/dashboard/penalty-notices"},
   {group:"Administration",label:"Access & permissions",href:"/dashboard/access",packageFeature:"access"},
+  {group:"Administration",label:"Subscription",href:"/dashboard/subscription"},
   {group:"Administration",label:"Company settings",href:"/dashboard/company-settings"},
 ];
 const supervisorNav:NavItem[] = [
@@ -54,6 +71,11 @@ const supervisorNav:NavItem[] = [
   {group:"Customers",label:"Billing monitor",href:"/dashboard/billing"},
   {group:"Resources",label:"Inventory",href:"/dashboard/inventory"},
   {group:"Insights",label:"Reports",href:"/dashboard/recycling-reports"},
+  {group:"KCCA regulation",label:"Regulatory overview",href:"/dashboard/regulatory"},
+  {group:"KCCA regulation",label:"Permit",href:"/dashboard/permit"},
+  {group:"KCCA regulation",label:"Monthly returns",href:"/dashboard/returns"},
+  {group:"KCCA regulation",label:"Disposal records",href:"/dashboard/disposal"},
+  {group:"KCCA regulation",label:"Dumping cleanups",href:"/dashboard/cleanup-orders"},
 ];
 const recyclingCompanyNav:NavItem[]=[
   {group:"Overview",label:"Materials & sales",href:"/dashboard/recycling"},
@@ -64,9 +86,27 @@ const recyclingCompanyNav:NavItem[]=[
   {group:"Supply",label:"Inventory",href:"/dashboard/inventory"},
   {group:"Supply",label:"Procurement",href:"/dashboard/procurement"},
   {group:"Insights",label:"Reports",href:"/dashboard/reports"},
-  {group:"Insights",label:"KCCA compliance",href:"/dashboard/compliance"},
+  {group:"KCCA regulation",label:"Regulatory overview",href:"/dashboard/regulatory"},
+  {group:"KCCA regulation",label:"Permit",href:"/dashboard/permit"},
+  {group:"KCCA regulation",label:"Compliance cases",href:"/dashboard/compliance"},
+  {group:"KCCA regulation",label:"Monthly returns",href:"/dashboard/returns"},
+  {group:"KCCA regulation",label:"Penalty notices",href:"/dashboard/penalty-notices"},
   {group:"Administration",label:"Access & permissions",href:"/dashboard/access"},
+  {group:"Administration",label:"Subscription",href:"/dashboard/subscription"},
   {group:"Administration",label:"Company settings",href:"/dashboard/company-settings"},
+];
+const factoryNav:NavItem[]=[
+  {group:"Factory",label:"Factory overview",href:"/dashboard/factory"},
+  {group:"Factory",label:"Material intake",href:"/dashboard/factory/intake"},
+  {group:"Factory",label:"Processing",href:"/dashboard/factory/processing"},
+  {group:"Factory",label:"Product dispatch",href:"/dashboard/factory/dispatch"},
+  {group:"People",label:"Staff management",href:"/dashboard/team"},
+  {group:"KCCA regulation",label:"Regulatory overview",href:"/dashboard/regulatory"},
+  {group:"KCCA regulation",label:"Permit",href:"/dashboard/permit"},
+  {group:"KCCA regulation",label:"Compliance cases",href:"/dashboard/compliance"},
+  {group:"KCCA regulation",label:"Monthly returns",href:"/dashboard/returns"},
+  {group:"KCCA regulation",label:"Penalty notices",href:"/dashboard/penalty-notices"},
+  {group:"Administration",label:"Subscription",href:"/dashboard/subscription"},
 ];
 const customerNav:NavItem[] = [
   {group:"My service",label:"Service & collections",href:"/dashboard/customer-service"},
@@ -80,7 +120,7 @@ const recyclingCollectorNav:NavItem[] = [
 ];
 const recyclingSalesNav:NavItem[] = [{group:"Daily work",label:"Industrial sales",href:"/dashboard/recycling"}];
 const recyclingFieldManagerNav:NavItem[] = [
-  {group:"Field operations",label:"Materials & stock",href:"/dashboard/recycling"},
+  {group:"Field operations",label:"Recycling operations",href:"/dashboard/recycling"},
   {group:"Field operations",label:"Team & attendance",href:"/dashboard/team"},
   {group:"Insights",label:"Operational reports",href:"/dashboard/recycling-reports"},
 ];
@@ -117,6 +157,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [storedUser]);
   const [accessUser,setAccessUser]=useState<{user:string;permissions:string[]}|null>(null);
   const [organizationType,setOrganizationType]=useState("");
+  const [menuOpen,setMenuOpen]=useState(false);
   const [packageAccess,setPackageAccess]=useState<{organization_type:string;package_name:string;feature_codes:string[]}|null>(null);
   useEffect(()=>{
     let cancelled=false;
@@ -124,19 +165,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     apiRequest<{data:{permissions:string[]}}>("/api/auth/organization-access/me").then(result=>{
       if(!cancelled)setAccessUser({user:storedUser,permissions:result.data.permissions});
     }).catch(()=>{if(!cancelled)setAccessUser(null);});
-    apiRequest<{data:{organization:{type:string}}}>("/api/waste/recycling").then(result=>{if(!cancelled)setOrganizationType(result.data.organization.type)}).catch(()=>{if(!cancelled)setOrganizationType("")});
+    apiRequest<{data:{type:string}|null}>("/api/waste/organization-context").then(result=>{if(!cancelled)setOrganizationType(result.data?.type||"")}).catch(()=>{if(!cancelled)setOrganizationType("")});
     apiRequest<{data:{organization_type:string;package_name:string;feature_codes:string[]}}>("/api/waste/regulatory/organization-package").then(result=>{if(!cancelled)setPackageAccess(result.data)}).catch(()=>{if(!cancelled)setPackageAccess(null)});
     return()=>{cancelled=true;};
   },[currentUser,storedUser,pathname]);
   const recyclingWorkspace=organizationType==="recycling_company";
+  const factoryWorkspace=organizationType==="processing_plant";
   const primaryNavItems = currentUser?.roles?.includes("weighbridge_operator") ? weighbridgeNav
     : currentUser?.roles?.includes("driver") ? driverNav
     : currentUser?.roles?.includes("citizen") ? customerNav
     : currentUser?.roles?.includes("recycling_collector") ? recyclingCollectorNav
     : currentUser?.roles?.includes("recycling_sales") ? recyclingSalesNav
     : currentUser?.roles?.includes("recycling_field_manager") ? recyclingFieldManagerNav
-    : currentUser?.roles?.includes("company_admin") ? (recyclingWorkspace?recyclingCompanyNav:companyNav)
-    : currentUser?.roles?.includes("supervisor") ? (recyclingWorkspace?recyclingCompanyNav:supervisorNav)
+    : currentUser?.roles?.includes("company_admin") ? (factoryWorkspace?factoryNav:recyclingWorkspace?recyclingCompanyNav:companyNav)
+    : currentUser?.roles?.includes("supervisor") ? (factoryWorkspace?factoryNav.filter(item=>!["/dashboard/team","/dashboard/penalty-notices","/dashboard/subscription"].includes(item.href)):recyclingWorkspace?recyclingCompanyNav.filter(item=>!["/dashboard/penalty-notices","/dashboard/subscription"].includes(item.href)):supervisorNav)
     : currentUser?.roles?.includes("system_admin") ? systemNav : cityNav;
   const grants=accessUser?.user===storedUser?accessUser.permissions:[];
   const packageFeatures=new Set(packageAccess?.feature_codes||[]);
@@ -146,6 +188,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     item.href==="/dashboard/access"?grants.includes("access.read"):true);
   if(recyclingWorkspace&&grants.includes("staff.read")&&!visibleNavItems.some(item=>item.href==="/dashboard/team"))visibleNavItems.push({group:"People",label:"Staff management",href:"/dashboard/team"});
   if(grants.includes("access.read")&&!visibleNavItems.some(item=>item.href==="/dashboard/access"))visibleNavItems.push({group:"Administration",label:"Access & permissions",href:"/dashboard/access"});
+  if(!visibleNavItems.some(item=>item.href==="/dashboard/account"))visibleNavItems.push({group:"Account",label:"My account",href:"/dashboard/account"});
   const navGroups=visibleNavItems.reduce<Array<{name:string;items:NavItem[]}>>((groups,item)=>{
     const name=item.group||"Workspace",existing=groups.find(group=>group.name===name);
     if(existing)existing.items.push(item);else groups.push({name,items:[item]});
@@ -156,6 +199,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     : currentUser?.roles?.includes("recycling_collector") ? "Material Collection"
     : currentUser?.roles?.includes("recycling_sales") ? "Industrial Sales"
     : currentUser?.roles?.includes("recycling_field_manager") ? "Recycling Field Control"
+    : factoryWorkspace ? "Recycling Factory"
     : recyclingWorkspace ? "Recycling Operations"
     : currentUser?.roles?.includes("company_admin") ? "Waste Collection Operations"
     : currentUser?.roles?.includes("supervisor") ? "Field Control"
@@ -173,99 +217,57 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  async function handleLogout() {
-    try {
-      await window.kwmsDesktop?.offlineLogout();
-    } catch {
-      // Browser session cleanup must still complete if desktop IPC is unavailable.
-    }
-    sessionStorage.removeItem("accessToken");
-    sessionStorage.removeItem("refreshToken");
-    sessionStorage.removeItem("currentUser");
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-    localStorage.removeItem("currentUser");
-    window.location.replace("/login");
-  }
+
+  const initials=(currentUser?.fullName||currentUser?.email||"U").split(/[\s@.]+/).filter(Boolean).slice(0,2).map(part=>part[0]?.toUpperCase()).join("");
+
+  const navigation=(idSuffix:string)=><nav aria-label="Primary navigation" className="space-y-5 text-sm">
+    {navGroups.map(group=><div key={`${group.name}-${idSuffix}`}>
+      <p className="px-2.5 pb-1.5 text-[11px] font-semibold uppercase tracking-[.06em] text-slate-400">{group.name}</p>
+      <div className="space-y-px">{group.items.map(item=>{const isActive=item.href===activeNavItem?.href;return <Link key={item.label} href={item.href} aria-current={isActive?"page":undefined} onClick={()=>setMenuOpen(false)} className="nav-link"><span aria-hidden="true" className="nav-dot"/><span className="truncate">{item.label}</span></Link>})}</div>
+    </div>)}
+  </nav>;
+
+  const brand=<div className="flex items-center gap-3">
+    <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius)] bg-[var(--color-action)] text-white"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 19H4.8a1.8 1.8 0 0 1-1.6-2.7L7 9.8"/><path d="M11 19h8.2a1.8 1.8 0 0 0 1.6-2.7l-1.2-2.1"/><path d="m14 16-3 3 3 3"/><path d="M8.3 13.6 7 9.8l-3.8 1.3"/><path d="m9.3 5.4 1.1-1.9a1.8 1.8 0 0 1 3.2 0l3.9 6.7"/><path d="m13.4 9.4 3.9 1.1 1.1-3.9"/></svg></span>
+    <div className="min-w-0"><p className="truncate text-sm font-semibold leading-5 text-slate-900">{productName}</p><p className="truncate text-xs leading-4 text-slate-500">Kampala WMS</p></div>
+  </div>;
+
+  const accountProps={name:currentUser?.fullName||"Signed-in user",email:currentUser?.email||"",initials,context:`${productName} · ${workspaceLabel}`};
+  const userCard=<AccountMenu {...accountProps} variant="sidebar"/>;
 
   return (
-    <div className="min-h-screen bg-[#f7f7f5] text-[#18202f]">
-      <aside className="fixed left-0 top-0 hidden h-screen w-64 overflow-y-auto border-r border-slate-800 bg-[#151b2b] px-5 py-7 text-white lg:block">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.28em] text-[#f0b35a]">
-            Urban Waste OS
-          </p>
-          <h1 className="mt-2 text-xl font-semibold tracking-tight">{productName}</h1>
-          <p className="mt-2 text-sm leading-6 text-slate-400">Kampala deployment</p>
-        </div>
-
-        <nav aria-label="Primary navigation" className="mt-8 space-y-1 pb-8 text-sm">
-          {navGroups.map(group=>{const groupActive=group.items.some(item=>item.href===activeNavItem?.href);return <details key={`${group.name}-${groupActive}`} open={groupActive||group.items.length===1} className="group border-b border-white/5 py-1">
-            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-2 text-[10px] font-semibold uppercase tracking-[.12em] text-slate-500 hover:text-slate-300"><span>{group.name}</span>{group.items.length>1&&<span aria-hidden="true" className="text-sm font-normal transition group-open:rotate-90">›</span>}</summary>
-            <div className="space-y-0.5 pb-2">{group.items.map((item) => {
-            const isActive =
-              item.href !== "#" &&
-              (pathname === item.href || pathname.startsWith(`${item.href}/`));
-
-            return (
-              <Link
-                key={item.label}
-                href={item.href}
-                className={[
-                  "block border-l-2 px-4 py-2 text-[13px] font-medium transition",
-                  isActive
-                    ? "border-[#f0b35a] bg-white/7 text-white"
-                    : "border-transparent text-slate-400 hover:bg-white/5 hover:text-white",
-                  item.href === "#" ? "cursor-not-allowed opacity-50" : "",
-                ].join(" ")}
-              >
-                {item.label}
-              </Link>
-            );
-          })}</div></details>})}
-        </nav>
+    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-slate-200 bg-white lg:flex">
+        <div className="flex h-16 shrink-0 items-center border-b border-slate-100 px-4">{brand}</div>
+        <div className="flex-1 overflow-y-auto px-3 py-4">{navigation("desktop")}</div>
+        <div className="shrink-0 border-t border-slate-100 p-1.5">{userCard}</div>
       </aside>
 
+      {menuOpen&&<div className="fixed inset-0 z-[1500] lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
+        <div className="anim-fade absolute inset-0 bg-slate-900/40" onClick={()=>setMenuOpen(false)}/>
+        <aside className="anim-slide absolute inset-y-0 left-0 flex w-[min(20rem,85vw)] flex-col bg-white shadow-[var(--ui-shadow-lg)]">
+          <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-4">{brand}<button onClick={()=>setMenuOpen(false)} aria-label="Close menu" className="flex h-9 w-9 items-center justify-center text-slate-500 hover:bg-slate-100"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+          <div className="flex-1 overflow-y-auto px-3 py-4">{navigation("mobile")}</div>
+          <div className="shrink-0 border-t border-slate-100 p-1.5">{userCard}</div>
+        </aside>
+      </div>}
+
       <main className="lg:pl-64">
-        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white px-5 py-3 md:px-8">
-          <div className="flex items-center justify-between gap-6">
-            <div className="flex items-center gap-3">
-              <span className="h-2 w-2 bg-[#c6842f]" aria-hidden="true" />
-              <div><p className="text-sm font-semibold text-slate-800">{activeNavItem?.label||productName}</p><p className="text-xs text-slate-500">{workspaceLabel}</p></div>
+        <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white">
+          <div className="flex h-16 items-center justify-between gap-4 px-4 md:px-8">
+            <div className="flex min-w-0 items-center gap-3">
+              <button onClick={()=>setMenuOpen(true)} aria-label="Open menu" className="-ml-1 flex h-10 w-10 shrink-0 items-center justify-center text-slate-600 hover:bg-slate-100 lg:hidden"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+              <nav aria-label="Breadcrumb" className="min-w-0"><ol className="flex min-w-0 items-center gap-2 text-sm"><li className="hidden truncate text-slate-500 sm:block">{workspaceLabel}</li><li aria-hidden="true" className="hidden text-slate-300 sm:block">/</li><li className="truncate font-semibold text-slate-900">{activeNavItem?.label||productName}</li></ol></nav>
             </div>
-
-            <div className="flex items-center gap-3 text-right">
+            <div className="flex shrink-0 items-center gap-2">
               <DesktopSyncCenter />
-              <div className="hidden sm:block">
-                <p className="text-sm font-semibold text-slate-900">
-                  {currentUser?.fullName || "KCCA Admin"}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {currentUser?.email || "Signed in"}
-                </p>
-              </div>
-
-              <button
-                onClick={handleLogout}
-                className="min-h-10 border-l border-slate-200 pl-4 text-sm font-semibold text-[#3156a3] hover:underline"
-              >
-                Logout
-              </button>
+              <NotificationBell />
+              <div className="lg:hidden"><AccountMenu {...accountProps} variant="compact"/></div>
             </div>
           </div>
         </header>
 
-        <details className="border-b border-slate-200 bg-white lg:hidden">
-          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between px-5 text-sm font-semibold text-slate-800">
-            <span>{visibleNavItems.find((item)=>pathname===item.href||pathname.startsWith(`${item.href}/`))?.label||"Open modules"}</span>
-            <span aria-hidden="true">Menu</span>
-          </summary>
-          <nav aria-label="Primary navigation" className="border-t border-slate-200 p-4">
-            {navGroups.map(group=>{const groupActive=group.items.some(item=>item.href===activeNavItem?.href);return <details key={`${group.name}-mobile-${groupActive}`} open={groupActive||group.items.length===1} className="border-b border-slate-200 py-2"><summary className="flex cursor-pointer list-none items-center justify-between py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500"><span>{group.name}</span>{group.items.length>1&&<span aria-hidden="true">›</span>}</summary><div>{group.items.map((item)=><Link key={item.href} href={item.href} className={`block border-l-2 px-3 py-2.5 text-sm font-medium ${pathname===item.href?"border-[#3156a3] bg-blue-50 text-[#3156a3]":"border-transparent text-slate-600"}`}>{item.label}</Link>)}</div></details>})}
-          </nav>
-        </details>
-
-        <section className="p-4 md:p-8">{children}{pathname==="/dashboard/weighbridge"&&<WeighbridgeReconciliation roles={currentUser?.roles||[]}/>}</section>
+        <section className="px-4 py-6 md:px-8 md:py-8">{children}{pathname==="/dashboard/weighbridge"&&<WeighbridgeReconciliation roles={currentUser?.roles||[]}/>}</section>
       </main>
     </div>
   );

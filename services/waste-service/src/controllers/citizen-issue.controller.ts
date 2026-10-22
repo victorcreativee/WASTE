@@ -1,3 +1,4 @@
+import { parsePage, sendList } from "../utils/pagination";
 import { Request, Response } from "express";
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { CitizenIssueScope } from "../repositories/citizen-issue.repository";
@@ -25,8 +26,8 @@ function getScope(req: Request): CitizenIssueScope {
 }
 
 export async function getCitizenIssues(req: Request, res: Response) {
-  const issues = await listCitizenIssues(getScope(req));
-  return res.status(200).json({ success: true, message: "Citizen issues fetched successfully", data: issues });
+  const page = parsePage(req.query);
+  return sendList(res, "Citizen issues fetched successfully", await listCitizenIssues(getScope(req), page), page);
 }
 
 export async function createCitizenIssueHandler(req: Request, res: Response) {

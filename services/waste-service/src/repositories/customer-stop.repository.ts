@@ -1,3 +1,4 @@
+import { Page, queryPage } from '../utils/pagination';
 import{dbPool}from'../config/database';
 
 const listSql=`SELECT s.id,s.collection_job_id,s.scheduled_date,s.stop_order,s.status,s.arrived_at,s.completed_at,
@@ -7,10 +8,10 @@ const listSql=`SELECT s.id,s.collection_job_id,s.scheduled_date,s.stop_order,s.s
  JOIN customer_service_locations l ON l.id=s.service_location_id JOIN customer_contracts c ON c.id=s.contract_id
  JOIN customer_subscriptions sub ON sub.id=s.subscription_id JOIN service_plans sp ON sp.id=sub.plan_id
  JOIN collection_jobs cj ON cj.id=s.collection_job_id LEFT JOIN waste_zones wz ON wz.id=cj.zone_id`;
-export async function findCustomerStops(organizationId:string|null,userId:string|null,jobId?:string){
- const result=await dbPool.query(`${listSql} WHERE ($1::uuid IS NULL OR s.organization_id=$1::uuid)
+export async function findCustomerStops(organizationId:string|null,userId:string|null,jobId?:string,page?:Page){
+ return queryPage(`${listSql} WHERE ($1::uuid IS NULL OR s.organization_id=$1::uuid)
   AND ($2::uuid IS NULL OR cp.user_id=$2::uuid) AND ($3::uuid IS NULL OR s.collection_job_id=$3::uuid)
-  ORDER BY s.scheduled_date DESC,s.stop_order NULLS LAST,s.created_at`,[organizationId,userId,jobId??null]);return result.rows;
+  ORDER BY s.scheduled_date DESC,s.stop_order NULLS LAST,s.created_at,s.id`,[organizationId,userId,jobId??null],page);
 }
 export async function generateCustomerStops(jobId:string,organizationId:string){
  const client=await dbPool.connect();try{await client.query('BEGIN');

@@ -8,13 +8,19 @@ import proxyRoutes from "./routes/proxy.routes";
 import { requestIdMiddleware } from "./middlewares/request-id.middleware";
 import { errorMiddleware } from "./middlewares/error.middleware";
 import { AppError } from "./utils/app-error";
+import { trustProxySetting } from "./runtime";
 
 const app = express();
 
+app.set("trust proxy", trustProxySetting());
+app.disable("x-powered-by");
+
 app.use(helmet());
-app.use(cors());
+// CORS_ORIGINS="https://a,https://b" restricts browser origins; unset keeps the permissive development default.
+const corsOrigins = (process.env.CORS_ORIGINS ?? "").split(",").map(origin => origin.trim().replace(/\/+$/, "")).filter(Boolean);
+app.use(cors({ ...(corsOrigins.length ? { origin: corsOrigins } : {}), exposedHeaders: ["X-Request-Id", "Content-Disposition"] }));
 app.use(requestIdMiddleware);
-app.use(morgan("dev"));
+if (process.env.NODE_ENV !== "production") app.use(morgan("dev"));
 
 app.use("/api", healthRoutes);
 

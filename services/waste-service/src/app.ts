@@ -2,7 +2,8 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
-import { ZodError } from "zod";
+import { dbPool } from "./config/database";
+import { corsOptions, createErrorHandler, readinessHandler, requestContext, trustProxySetting } from "./runtime";
 
 import healthRoutes from "./routes/health.routes";
 import wasteRoutes from "./routes/waste.routes";
@@ -11,6 +12,17 @@ import { requireAuth, requireRoles } from "./middlewares/auth.middleware";
 import driverRoutes from "./routes/driver.routes";
 import citizenIssueRoutes from "./routes/citizen-issue.routes";
 import commandCenterRoutes from "./routes/command-center.routes";
+import recyclingOversightRoutes from "./routes/recycling-oversight.routes";
+import cityReportRoutes from "./routes/city-report.routes";
+import factoryRoutes from "./routes/factory.routes";
+import notificationRoutes from "./routes/notification.routes";
+import disposalRoutes from "./routes/disposal.routes";
+import dumpingRoutes from "./routes/dumping.routes";
+import penaltyRoutes from "./routes/penalty.routes";
+import trackRoutes from "./routes/track.routes";
+import subscriptionRoutes from "./routes/subscription.routes";
+import { subscriptionAccess } from "./middlewares/subscription-access.middleware";
+import { getPublicPlans } from "./controllers/subscription.controller";
 import jobProblemRoutes from "./routes/job-problem.routes";
 import customerServiceRoutes from "./routes/customer-service.routes";
 import routeExecutionRoutes from "./routes/route-execution.routes";
@@ -38,16 +50,23 @@ import { desktopIdempotency } from "./middlewares/desktop-idempotency.middleware
 
 const app = express();
 
+app.set("trust proxy", trustProxySetting());
+app.disable("x-powered-by");
+
 app.use(helmet());
-app.use(cors());
+app.use(cors(corsOptions()));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use(morgan("dev"));
+app.use(requestContext("waste-service"));
+if (process.env.NODE_ENV !== "production") app.use(morgan("dev"));
 
 app.use("/api/waste", healthRoutes);
+app.get("/api/waste/ready", readinessHandler("waste-service", (sql, params) => dbPool.query(sql, params), ["organization_permit_activities", "permit_renewal_requests", "regulatory_returns", "city_reports", "user_sessions"]));
 app.use("/api/waste/public", regulatoryPublicRoutes);
+app.get("/api/waste/public/plans", (req, res, next) => { getPublicPlans(req, res).catch(next); });
 app.use("/api/waste", requireAuth);
 app.use("/api/waste", desktopIdempotency);
+app.use("/api/waste", subscriptionAccess);
 app.use("/api/waste/trips",requirePackageFeature("core_operations"));
 app.use("/api/waste/operations",requirePackageFeature("core_operations"));
 app.use("/api/waste/service-areas",requirePackageFeature("service_areas"));
@@ -60,7 +79,7 @@ app.use("/api/waste/finance",requirePackageFeature("finance"));
 app.use("/api/waste/inventory",requirePackageFeature("inventory"));
 app.use("/api/waste/procurement",requirePackageFeature("procurement"));
 app.use("/api/waste/reports/organization",requirePackageFeature("reports"));
-app.use("/api/waste/compliance/organization",requirePackageFeature("compliance"));
+// Compliance cases are part of the free regulatory portal, not a paid package feature.
 app.use("/api/waste/regulatory", regulatoryRoutes);
 app.use("/api/waste/regulatory", applicantOnboardingRoutes);
 app.use("/api/waste/regulatory", platformOnboardingRoutes);
@@ -74,6 +93,15 @@ app.use("/api/waste", serviceRouteRoutes);
 app.use("/api/waste", tripRoutes);
 app.use("/api/waste", weighbridgeRoutes);
 app.use("/api/waste", complianceRoutes);
+app.use("/api/waste", recyclingOversightRoutes);
+app.use("/api/waste", cityReportRoutes);
+app.use("/api/waste", factoryRoutes);
+app.use("/api/waste", notificationRoutes);
+app.use("/api/waste", disposalRoutes);
+app.use("/api/waste", dumpingRoutes);
+app.use("/api/waste", penaltyRoutes);
+app.use("/api/waste", trackRoutes);
+app.use("/api/waste", subscriptionRoutes);
 app.use("/api/waste", recyclingRoutes);
 app.use("/api/waste", routeExecutionRoutes);
 app.use("/api/waste", billingRoutes);
@@ -101,42 +129,19 @@ app.use((req, res) => {
 });
 
 app.use(
-  (
-    error: Error,
-    req: express.Request,
-    res: express.Response,
-    next: express.NextFunction
-  ) => {
-    if (error instanceof ZodError) {
-      const issue = error.issues[0];
-      const field = issue?.path.length ? `${issue.path.join(".")}: ` : "";
-      return res.status(400).json({
-        success: false,
-        message: `${field}${issue?.message || "Please check the submitted information"}`,
-      });
-    }
-    if ((error as { code?: string; constraint?: string }).code === "23505") {
-      const constraint = (error as { constraint?: string }).constraint;
-      const message = constraint === "one_open_permit_per_registration"
+  createErrorHandler({
+    serviceName: "waste-service",
+    uniqueViolationMessage: (constraint) =>
+      constraint === "one_open_permit_per_registration"
         ? "An active permit application already exists for this company registration number"
         : constraint === "one_open_account_application_per_admin_email"
           ? "This administrator email is already connected to an active account application"
           : constraint === "one_active_weighbridge_ticket_per_trip"
             ? "This trip already has an active weighbridge ticket"
-          : "This information is already registered";
-      return res.status(409).json({ success: false, message });
-    }
-    if (["22P02", "23502", "23514", "42P08"].includes((error as { code?: string }).code || "")) {
-      return res.status(400).json({
-        success: false,
-        message: "This record could not be saved. Check the entered values and try again.",
-      });
-    }
-    return res.status((error as any).statusCode || 400).json({
-      success: false,
-      message: error.message || "Waste service error",
-    });
-  }
+            : constraint === "one_live_explanation_per_trip"
+              ? "This trip already has an explanation"
+              : "This information is already registered",
+  })
 );
 
 export default app;

@@ -162,7 +162,7 @@ export default function PayablesPage() {
           action={
             <button
               onClick={() => setForm("bill")}
-              className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white"
+              className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white"
             >
               Record supplier bill
             </button>
@@ -194,7 +194,7 @@ export default function PayablesPage() {
             <button
               key={v}
               onClick={() => {setTab(v as typeof tab);setQuery("");setStatus("all");}}
-              className={`border-b-2 pb-3 text-sm font-semibold ${tab === v ? "border-[#3156a3] text-[#3156a3]" : "border-transparent text-slate-500"}`}
+              className={`border-b-2 pb-3 text-sm font-semibold ${tab === v ? "border-[var(--color-action)] text-[var(--color-action)]" : "border-transparent text-slate-500"}`}
             >
               {l}
             </button>
@@ -254,7 +254,7 @@ export default function PayablesPage() {
             </div>
             {billDraft.purchaseOrderId && <p className="mt-3 text-xs text-slate-500">This bill replaces the selected order’s existing commitment; it does not reserve the same money twice.</p>}
             <FundingShortfall amount={Number(billDraft.amountUgx)} available={billFunding} action="approval" />
-            <div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" onClick={()=>setForm("none")} className="border px-4">Cancel</button><button disabled={saving || !data.funding || Number(billDraft.amountUgx)>billFunding} className="bg-[#3156a3] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving?"Saving...":"Save bill"}</button></div>
+            <div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" onClick={()=>setForm("none")} className="border px-4">Cancel</button><button disabled={saving || !data.funding || Number(billDraft.amountUgx)>billFunding} className="bg-[var(--color-action)] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving?"Saving...":"Save bill"}</button></div>
           </form>
           </Modal>
         )}
@@ -283,7 +283,7 @@ export default function PayablesPage() {
               <Field name="notes" label="Notes" />
             </div>
             <div id="supplier-payment-funding" aria-live="polite">{data.funding && <FundingShortfall amount={Number(paymentAmount)} available={Number(data.funding.cash_position_ugx)} action="payment" />}</div>
-            <div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" onClick={()=>{setForm("none");setPaying(null)}} className="border px-4">Cancel</button><button disabled={saving || !data.funding || Number(paymentAmount)<=0 || Number(paymentAmount)>Number(data.funding.cash_position_ugx) || Number(paymentAmount)>Number(paying.balance_ugx)} className="bg-[#3156a3] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving?"Recording...":"Record payment"}</button></div>
+            <div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" onClick={()=>{setForm("none");setPaying(null)}} className="border px-4">Cancel</button><button disabled={saving || !data.funding || Number(paymentAmount)<=0 || Number(paymentAmount)>Number(data.funding.cash_position_ugx) || Number(paymentAmount)>Number(paying.balance_ugx)} className="bg-[var(--color-action)] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving?"Recording...":"Record payment"}</button></div>
           </form>
           </Modal>
         )}
@@ -334,7 +334,7 @@ export default function PayablesPage() {
                                   setPaymentAmount(b.balance_ugx);
                                   setForm("payment");
                                 }}
-                                className="border border-[#3156a3] px-3 py-2 text-xs font-semibold text-[#3156a3]"
+                                className="border border-[var(--color-action)] px-3 py-2 text-xs font-semibold text-[var(--color-action)]"
                               >
                                 Record payment
                               </button>

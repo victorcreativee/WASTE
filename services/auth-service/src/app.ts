@@ -2,36 +2,39 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
-import { ZodError } from "zod";
+import { dbPool } from "./config/database";
+import { corsOptions, createErrorHandler, readinessHandler, requestContext, trustProxySetting } from "./runtime";
 import authRoutes from "./routes/auth.routes";
 import organizationAccessRoutes from "./routes/organization-access.routes";
 import onboardingRoutes from "./routes/onboarding.routes";
 import organizationUserRoutes from "./routes/organization-user.routes";
 import systemBootstrapRoutes from "./routes/system-bootstrap.routes";
 import platformUserRoutes from "./routes/platform-user.routes";
+import platformOrganizationRoutes from "./routes/platform-organization.routes";
 
 import healthRoutes from "./routes/health.routes";
 
 const app = express();
 
+app.set("trust proxy", trustProxySetting());
+app.disable("x-powered-by");
+
 app.use(helmet());
-app.use(cors());
+app.use(cors(corsOptions()));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use(morgan("dev"));
+app.use(requestContext("auth-service"));
+if (process.env.NODE_ENV !== "production") app.use(morgan("dev"));
 
 app.use("/api/auth", healthRoutes);
+app.get("/api/auth/ready", readinessHandler("auth-service", (sql, params) => dbPool.query(sql, params), ["users", "roles", "user_roles", "user_sessions", "organization_memberships"]));
 app.use("/api/auth", systemBootstrapRoutes);
 app.use("/api/auth", platformUserRoutes);
+app.use("/api/auth", platformOrganizationRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/auth", organizationAccessRoutes);
 app.use("/api/auth", onboardingRoutes);
 app.use("/api/auth", organizationUserRoutes);
-
-app.use((error: Error & { statusCode?: number }, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if(error instanceof ZodError){const issue=error.issues[0];return res.status(400).json({success:false,message:`${issue.path.length?issue.path.join('.')+': ':''}${issue.message}`});}
-  return res.status(error.statusCode || 400).json({ success: false, message: error.message || "Authentication service error" });
-});
 
 app.use((req, res) => {
   return res.status(404).json({
@@ -40,5 +43,7 @@ app.use((req, res) => {
     path: req.originalUrl,
   });
 });
+
+app.use(createErrorHandler({ serviceName: "auth-service" }));
 
 export default app;

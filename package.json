@@ -9,8 +9,12 @@
   "scripts": {
     "dev": "concurrently --kill-others-on-fail --names gateway,auth,org,waste,web \"npm run dev --prefix apps/api-gateway\" \"npm run dev --prefix services/auth-service\" \"npm run dev --prefix services/organization-service\" \"npm run dev --prefix services/waste-service\" \"npm run dev --prefix apps/admin-web\"",
     "health": "node scripts/health-check.cjs",
-    "build": "npm run build --prefix apps/api-gateway && npm run build --prefix services/auth-service && npm run build --prefix services/organization-service && npm run build --prefix services/waste-service && npm run build --prefix apps/admin-web",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "npm run build --prefix apps/api-gateway && npm run build --prefix services/auth-service && npm run build --prefix services/organization-service && npm run build --prefix services/waste-service && npm run build --prefix apps/admin-web && npm run build --prefix apps/desktop",
+    "desktop:dev": "npm run dev --prefix apps/desktop",
+    "desktop:package": "npm run package --prefix apps/desktop",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "release:check": "scripts/release-check.sh",
+    "verify:migrations": "scripts/verify-migrations.sh"
   },
   "keywords": [],
   "author": "",

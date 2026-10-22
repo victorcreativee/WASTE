@@ -154,7 +154,7 @@ export default function InventoryPage() {
           action={
             <button
               onClick={() => setForm("request")}
-              className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white"
+              className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white"
             >
               New purchase request
             </button>
@@ -186,7 +186,7 @@ export default function InventoryPage() {
             <button
               key={v}
               onClick={() => setTab(v as typeof tab)}
-              className={`border-b-2 pb-3 text-sm font-semibold ${tab === v ? "border-[#3156a3] text-[#3156a3]" : "border-transparent text-slate-500"}`}
+              className={`border-b-2 pb-3 text-sm font-semibold ${tab === v ? "border-[var(--color-action)] text-[var(--color-action)]" : "border-transparent text-slate-500"}`}
             >
               {l}
             </button>
@@ -304,7 +304,7 @@ export default function InventoryPage() {
               )}
               <button
                 disabled={saving}
-                className="self-end bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white"
+                className="self-end bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white"
               >
                 {saving ? "Saving…" : "Save"}
               </button>
@@ -326,13 +326,13 @@ export default function InventoryPage() {
               <div className="ml-auto flex gap-2">
                 <button
                   onClick={() => setForm("movement")}
-                  className="border border-[#3156a3] px-4 py-2 text-sm font-semibold text-[#3156a3]"
+                  className="border border-[var(--color-action)] px-4 py-2 text-sm font-semibold text-[var(--color-action)]"
                 >
                   Record movement
                 </button>
                 <button
                   onClick={() => setForm("item")}
-                  className="bg-[#3156a3] px-4 py-2 text-sm font-semibold text-white"
+                  className="bg-[var(--color-action)] px-4 py-2 text-sm font-semibold text-white"
                 >
                   Add item
                 </button>
@@ -549,7 +549,7 @@ function Action({
           `Request marked ${next}.`,
         )
       }
-      className="border border-[#3156a3] px-3 py-2 text-xs font-semibold capitalize text-[#3156a3]"
+      className="border border-[var(--color-action)] px-3 py-2 text-xs font-semibold capitalize text-[var(--color-action)]"
     >
       Mark {next}
     </button>

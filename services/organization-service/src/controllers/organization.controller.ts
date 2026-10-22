@@ -24,6 +24,7 @@ export async function getOrganizations(req: Request, res: Response) {
       data: organizations,
     });
   } catch (error) {
+    if (!(error as { statusCode?: number })?.statusCode) throw error; // unexpected: central handler logs it and returns a safe 500
     return res.status(500).json({
       success: false,
       message:
@@ -53,6 +54,7 @@ export async function getOrganizationById(req: Request, res: Response) {
       data: organization,
     });
   } catch (error) {
+    if (!(error as { statusCode?: number })?.statusCode) throw error; // unexpected: central handler logs it and returns a safe 500
     const statusCode = (error as any).statusCode || 500;
 
     return res.status(statusCode).json({
@@ -74,6 +76,7 @@ export async function createOrganizationHandler(req: Request, res: Response) {
       data: organization,
     });
   } catch (error) {
+    if (!(error as { statusCode?: number })?.statusCode) throw error; // unexpected: central handler logs it and returns a safe 500
     return res.status((error as any).statusCode||400).json({
       success: false,
       message:

@@ -44,7 +44,7 @@ type Workspace = {
 };
 type Location = { latitude: number; longitude: number; accuracy: number };
 const field =
-  "mt-1.5 min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-base outline-none focus:border-[#3156a3] focus:ring-2 focus:ring-blue-100";
+  "mt-1.5 min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-base outline-none focus:border-[var(--color-action)] focus:ring-2 focus:ring-blue-100";
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function RecyclingFieldPage() {
@@ -181,7 +181,7 @@ export default function RecyclingFieldPage() {
         <header className="border-b border-slate-300 pb-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[.18em] text-[#3156a3]">
+              <p className="text-xs font-bold uppercase tracking-[.18em] text-[var(--color-action)]">
                 Field collection
               </p>
               <h1 className="mt-2 text-3xl font-semibold">
@@ -190,7 +190,7 @@ export default function RecyclingFieldPage() {
             </div>
             <Link
               href="/dashboard/recycling"
-              className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-[#3156a3]"
+              className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-[var(--color-action)]"
             >
               Full web
             </Link>
@@ -221,7 +221,7 @@ export default function RecyclingFieldPage() {
                 setError("");
                 setNotice("");
               }}
-              className={`min-h-11 rounded-lg px-2 text-sm font-semibold ${view === id ? "bg-[#3156a3] text-white" : "text-slate-600"}`}
+              className={`min-h-11 rounded-lg px-2 text-sm font-semibold ${view === id ? "bg-[var(--color-action)] text-white" : "text-slate-600"}`}
             >
               {label}
             </button>
@@ -230,13 +230,13 @@ export default function RecyclingFieldPage() {
         {view === "today" && (
           <section className="mt-5 space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-xl bg-[#151b2b] p-4 text-white">
+              <div className="rounded-xl bg-[var(--color-ink)] p-4 text-white">
                 <p className="text-xs text-slate-300">Purchases today</p>
                 <p className="mt-2 text-3xl font-semibold">
                   {data?.myActivity?.purchases ?? ownToday.length}
                 </p>
               </div>
-              <div className="rounded-xl bg-[#3156a3] p-4 text-white">
+              <div className="rounded-xl bg-[var(--color-action)] p-4 text-white">
                 <p className="text-xs text-blue-100">Kilograms bought</p>
                 <p className="mt-2 text-3xl font-semibold">
                   {Number(
@@ -250,7 +250,7 @@ export default function RecyclingFieldPage() {
             <button
               disabled={data?.operations.isClosed}
               onClick={() => setView("buy")}
-              className="min-h-14 w-full rounded-xl bg-[#3156a3] px-5 text-base font-semibold text-white shadow-sm disabled:bg-slate-300"
+              className="min-h-14 w-full rounded-xl bg-[var(--color-action)] px-5 text-base font-semibold text-white shadow-sm disabled:bg-slate-300"
             >
               + Record material purchase
             </button>
@@ -387,7 +387,7 @@ export default function RecyclingFieldPage() {
             </div>
             <div className="rounded-lg bg-blue-50 p-3">
               <p className="text-xs text-slate-500">Material amount</p>
-              <p className="mt-1 text-xl font-semibold text-[#3156a3]">
+              <p className="mt-1 text-xl font-semibold text-[var(--color-action)]">
                 UGX {(quantity * unitPrice).toLocaleString()}
               </p>
             </div>
@@ -464,7 +464,7 @@ export default function RecyclingFieldPage() {
                   type="button"
                   disabled={locating}
                   onClick={captureLocation}
-                  className="min-h-11 rounded-lg border border-[#3156a3] px-3 text-sm font-semibold text-[#3156a3]"
+                  className="min-h-11 rounded-lg border border-[var(--color-action)] px-3 text-sm font-semibold text-[var(--color-action)]"
                 >
                   {locating ? "Locating…" : location ? "Refresh" : "Use GPS"}
                 </button>
@@ -481,7 +481,7 @@ export default function RecyclingFieldPage() {
             </label>
             <button
               disabled={saving || data?.operations.isClosed}
-              className="min-h-14 w-full rounded-xl bg-[#3156a3] px-5 text-base font-semibold text-white disabled:bg-slate-300"
+              className="min-h-14 w-full rounded-xl bg-[var(--color-action)] px-5 text-base font-semibold text-white disabled:bg-slate-300"
             >
               {saving ? "Saving purchase…" : "Save purchase"}
             </button>

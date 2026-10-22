@@ -1,0 +1,5 @@
+const fs=require("fs"),path=require("path"),{Pool}=require("pg");require("dotenv").config({path:path.resolve(__dirname,"../.env")});
+const apply=process.argv.includes("--apply"),databaseUrl=process.env.DATABASE_URL||"";
+if(!databaseUrl)throw new Error("DATABASE_URL is required");if(!/(localhost|127\.0\.0\.1)/.test(databaseUrl)&&process.env.ALLOW_NON_LOCAL_MIGRATION!=="true")throw new Error("Refusing non-local migration without ALLOW_NON_LOCAL_MIGRATION=true");
+const sql=fs.readFileSync(path.resolve(__dirname,"../../../infrastructure/database/100_illegal_dumping.sql"),"utf8"),pool=new Pool({connectionString:databaseUrl});
+(async()=>{const client=await pool.connect();try{await client.query("BEGIN");await client.query(sql);if(apply){await client.query("COMMIT");console.log("Illegal dumping migration applied.")}else{await client.query("ROLLBACK");console.log("Illegal dumping migration validated and rolled back.")}}catch(error){await client.query("ROLLBACK");throw error}finally{client.release();await pool.end()}})().catch(error=>{console.error(error);process.exit(1)});

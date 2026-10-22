@@ -3,9 +3,11 @@ import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { requireOrganizationScope } from "../middlewares/organization-scope";
 import * as repo from "../repositories/recycling.repository";
 import {
+  cashMovementSchema,
   dailyCloseSchema,
   dailyReopenSchema,
   lotSchema,
+  lotUpdateSchema,
   managerFloatSchema,
   materialCatalogSchema,
   materialCatalogStateSchema,
@@ -15,6 +17,7 @@ import {
   paymentFollowUpSchema,
   salePaymentSchema,
   saleSchema,
+  saleUpdateSchema,
   sortingSchema,
   stockAdjustmentSchema,
 } from "../validators/recycling.validator";
@@ -28,6 +31,12 @@ const org = (r: Request) => {
   return id;
 };
 export async function getRecycling(r: Request, s: Response) {
+  // Operational clients must always prefer the current organization ledger
+  // while online. Device SQLite remains the fallback only when the API cannot
+  // be reached.
+  s.set("Cache-Control", "private, no-store, no-cache, must-revalidate");
+  s.set("Pragma", "no-cache");
+  s.set("Expires", "0");
   const account = identity(r),
     roles = account.roles,
     data: any = await repo.findRecycling(requireOrganizationScope(r)),
@@ -219,10 +228,11 @@ export async function postSale(r: Request, s: Response) {
             "The material lot is missing or does not have enough available quantity",
         });
 }
+export async function patchLot(r:Request,s:Response){const result=await repo.updateLot(org(r),identity(r).userId,r.params.id as string,lotUpdateSchema.parse(r.body));return result?s.json({success:true,message:'Purchase transaction updated',data:result}):s.status(404).json({success:false,message:'Purchase transaction not found'});}
+export async function patchSale(r:Request,s:Response){const input=saleUpdateSchema.parse(r.body),roles=identity(r).roles;if(roles.includes('recycling_collector')&&input.saleChannel!=='local')return s.status(403).json({success:false,message:'Collection workers may edit local sales only'});if(roles.includes('recycling_sales')&&input.saleChannel!=='industrial')return s.status(403).json({success:false,message:'Industrial sales staff may edit industry sales only'});const result=await repo.updateSale(org(r),identity(r).userId,r.params.id as string,input);return result?s.json({success:true,message:'Sale transaction updated',data:result}):s.status(404).json({success:false,message:'Sale transaction not found'});}
 export async function postManagerFloat(r: Request, s: Response) {
   const organizationId = org(r),
     input = managerFloatSchema.parse(r.body);
-  await repo.assertFloatFunding(organizationId, input);
   return s
     .status(201)
     .json({
@@ -235,14 +245,10 @@ export async function postManagerFloat(r: Request, s: Response) {
       ),
     });
 }
+export async function postCashMovement(r:Request,s:Response){const input=cashMovementSchema.parse(r.body);return s.status(201).json({success:true,message:"Cash movement posted",data:await repo.createCashMovement(org(r),identity(r).userId,input)});}
 export async function postSorting(r: Request, s: Response) {
   const organizationId = org(r),
     input = sortingSchema.parse(r.body);
-  await repo.assertCashFunding(
-    organizationId,
-    input.processingCostUgx,
-    "Processing cost",
-  );
   const result = await repo.createSortingBatch(
     organizationId,
     identity(r).userId,
@@ -298,6 +304,16 @@ export async function postPartner(r: Request, s: Response) {
         partnerSchema.parse(r.body),
       ),
     });
+}
+export async function patchPartner(r: Request, s: Response) {
+  const result = await repo.updatePartner(
+    org(r),
+    r.params.id as string,
+    partnerSchema.parse(r.body),
+  );
+  return result
+    ? s.json({ success: true, message: "Trade partner details updated", data: result })
+    : s.status(404).json({ success: false, message: "Trade partner not found" });
 }
 export async function patchPartnerState(r: Request, s: Response) {
   const result = await repo.setPartnerState(

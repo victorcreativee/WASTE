@@ -152,12 +152,12 @@ export default function ContractsPage() {
           action={data.plans.length ? (
             <button
               onClick={() => openContract()}
-              className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white"
+              className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white"
             >
               New contract
             </button>
           ) : (
-            <a href="/dashboard/billing" className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">
+            <a href="/dashboard/billing" className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">
               Create service package first
             </a>
           )}
@@ -230,7 +230,7 @@ export default function ContractsPage() {
               <label className="text-sm font-semibold">Contract starts<input required type="date" value={startsOn} onChange={event=>setStartsOn(event.target.value)} className="mt-1 w-full border p-2.5"/></label>
               <label className="text-sm font-semibold">Contract ends<input required type="date" min={startsOn} value={endsOn} onChange={event=>setEndsOn(event.target.value)} className="mt-1 w-full border p-2.5"/></label>
               {plan && (
-                <div className="border-l-2 border-[#3156a3] bg-blue-50 px-4 py-3 text-sm sm:col-span-2">
+                <div className="border-l-2 border-[var(--color-action)] bg-blue-50 px-4 py-3 text-sm sm:col-span-2">
                   <p className="font-semibold">{plan.name}</p>
                   <p className="mt-1 text-slate-500">
                     {money(plan.fee_ugx)} per {label(plan.billing_frequency)} ·{" "}
@@ -241,7 +241,7 @@ export default function ContractsPage() {
               )}
               <div className="sm:col-span-2"><Field name="notes" label="Contract notes (optional)" /></div>
             </div>
-            <div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" disabled={saving} onClick={()=>setOpen(false)} className="border border-slate-300 px-4 py-2.5 text-sm font-semibold">Cancel</button><button disabled={saving||!selectedCustomer||!selectedPlan||!startsOn||!endsOn||endsOn<startsOn} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40">{saving?"Creating draft…":"Create contract draft"}</button></div>
+            <div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" disabled={saving} onClick={()=>setOpen(false)} className="border border-slate-300 px-4 py-2.5 text-sm font-semibold">Cancel</button><button disabled={saving||!selectedCustomer||!selectedPlan||!startsOn||!endsOn||endsOn<startsOn} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40">{saving?"Creating draft…":"Create contract draft"}</button></div>
           </form>
         </Modal>
         <section className="mt-8">
@@ -336,7 +336,7 @@ export default function ContractsPage() {
                             {["draft", "suspended"].includes(c.status) && (
                               <Step c={c} next="cancelled" act={act} />
                             )}
-                            {["expiring","expired"].includes(c.status)&&c.plan_id&&<button disabled={saving} onClick={()=>renewContract(c)} className="border border-[#3156a3] px-3 py-2 text-xs font-semibold text-[#3156a3]">Renew</button>}
+                            {["expiring","expired"].includes(c.status)&&c.plan_id&&<button disabled={saving} onClick={()=>renewContract(c)} className="border border-[var(--color-action)] px-3 py-2 text-xs font-semibold text-[var(--color-action)]">Renew</button>}
                           </div>
                         </td>
                       </tr>
@@ -417,7 +417,7 @@ function Step({
           `Contract ${next === "active" ? "activated" : `marked ${next}`}.`,
         )
       }
-      className="border border-[#3156a3] px-3 py-2 text-xs font-semibold text-[#3156a3]"
+      className="border border-[var(--color-action)] px-3 py-2 text-xs font-semibold text-[var(--color-action)]"
     >
       {action}
     </button>

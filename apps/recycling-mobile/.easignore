@@ -1,0 +1,32 @@
+# Dependencies and generated output
+node_modules/
+.expo/
+dist/
+dist-*/
+web-build/
+expo-env.d.ts
+
+# Generated native projects and build credentials
+/ios
+/android
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+
+# Local environment files must never be uploaded to EAS.
+.env
+.env.*
+!.env.example
+
+# Local/editor output
+.DS_Store
+.metro-health-check*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.tsbuildinfo

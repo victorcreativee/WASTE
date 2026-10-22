@@ -126,8 +126,8 @@ export default function PayrollPage() {
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl">
-        <PageHeader eyebrow="Workforce finance" title="Payroll" description="Prepare staff pay, review deductions, approve available funds, and record payment." action={<button onClick={()=>setPeriodOpen(true)} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">New pay period</button>}/>
-        <div className="mt-4 text-right"><a href="/dashboard/team" className="text-sm font-semibold text-[#3156a3]">Review staff and attendance →</a></div>
+        <PageHeader eyebrow="Workforce finance" title="Payroll" description="Prepare staff pay, review deductions, approve available funds, and record payment." action={<button onClick={()=>setPeriodOpen(true)} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">New pay period</button>}/>
+        <div className="mt-4 text-right"><a href="/dashboard/team" className="text-sm font-semibold text-[var(--color-action)]">Review staff and attendance →</a></div>
         {error&&<Feedback tone="error">{error}</Feedback>}
         {message&&<Feedback tone="success">{message}</Feedback>}
         <section className="mt-8 grid border-y border-slate-300 sm:grid-cols-3">
@@ -136,8 +136,8 @@ export default function PayrollPage() {
           <FinanceMetric label="Available for approval" value={money(position.available_to_commit_ugx)} />
         </section>
         <p className="border-b py-3 text-xs text-slate-500">Approving payroll reserves funds. Marking it paid requires enough cash on hand and records the payroll expense automatically.</p>
-        <Modal open={periodOpen} title="New pay period" description="Create one non-overlapping payroll period. Pay date must be on or after the period end." onClose={()=>setPeriodOpen(false)}><form onSubmit={createPeriod}><div className="grid gap-4 sm:grid-cols-2"><Input name="name" label="Period name" required/><Input name="startsOn" label="Starts" type="date" required/><Input name="endsOn" label="Ends" type="date" required/><Input name="payDate" label="Pay date" type="date" required/></div><div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" onClick={()=>setPeriodOpen(false)} className="border px-4">Cancel</button><button disabled={saving} className="bg-[#3156a3] px-5 py-2.5 text-white disabled:opacity-50">{saving?"Creating...":"Create period"}</button></div></form></Modal>
-        <Modal open={lineOpen&&Boolean(period)} title="Add or update staff pay" description={period?`Prepare an auditable pay line for ${period.name}. Deductions cannot exceed total earnings.`:""} onClose={()=>setLineOpen(false)}><form onSubmit={saveLine}><div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-bold">Staff member<select required name="userId" className="mt-1 w-full border p-2.5"><option value="">Choose staff</option>{staff.filter(s=>s.status==="active"&&!s.roles.includes("company_admin")).map(s=><option key={s.id} value={s.id}>{s.full_name}</option>)}</select></label><Input name="basicPayUgx" label="Basic pay (UGX)" type="number" required/><Input name="allowanceUgx" label="Allowance (UGX)" type="number"/><Input name="deductionUgx" label="Deduction (UGX)" type="number"/><label className="text-sm font-bold sm:col-span-2">Notes<input name="notes" maxLength={500} className="mt-1 w-full border p-2.5"/></label></div><div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" onClick={()=>setLineOpen(false)} className="border px-4">Cancel</button><button disabled={saving} className="bg-[#3156a3] px-5 py-2.5 text-white disabled:opacity-50">{saving?"Saving...":"Save pay line"}</button></div></form></Modal>
+        <Modal open={periodOpen} title="New pay period" description="Create one non-overlapping payroll period. Pay date must be on or after the period end." onClose={()=>setPeriodOpen(false)}><form onSubmit={createPeriod}><div className="grid gap-4 sm:grid-cols-2"><Input name="name" label="Period name" required/><Input name="startsOn" label="Starts" type="date" required/><Input name="endsOn" label="Ends" type="date" required/><Input name="payDate" label="Pay date" type="date" required/></div><div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" onClick={()=>setPeriodOpen(false)} className="border px-4">Cancel</button><button disabled={saving} className="bg-[var(--color-action)] px-5 py-2.5 text-white disabled:opacity-50">{saving?"Creating...":"Create period"}</button></div></form></Modal>
+        <Modal open={lineOpen&&Boolean(period)} title="Add or update staff pay" description={period?`Prepare an auditable pay line for ${period.name}. Deductions cannot exceed total earnings.`:""} onClose={()=>setLineOpen(false)}><form onSubmit={saveLine}><div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-bold">Staff member<select required name="userId" className="mt-1 w-full border p-2.5"><option value="">Choose staff</option>{staff.filter(s=>s.status==="active"&&!s.roles.includes("company_admin")).map(s=><option key={s.id} value={s.id}>{s.full_name}</option>)}</select></label><Input name="basicPayUgx" label="Basic pay (UGX)" type="number" required/><Input name="allowanceUgx" label="Allowance (UGX)" type="number"/><Input name="deductionUgx" label="Deduction (UGX)" type="number"/><label className="text-sm font-bold sm:col-span-2">Notes<input name="notes" maxLength={500} className="mt-1 w-full border p-2.5"/></label></div><div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" onClick={()=>setLineOpen(false)} className="border px-4">Cancel</button><button disabled={saving} className="bg-[var(--color-action)] px-5 py-2.5 text-white disabled:opacity-50">{saving?"Saving...":"Save pay line"}</button></div></form></Modal>
         <section className="mt-8 grid gap-8 xl:grid-cols-[300px_1fr]">
           <aside>
             <div className="border-t border-slate-300 pt-4">
@@ -148,7 +148,7 @@ export default function PayrollPage() {
                 <button
                   key={p.id}
                   onClick={() => setSelected(p.id)}
-                  className={`block w-full border-b py-3 text-left ${period?.id === p.id ? "text-[#3156a3]" : "text-slate-700"}`}
+                  className={`block w-full border-b py-3 text-left ${period?.id === p.id ? "text-[var(--color-action)]" : "text-slate-700"}`}
                 >
                   <span className="font-semibold">{p.name}</span>
                   <span className="float-right"><Status value={p.status}/></span>
@@ -182,7 +182,7 @@ export default function PayrollPage() {
                     </p>
                   </div>
                   <div className="flex gap-3">
-                    {period.status === "draft" && <button onClick={()=>setLineOpen(true)} className="bg-[#3156a3] px-4 py-2 text-sm font-bold text-white">Add staff pay</button>}
+                    {period.status === "draft" && <button onClick={()=>setLineOpen(true)} className="bg-[var(--color-action)] px-4 py-2 text-sm font-bold text-white">Add staff pay</button>}
                     {period.status === "draft" && (
                       <button
                         disabled={saving || !lines.length || Number(period.net_total_ugx)<=0 || Number(period.net_total_ugx)>Number(position.available_to_commit_ugx)}
@@ -196,7 +196,7 @@ export default function PayrollPage() {
                             "Payroll approved.",
                           )
                         }
-                        className="border border-[#3156a3] px-4 py-2 text-sm font-bold text-[#3156a3] disabled:opacity-40"
+                        className="border border-[var(--color-action)] px-4 py-2 text-sm font-bold text-[var(--color-action)] disabled:opacity-40"
                       >
                         Approve payroll
                       </button>
@@ -215,7 +215,7 @@ export default function PayrollPage() {
                             "Payroll marked paid.",
                           );
                         }}
-                        className="bg-[#3156a3] px-4 py-2 text-sm font-bold text-white"
+                        className="bg-[var(--color-action)] px-4 py-2 text-sm font-bold text-white"
                       >
                         Mark paid
                       </button>

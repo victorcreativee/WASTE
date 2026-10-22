@@ -1,0 +1,137 @@
+# KCCA Command Center — continuous integration. Mirrors scripts/release-check.sh so a pull request is held to the
+# same gates as a release: type checks, unit tests, dependency audit, admin-web build, migrations on a fresh PostGIS
+# database, and the end-to-end suites against that database.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Type checks, unit tests and audit
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [apps/api-gateway, services/auth-service, services/organization-service, services/waste-service]
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.package }}/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit -p .
+      - name: Unit tests
+        if: matrix.package == 'services/auth-service' || matrix.package == 'services/waste-service'
+        run: npm test
+      - name: Production dependency audit
+        # The gateway carries one documented exception (braces via http-proxy-middleware; no fixed release yet).
+        run: |
+          if [ "${{ matrix.package }}" = "apps/api-gateway" ]; then npm audit --omit=dev --audit-level=critical; else npm audit --omit=dev --audit-level=high; fi
+
+  web:
+    name: Admin web build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/admin-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/admin-web/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit -p .
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+      - name: Standalone build is where the desktop app loads it
+        run: test -f .next/standalone/apps/admin-web/server.js
+
+  migrations:
+    name: Migrations on a fresh database
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/verify-migrations.sh
+
+  e2e:
+    name: End-to-end suites
+    runs-on: ubuntu-latest
+    needs: [checks, migrations]
+    services:
+      database:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: smart_waste_ci
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ci -d smart_waste_ci" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/smart_waste_ci
+      JWT_ACCESS_SECRET: ci-access-secret-that-is-only-used-in-continuous-integration
+      JWT_REFRESH_SECRET: ci-refresh-secret-that-is-only-used-in-continuous-integration
+      PGPASSWORD: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply migrations
+        run: |
+          psql -h localhost -U ci -d smart_waste_ci -v ON_ERROR_STOP=1 -q -f infrastructure/database/init.sql
+          for f in infrastructure/database/[0-9][0-9][0-9]_*.sql; do
+            { echo "BEGIN;"; cat "$f"; printf '\nCOMMIT;\n'; } | psql -h localhost -U ci -d smart_waste_ci -v ON_ERROR_STOP=1 -q
+          done
+      - run: npm ci
+        working-directory: services/auth-service
+      - run: npm ci
+        working-directory: services/waste-service
+      - name: Start test instances
+        run: |
+          (cd services/auth-service && PORT=8191 npx ts-node --transpile-only src/server.ts > /tmp/auth.log 2>&1 &)
+          (cd services/waste-service && PORT=8193 PERMIT_LIFECYCLE_SCHEDULER=off NOTIFICATION_WORKER=off CORS_ORIGINS=https://allowed.example npx ts-node --transpile-only src/server.ts > /tmp/waste.log 2>&1 &)
+          for i in $(seq 1 90); do curl -sf localhost:8191/api/auth/ready >/dev/null && curl -sf localhost:8193/api/waste/ready >/dev/null && break; sleep 1; done
+          curl -sf localhost:8191/api/auth/ready && curl -sf localhost:8193/api/waste/ready || { tail -50 /tmp/auth.log /tmp/waste.log; exit 1; }
+      - name: Sessions, readiness, request ids and CORS
+        working-directory: services/auth-service
+        run: AUTH_BASE_URL=http://localhost:8191 WASTE_BASE_URL=http://localhost:8193 node scripts/e2e-sessions.cjs
+      - name: Module suites
+        working-directory: services/waste-service
+        env:
+          E2E_BASE_URL: http://localhost:8193
+        run: |
+          node scripts/e2e-permit-lifecycle.cjs
+          node scripts/e2e-recycling-oversight.cjs
+          node scripts/e2e-regulatory-portal.cjs
+          node scripts/e2e-city-report.cjs
+          node scripts/e2e-pagination.cjs
+          node scripts/e2e-recycling-factories.cjs
+          node scripts/e2e-notifications.cjs
+          node scripts/e2e-disposal-verification.cjs
+          node scripts/e2e-illegal-dumping.cjs
+          node scripts/e2e-penalties.cjs
+          node scripts/e2e-track-checks.cjs
+          node scripts/e2e-subscriptions.cjs
+      - name: Service logs on failure
+        if: failure()
+        run: tail -100 /tmp/auth.log /tmp/waste.log

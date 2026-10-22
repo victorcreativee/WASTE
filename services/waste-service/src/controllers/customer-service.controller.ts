@@ -1,3 +1,4 @@
+import { parsePage, sendList } from "../utils/pagination";
 import { requireOrganizationScope } from "../middlewares/organization-scope";
 import { Request, Response } from "express";
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";
@@ -23,8 +24,8 @@ export async function getMyCustomerServiceHandler(req: Request, res: Response) {
 
 export async function getCustomersHandler(req: Request, res: Response) {
   const organizationId = requireOrganizationScope(req);
-  const customers = await findCustomers(organizationId);
-  return res.status(200).json({ success: true, message: "Customers fetched", data: customers });
+  const page = parsePage(req.query);
+  return sendList(res, "Customers fetched", await findCustomers(organizationId, page), page);
 }
 
 export async function updateCustomerServiceStatusHandler(req: Request, res: Response) {

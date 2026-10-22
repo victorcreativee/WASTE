@@ -12,6 +12,7 @@ export const loginSchema = z.object({
   email: z.string().email("Valid email is required"),
   password: z.string().min(1, "Password is required"),
 });
+export const changePasswordSchema=z.object({currentPassword:z.string().min(1),newPassword:z.string().min(12).max(72).refine(value=>/[A-Z]/.test(value)&&/[a-z]/.test(value)&&/\d/.test(value),"Use uppercase, lowercase and a number")}).strict();
 
 export const organizationApplicantRegisterSchema = z.object({
   companyType: z.enum(["waste_collection_company", "recycling_company"]),

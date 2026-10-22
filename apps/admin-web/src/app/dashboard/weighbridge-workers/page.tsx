@@ -15,7 +15,7 @@ export default function WeighbridgeWorkersPage(){
  async function changeStatus(worker:Worker){try{setSaving(true);setError("");await apiRequest(`/api/auth/platform-users/${worker.id}/status`,{method:"PATCH",body:JSON.stringify({status:worker.status==="active"?"suspended":"active"})});await load()}catch(e){setError(e instanceof Error?e.message:"Could not update worker") }finally{setSaving(false)}}
  return <AppShell>
   <div className="mx-auto max-w-6xl">
-   <PageHeader eyebrow="KCCA access control" title="Weighbridge workers" description="Create restricted KCCA accounts for workers who record official vehicle weights. These accounts cannot access permits, organizations or platform administration." action={<button onClick={()=>{setFormError("");setOpen(true)}} className="bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white">Add worker</button>}/>
+   <PageHeader eyebrow="KCCA access control" title="Weighbridge workers" description="Create restricted KCCA accounts for workers who record official vehicle weights. These accounts cannot access permits, organizations or platform administration." action={<button onClick={()=>{setFormError("");setOpen(true)}} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">Add worker</button>}/>
    {error&&<Feedback tone="error">{error}</Feedback>}
    {message&&<Feedback tone="success">{message}</Feedback>}
    <div className="mt-7 overflow-x-auto border-y"><table className="w-full min-w-[760px] text-left"><thead><tr><th>Worker</th><th>Phone</th><th>Last login</th><th>Status</th><th className="text-right">Action</th></tr></thead><tbody>{workers.map(worker=><tr key={worker.id}><td><p className="table-primary">{worker.full_name}</p><p className="table-secondary">{worker.email}</p></td><td>{worker.phone||"—"}</td><td>{worker.last_login_at?new Date(worker.last_login_at).toLocaleString("en-GB"):"Never"}</td><td><Status value={worker.status}/></td><td className="text-right"><button disabled={saving} onClick={()=>void changeStatus(worker)} className="border px-3 py-2 text-xs font-semibold">{worker.status==="active"?"Suspend":"Restore"}</button></td></tr>)}{!workers.length&&<tr><td colSpan={5} className="py-10 text-center text-sm text-slate-500">No weighbridge worker accounts yet.</td></tr>}</tbody></table></div>
@@ -29,7 +29,7 @@ export default function WeighbridgeWorkersPage(){
     <Field name="password" label="Temporary password" type="password"/>
     <Field name="confirmation" label="Confirm password" type="password"/>
     <p className="text-xs text-slate-500">Use at least 12 characters with uppercase, lowercase, a number and a symbol.</p>
-    <button disabled={saving} className="bg-[#3156a3] px-4 py-3 font-semibold text-white disabled:opacity-50">{saving?"Creating…":"Create worker account"}</button>
+    <button disabled={saving} className="bg-[var(--color-action)] px-4 py-3 font-semibold text-white disabled:opacity-50">{saving?"Creating…":"Create worker account"}</button>
    </form>
   </Modal>
  </AppShell>

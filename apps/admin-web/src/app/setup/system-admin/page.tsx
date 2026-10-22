@@ -67,9 +67,9 @@ export default function SystemAdminSetupPage() {
     }
   }
   return (
-    <main className="grid min-h-screen place-items-center bg-[#f7f7f5] px-5 py-12">
-      <section className="w-full max-w-xl border-t-2 border-[#3156a3] bg-white p-7 shadow-sm sm:p-10">
-        <p className="text-xs font-semibold uppercase tracking-[.18em] text-[#3156a3]">
+    <main className="grid min-h-screen place-items-center bg-[var(--background)] px-5 py-12">
+      <section className="w-full max-w-xl border-t-2 border-[var(--color-action)] bg-white p-7 shadow-sm sm:p-10">
+        <p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--color-action)]">
           One-time platform setup
         </p>
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">
@@ -90,7 +90,7 @@ export default function SystemAdminSetupPage() {
             </p>
             <Link
               href="/login"
-              className="mt-5 inline-block bg-[#3156a3] px-4 py-2.5 text-sm font-semibold text-white"
+              className="mt-5 inline-block bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white"
             >
               Continue to sign in
             </Link>
@@ -103,7 +103,7 @@ export default function SystemAdminSetupPage() {
             </p>
             <Link
               href="/login"
-              className="mt-4 inline-block text-sm font-semibold text-[#3156a3] underline"
+              className="mt-4 inline-block text-sm font-semibold text-[var(--color-action)] underline"
             >
               Return to sign in
             </Link>
@@ -124,7 +124,7 @@ export default function SystemAdminSetupPage() {
                 required
                 name="fullName"
                 autoComplete="name"
-                className="mt-2 w-full border border-slate-300 px-3 py-3 font-normal outline-none focus:border-[#3156a3]"
+                className="mt-2 w-full border border-slate-300 px-3 py-3 font-normal outline-none focus:border-[var(--color-action)]"
               />
             </label>
             <label className="block text-sm font-semibold">
@@ -134,12 +134,12 @@ export default function SystemAdminSetupPage() {
                 name="email"
                 type="email"
                 autoComplete="username"
-                className="mt-2 w-full border border-slate-300 px-3 py-3 font-normal outline-none focus:border-[#3156a3]"
+                className="mt-2 w-full border border-slate-300 px-3 py-3 font-normal outline-none focus:border-[var(--color-action)]"
               />
             </label>
             <label className="block text-sm font-semibold">
               Password
-              <div className="mt-2 flex border border-slate-300 focus-within:border-[#3156a3]">
+              <div className="mt-2 flex border border-slate-300 focus-within:border-[var(--color-action)]">
                 <input
                   required
                   name="password"
@@ -150,7 +150,7 @@ export default function SystemAdminSetupPage() {
                 <button
                   type="button"
                   onClick={() => setShow((v) => !v)}
-                  className="px-3 text-xs font-semibold text-[#3156a3]"
+                  className="px-3 text-xs font-semibold text-[var(--color-action)]"
                 >
                   {show ? "Hide" : "Show"}
                 </button>
@@ -167,7 +167,7 @@ export default function SystemAdminSetupPage() {
                 name="confirmation"
                 type={show ? "text" : "password"}
                 autoComplete="new-password"
-                className="mt-2 w-full border border-slate-300 px-3 py-3 font-normal outline-none focus:border-[#3156a3]"
+                className="mt-2 w-full border border-slate-300 px-3 py-3 font-normal outline-none focus:border-[var(--color-action)]"
               />
             </label>
             <label className="block text-sm font-semibold">
@@ -184,7 +184,7 @@ export default function SystemAdminSetupPage() {
             </label>
             <button
               disabled={saving}
-              className="w-full bg-[#3156a3] px-5 py-3.5 text-sm font-semibold text-white disabled:opacity-50"
+              className="w-full bg-[var(--color-action)] px-5 py-3.5 text-sm font-semibold text-white disabled:opacity-50"
             >
               {saving ? "Creating secure account…" : "Create System Admin"}
             </button>

@@ -6,11 +6,20 @@
   "build": {
     "preview": {
       "distribution": "internal",
-      "environment": "preview"
+      "autoIncrement": true,
+      "environment": "preview",
+      "android": {
+        "buildType": "apk"
+      },
+      "channel": "preview"
     },
     "production": {
       "autoIncrement": true,
-      "environment": "production"
+      "environment": "production",
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "channel": "production"
     }
   },
   "submit": {

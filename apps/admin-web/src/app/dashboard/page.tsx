@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { apiRequest } from "@/lib/api";
-import {EmptyState,Feedback,PageHeader,Status} from "@/components/ui/System";
+import {EmptyState,Feedback,PageHeader,SectionHeading,Stat,Status} from "@/components/ui/System";
 
 type MeResponse = {
   success: boolean;
@@ -102,6 +102,10 @@ export default function DashboardPage() {
         setUser(meResult.data);
 
         const roleNames = meResult.data.roles.map((role) => role.name);
+        if (roleNames.some((role) => ["company_admin", "supervisor"].includes(role))) {
+          const context = await apiRequest<{ data: { type: string } | null }>("/api/waste/organization-context").catch(() => null);
+          if (context?.data?.type === "processing_plant") { window.location.replace("/dashboard/factory"); return; }
+        }
         const scopedDestination = roleNames.some((role) => ["recycling_collector", "recycling_sales", "recycling_field_manager"].includes(role))
           ? "/dashboard/recycling"
           : roleNames.includes("driver")
@@ -180,59 +184,36 @@ export default function DashboardPage() {
       <div className="mx-auto max-w-7xl">
         <PageHeader eyebrow={isCityController?"KCCA command centre":"Today"} title={isCityController?"Kampala waste operations":loading?"Loading your workspace…":`Good to see you, ${user?.user.fullName || "welcome back"}.`} description={isCityController?"See what needs attention, monitor active collections and maintain citywide accountability.":"See today’s work, operational capacity and service exceptions."}/>
         {error&&<Feedback tone="error">{error}</Feedback>}
-        <section className="py-8">
-          {isCityController&&<section className="mb-10"><div className="flex items-end justify-between border-b border-slate-300 pb-3"><div><h2 className="text-xl font-semibold text-slate-950">What needs attention</h2><p className="mt-1 text-sm text-slate-500">Exceptions are shown here so the control room knows where to act first.</p></div></div>{attention.length?<div className="divide-y divide-slate-200 border-b border-slate-200">{attention.map(item=><div key={item.label} className="flex items-center justify-between gap-6 py-4"><div className="flex items-baseline gap-4"><span className="min-w-8 text-2xl font-semibold text-slate-950">{item.value}</span><span className="text-sm font-medium text-slate-700">{item.label}</span></div><Link href={item.href} className="text-sm font-semibold text-[#3156a3]">{item.action} →</Link></div>)}</div>:<div className="border-b border-slate-200 py-6"><p className="font-semibold text-slate-800">No urgent exceptions</p><p className="mt-1 text-sm text-slate-500">There are no missed collections, unassigned areas, driver alerts or unresolved reports requiring action.</p></div>}</section>}
+        <div className="space-y-8">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">{([["Trips today",summaryLoaded?summary.jobs_today:"—"],["In progress",summaryLoaded?summary.active_routes:"—"],["Completed",summaryLoaded?summary.completed_jobs:"—"],["Completion rate",summaryLoaded?`${summary.service_completion_percentage}%`:"—"]] as const).map(([label,value])=><Stat key={label} label={label} value={loading?<span className="inline-block h-7 w-14 animate-pulse rounded bg-slate-100"/>:value}/>)}</div>
 
-          <div className="grid gap-10 xl:grid-cols-[1.35fr_0.65fr]">
-          <div>
-            <div className="flex items-end justify-between border-b border-slate-300 pb-3"><div><h2 className="text-xl font-semibold text-slate-950">Today’s service delivery</h2><p className="mt-1 text-sm text-slate-500">A concise citywide view of work dispatched by licensed collectors.</p></div><Link href="/dashboard/waste" className="text-sm font-semibold text-[#3156a3]">Open live operations →</Link></div>
-            <div className="grid grid-cols-2 border-b border-slate-300 md:grid-cols-4">{[["Trips",summaryLoaded?summary.jobs_today:"—"],["In progress",summaryLoaded?summary.active_routes:"—"],["Completed",summaryLoaded?summary.completed_jobs:"—"],["Completion",summaryLoaded?`${summary.service_completion_percentage}%`:"—"]].map(([label,value])=><div key={label} className="border-r border-slate-200 py-5 last:border-r-0"><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-1 text-3xl font-semibold text-slate-950">{value}</p></div>)}</div>
+          {isCityController&&<section>
+            <SectionHeading title="Needs attention" description="Exceptions that need action first." />
+            {attention.length?<div className="card divide-y divide-slate-100">{attention.map(item=><Link key={item.label} href={item.href} className="group flex items-center justify-between gap-6 px-5 py-4 transition hover:bg-slate-50"><div className="flex items-center gap-4"><span className="min-w-8 text-right text-lg font-semibold tabular-nums text-[var(--color-warning)]">{item.value}</span><span className="text-sm font-medium text-slate-800">{item.label}</span></div><span className="text-sm font-medium text-slate-500 group-hover:text-[var(--color-action)]">{item.action} <span aria-hidden="true">→</span></span></Link>)}</div>:<div className="card border-l-[3px] border-l-[var(--color-success)] px-5 py-4"><div><p className="text-sm font-semibold text-slate-900">All clear</p><p className="text-sm text-slate-500">No missed collections, unassigned areas, driver alerts or unresolved reports.</p></div></div>}
+          </section>}
 
-            <div className="mt-8 border-t border-slate-200 pt-6">
-              <div className="flex items-center justify-between"><h2 className="text-xl font-semibold text-slate-950">Active trips</h2></div>
-              <div className="mt-5 divide-y border-y border-slate-200">{summary.active_route_progress.length ? summary.active_route_progress.map((route)=>{
-                const percent = route.stop_count ? Math.round(route.completed_stop_count / route.stop_count * 100) : 0;
-                return <div key={route.id} className="py-4"><div className="flex justify-between gap-4"><div><p className="font-semibold text-slate-900">{route.name}</p><p className="mt-1 text-sm text-slate-500">{route.driver_name || "Driver not assigned"} · {route.completed_stop_count}/{route.stop_count} stops</p></div><span className="text-sm font-semibold text-[#3156a3]">{percent}%</span></div><div className="mt-3 h-1 bg-slate-200"><div className="h-full bg-[#3156a3]" style={{width:`${percent}%`}} /></div></div>;
-              }) : <div className="py-6"><p className="font-semibold text-slate-800">No active trips</p><p className="mt-1 text-sm text-slate-500">Trips will appear when a collector dispatches a driver.</p></div>}</div>
-            </div>
-          </div>
+          <div className="grid gap-8 xl:grid-cols-[1.4fr_0.6fr]">
+          <section>
+            <SectionHeading title="Active trips" description="Live progress from licensed collectors." action={<Link href="/dashboard/waste" className="text-sm font-medium text-[var(--color-action)] hover:underline">Live operations →</Link>}/>
+            {summary.active_route_progress.length ? <div className="card divide-y divide-slate-100">{summary.active_route_progress.map((route)=>{
+              const percent = route.stop_count ? Math.round(route.completed_stop_count / route.stop_count * 100) : 0;
+              return <div key={route.id} className="px-5 py-4"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{route.name}</p><p className="mt-0.5 text-sm text-slate-500">{route.driver_name || "Driver not assigned"} · {route.completed_stop_count}/{route.stop_count} stops</p></div><span className="text-sm font-semibold tabular-nums text-slate-700">{percent}%</span></div><div className="mt-3 h-1 bg-slate-100"><div className="h-full bg-[var(--color-action)] transition-[width] duration-500" style={{width:`${percent}%`}} /></div></div>;
+            })}</div> : <EmptyState title="No active trips" description="Trips appear here once a collector dispatches a driver."/>}
+          </section>
 
-          <aside className="border-l border-slate-200 pl-8">
-            <h2 className="border-b border-slate-300 pb-3 text-xl font-semibold text-slate-950">City readiness</h2>
-            <dl className="divide-y divide-slate-200 border-b border-slate-200">{[["Licensed operators",organizationsLoaded?organizations.filter(item=>item.is_active&&["waste_collection_company","recycling_company"].includes(item.type)).length:"—"],["Waste collectors",organizationsLoaded?organizations.filter(item=>item.is_active&&item.type==="waste_collection_company").length:"—"],["Recycling companies",organizationsLoaded?organizations.filter(item=>item.is_active&&item.type==="recycling_company").length:"—"],["Zones covered",summaryLoaded?summary.zones_covered:"—"],["Customers served",summaryLoaded?summary.total_customers:"—"]].map(([label,value])=><div key={label} className="flex items-center justify-between py-4"><dt className="text-sm text-slate-600">{label}</dt><dd className="font-semibold text-slate-950">{value}</dd></div>)}</dl>
-            {isCityController && <>
-            <div className="mt-8 flex items-center justify-between border-b border-slate-300 pb-3">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-950">
-                  Licensed operators
-                </h2>
-                <p className="mt-2 text-sm text-slate-500">
-                  Latest organizations added.
-                </p>
-              </div>
-
-              <Link
-                href="/dashboard/organizations"
-                className="text-sm font-semibold text-[#3156a3]"
-              >
-                Manage
-              </Link>
-            </div>
-
-            <div className="table-wrap mt-4">
-              {recentOrganizations.length ? (
-                <table className="text-left"><thead><tr><th>Partner</th><th>Type</th><th>Status</th></tr></thead><tbody>{recentOrganizations.map((organization) => (
-                  <tr key={organization.id}><td className="table-primary">{organization.name}</td><td className="capitalize">{organization.type.replaceAll("_"," ")}</td><td><Status value={organization.is_active?"active":"inactive"}/></td></tr>
-                ))}</tbody></table>
-              ) : (
-                <p className="p-5 text-sm text-slate-500">
-                  No organizations added yet.
-                </p>
-              )}
-            </div>
-            </>}
+          <aside className="space-y-8">
+            <section>
+              <SectionHeading title="City readiness"/>
+              <dl className="card divide-y divide-slate-100">{[["Licensed operators",organizationsLoaded?organizations.filter(item=>item.is_active&&["waste_collection_company","recycling_company"].includes(item.type)).length:"—"],["Waste collectors",organizationsLoaded?organizations.filter(item=>item.is_active&&item.type==="waste_collection_company").length:"—"],["Recycling companies",organizationsLoaded?organizations.filter(item=>item.is_active&&item.type==="recycling_company").length:"—"],["Zones covered",summaryLoaded?summary.zones_covered:"—"],["Customers served",summaryLoaded?summary.total_customers:"—"]].map(([label,value])=><div key={label} className="flex items-center justify-between px-5 py-3.5"><dt className="text-sm text-slate-600">{label}</dt><dd className="text-sm font-semibold tabular-nums text-slate-900">{value}</dd></div>)}</dl>
+            </section>
+            {isCityController && <section>
+              <SectionHeading title="Licensed operators" description="Latest organizations added." action={<Link href="/dashboard/organizations" className="text-sm font-medium text-[var(--color-action)] hover:underline">Manage</Link>}/>
+              {recentOrganizations.length ? <div className="table-wrap"><table className="text-left"><thead><tr><th>Partner</th><th>Status</th></tr></thead><tbody>{recentOrganizations.map((organization) => (
+                <tr key={organization.id}><td><p className="table-primary">{organization.name}</p><p className="table-secondary capitalize">{organization.type.replaceAll("_"," ")}</p></td><td><Status value={organization.is_active?"active":"inactive"}/></td></tr>
+              ))}</tbody></table></div> : <EmptyState title="No organizations yet"/>}
+            </section>}
           </aside></div>
-        </section>
+        </div>
       </div>
     </AppShell>
   );

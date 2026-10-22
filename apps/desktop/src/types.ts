@@ -1,0 +1,13 @@
+export type QueueStatus="pending"|"syncing"|"failed"|"conflict"|"synced";
+export type QueueOperation={id:string;endpoint:string;method:"POST"|"PUT"|"PATCH";body:unknown;organizationId:string;userId:string;createdAt:string;updatedAt:string;status:QueueStatus;attempts:number;lastError:string|null;syncedAt:string|null};
+export type UpdateStatus="idle"|"checking"|"available"|"downloading"|"ready"|"current"|"error";
+export type DesktopState={isDesktop:true;online:boolean;serverUrl:string;lastCheckedAt:string|null;syncing:boolean;pendingCount:number;failedCount:number;syncedCount:number;secureStorageAvailable:boolean;queue:QueueOperation[];appVersion:string;updateStatus:UpdateStatus;availableVersion:string|null;updateError:string|null;updateProgress:number|null};
+export type QueueInput={endpoint:string;method:"POST"|"PUT"|"PATCH";body:unknown;organizationId:string;userId:string};
+export type SnapshotKey="driver-route"|"recycling-field"|"company-dashboard"|"platform-dashboard";
+export type SnapshotInput={key:SnapshotKey;organizationId:string;userId:string;data:unknown};
+export type SnapshotRecord=SnapshotInput&{updatedAt:string};
+export type LocalUser={id:string;fullName:string;email:string;organizationId:string|null};
+export type LocalAuthInput={email:string;password:string;refreshToken?:string;user:LocalUser&{refreshToken?:string};roles:string[]};
+export type OfflineSession={sessionId:string;offline:boolean;user:LocalUser;roles:string[];lastVerifiedAt:string};
+export type SavedAuthResult={session:OfflineSession;online:boolean;tokens?:{accessToken:string;refreshToken:string}};
+export type ApiCacheInput={path:string;data:unknown};

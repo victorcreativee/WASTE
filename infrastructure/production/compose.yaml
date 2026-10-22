@@ -49,9 +49,17 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8091
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?required}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?required}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8091/api/auth/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       database:
         condition: service_healthy
@@ -66,8 +74,16 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8092
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?required}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8092/api/organizations/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       database:
         condition: service_healthy
@@ -82,8 +98,28 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8093
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?required}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+      RETURNS_FIRST_PERIOD: ${RETURNS_FIRST_PERIOD:-}
+      DISPOSAL_FIRST_DATE: ${DISPOSAL_FIRST_DATE:-}
+      NOTIFY_EMAIL_PROVIDER: ${NOTIFY_EMAIL_PROVIDER:-log}
+      NOTIFY_EMAIL_FROM: ${NOTIFY_EMAIL_FROM:-}
+      SMTP_URL: ${SMTP_URL:-}
+      NOTIFY_SMS_PROVIDER: ${NOTIFY_SMS_PROVIDER:-log}
+      NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
+      NOTIFY_WEBHOOK_SECRET: ${NOTIFY_WEBHOOK_SECRET:-}
+      AT_USERNAME: ${AT_USERNAME:-}
+      AT_API_KEY: ${AT_API_KEY:-}
+      AT_SENDER_ID: ${AT_SENDER_ID:-}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8093/api/waste/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       database:
         condition: service_healthy
@@ -98,6 +134,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8090
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379
       AUTH_SERVICE_URL: http://auth-service:8091
@@ -105,17 +143,23 @@ services:
       WASTE_SERVICE_URL: http://waste-service:8093
     ports:
       - "${WMS_GATEWAY_PORT:-127.0.0.1:8095}:8090"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       database:
         condition: service_healthy
       redis:
         condition: service_healthy
       auth-service:
-        condition: service_started
+        condition: service_healthy
       organization-service:
-        condition: service_started
+        condition: service_healthy
       waste-service:
-        condition: service_started
+        condition: service_healthy
 
   admin-web:
     restart: unless-stopped
@@ -135,7 +179,8 @@ services:
     networks:
       - internal
     depends_on:
-      - api-gateway
+      api-gateway:
+        condition: service_healthy
 
 networks:
   internal:

@@ -101,6 +101,7 @@ export async function updateLastLogin(userId: string) {
     [userId]
   );
 }
+export async function updatePasswordHash(userId:string,passwordHash:string){await dbPool.query("UPDATE users SET password_hash=$2,updated_at=CURRENT_TIMESTAMP WHERE id=$1",[userId,passwordHash]);}
 export async function findUserById(userId: string): Promise<UserRecord | null> {
   const result = await dbPool.query(
     `

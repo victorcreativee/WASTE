@@ -154,3 +154,14 @@ export async function apiRequest<T>(
   }
   return data as T;
 }
+
+/** Opens or downloads a file from an authenticated endpoint (certificates, evidence). */
+export async function openAuthenticatedFile(path:string,options:{download?:string}={}){
+  const token=sessionStorage.getItem("accessToken");
+  const response=await fetch(`${API_BASE_URL}${path}`,{headers:{Authorization:`Bearer ${token}`}});
+  if(!response.ok){const body=await response.json().catch(()=>({message:"The file could not be opened"}));throw new Error(body.message||"The file could not be opened");}
+  const url=URL.createObjectURL(await response.blob());
+  if(options.download){const link=document.createElement("a");link.href=url;link.download=options.download;link.click();}
+  else window.open(url,"_blank","noopener,noreferrer");
+  window.setTimeout(()=>URL.revokeObjectURL(url),60000);
+}

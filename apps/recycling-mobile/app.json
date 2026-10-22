@@ -2,15 +2,17 @@
   "expo": {
     "name": "Kampala Waste Management",
     "slug": "kampala-waste-management",
-    "version": "1.0.0",
-    "orientation": "portrait",
+    "version": "1.3.0",
+    "scheme": "kwms",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "ug.kcca.urbanwaste",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Your collection location can be attached to a material purchase as operational proof."
+        "NSLocationWhenInUseUsageDescription": "Your collection location can be attached to a material purchase as operational proof.",
+        "NSFaceIDUsageDescription": "Use Face ID to securely unlock your Kampala WMS work session on this device."
       }
     },
     "android": {
@@ -22,9 +24,12 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "ug.kcca.urbanwaste",
+      "versionCode": 11,
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "web": {
@@ -43,7 +48,42 @@
           "locationWhenInUsePermission": "Your collection location can be attached to a material purchase as operational proof."
         }
       ],
-      "expo-router"
-    ]
+      "expo-router",
+      "expo-local-authentication",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "buildArchs": [
+              "armeabi-v7a",
+              "arm64-v8a"
+            ],
+            "enableMinifyInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false,
+            "enableBundleCompression": true
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Kampala WMS to select your account profile picture.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      "expo-updates"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "3d156faa-8c4e-4753-98e6-0e989d6d927a"
+      }
+    },
+    "owner": "zera-solution",
+    "runtimeVersion": "1.1",
+    "updates": {
+      "url": "https://u.expo.dev/3d156faa-8c4e-4753-98e6-0e989d6d927a"
+    }
   }
 }
