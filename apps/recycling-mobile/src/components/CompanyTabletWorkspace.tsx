@@ -22,7 +22,7 @@ import { MoneyFlow } from "./MoneyFlow";
 import { useBottomNavigationSpace, RoleBottomNavigation } from "./RoleBottomNavigation";
 import { SectionNavigation } from "./SectionNavigation";
 import { SyncStatus } from "./SyncStatus";
-import { localDay } from "../lib/dates";
+import { formatDay, localDay } from "../lib/dates";
 
 type User = {
   fullName: string;
@@ -75,6 +75,7 @@ function isActive(item: RecordMap) {
 }
 
 const num = (value: unknown) => Number(value || 0);
+const FLOAT_KIND: Record<string, string> = { given: "Issued by the office", spent: "Spent", returned: "Returned to the office" };
 const EXPENSE_CATEGORIES = [["fuel", "Fuel"], ["maintenance", "Maintenance"], ["equipment", "Equipment"], ["utilities", "Utilities"], ["disposal_fees", "Disposal fees"], ["office", "Office"], ["other", "Other"]] as const;
 
 const DASHBOARD_ENDPOINTS = [
@@ -139,6 +140,7 @@ export function CompanyTabletWorkspace({
   const [sorting, setSorting] = useState(emptySorting);
   const [entryDate, setEntryDate] = useState("");
   const [reportView, setReportView] = useState<"day" | "money">("day");
+  const [floatShown, setFloatShown] = useState(10);
   const [adjustment, setAdjustment] = useState({ lotId: "", type: "loss", quantityKg: "", reason: "", notes: "" });
   const [closeNotes, setCloseNotes] = useState("");
   const [reopenReason, setReopenReason] = useState("");
@@ -703,7 +705,7 @@ export function CompanyTabletWorkspace({
                     ["Office cash", data.recyclingSummary.officeCashUgx ?? 0],
                     ["Available to commit", data.recyclingSummary.availableToCommitUgx ?? data.financePosition.available_to_commit_ugx ?? 0],
                     ["Owed by buyers", data.recyclingSummary.unpaidSalesUgx ?? data.financePosition.receivables_ugx ?? 0],
-                  ].map(([label, value]) => <View key={String(label)} style={[styles.metric, tablet && styles.metricTablet]}><Text style={styles.metricLabel}>{String(label)}</Text><Text style={styles.metricValue}>UGX {Number(value || 0).toLocaleString()}</Text></View>)}
+                  ].map(([label, value]) => <View key={String(label)} style={[styles.metric, tablet && styles.metricTablet]}><Text style={styles.metricLabel}>{String(label)}</Text><Text style={styles.metricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>UGX {Number(value || 0).toLocaleString()}</Text></View>)}
                 </View>
                 <View style={styles.formArea}>
                   <Text style={styles.inputLabel}>Date of the hand-over</Text>
@@ -746,21 +748,33 @@ export function CompanyTabletWorkspace({
                     </Text>
                   </Pressable>
                 </View>
-                {data.floatTransactions.slice(0, 5).map((movement, index) => (
-                  <View key={String(movement.id || index)} style={styles.row}>
-                    <View style={styles.rowCopy}>
-                      <Text style={styles.rowTitle}>
-                        {text(movement.notes, "Field movement")}
-                      </Text>
-                      <Text style={styles.muted}>
-                        {text(movement.transaction_date, "Date unavailable")}
+                <View style={styles.floatHistoryHead}>
+                  <Text style={styles.sectionTitle}>Float history</Text>
+                  <Text style={styles.muted}>{data.floatTransactions.length ? `Showing ${Math.min(floatShown, data.floatTransactions.length)} of ${data.floatTransactions.length}` : "No movements yet"}</Text>
+                </View>
+                {data.floatTransactions.slice(0, floatShown).map((movement, index) => {
+                  const kind = String(movement.transaction_type || "");
+                  const incoming = kind === "given";
+                  return (
+                    <View key={String(movement.id || index)} style={styles.row}>
+                      <View style={styles.rowCopy}>
+                        <Text style={styles.rowTitle}>{text(movement.notes, "Field movement")}</Text>
+                        <Text style={styles.muted}>
+                          {FLOAT_KIND[kind] || kind} · {movement.transaction_date ? formatDay(localDay(String(movement.transaction_date)), false) : "Date unavailable"}
+                          {movement.running_balance_ugx !== undefined ? ` · balance ${ugx(num(movement.running_balance_ugx))}` : ""}
+                        </Text>
+                      </View>
+                      <Text style={[styles.status, { color: incoming ? color.success : color.danger }]}>
+                        {incoming ? "+" : "−"} {ugx(num(movement.amount_ugx))}
                       </Text>
                     </View>
-                    <Text style={styles.status}>
-                      UGX {Number(movement.amount_ugx || 0).toLocaleString()}
-                    </Text>
-                  </View>
-                ))}
+                  );
+                })}
+                {data.floatTransactions.length > floatShown ? (
+                  <Pressable accessibilityRole="button" onPress={() => setFloatShown((shown) => shown + 10)} style={styles.showMore}>
+                    <Text style={styles.showMoreText}>Show {Math.min(10, data.floatTransactions.length - floatShown)} more</Text>
+                  </Pressable>
+                ) : null}
               </View>
             ) : null}
             </> : null}
@@ -929,10 +943,10 @@ const styles = StyleSheet.create({
   muted: { color: "#64736b", fontSize: 13, lineHeight: 19 },
   metrics: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, marginBottom: 12 },
   metricsTablet: { flexWrap: "nowrap" },
-  metric: { flexBasis: "46%", flexGrow: 1, backgroundColor: "#eef3f0", borderRadius: 12, padding: 12 },
-  metricTablet: { flex: 1 },
-  metricLabel: { color: "#64736b", fontSize: 12, fontWeight: "500" },
-  metricValue: { color: "#13201a", fontSize: 18, fontWeight: "700", marginTop: 4 },
+  metric: { flexBasis: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, backgroundColor: "#eef3f0", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
+  metricTablet: { flexBasis: 0, flex: 1, flexDirection: "column", alignItems: "flex-start", justifyContent: "flex-start", gap: 4 },
+  metricLabel: { flexShrink: 1, color: "#64736b", fontSize: 13, fontWeight: "500" },
+  metricValue: { color: "#13201a", fontSize: 17, fontWeight: "700" },
   sectionTitle: { color: "#13201a", fontSize: 17, fontWeight: "600", paddingHorizontal: 16, paddingTop: 16 },
   sectionCopy: { color: "#64736b", fontSize: 13, lineHeight: 19, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 },
   section: { backgroundColor: "#fff", marginBottom: 16, borderRadius: 16, overflow: "hidden", shadowColor: "#13201a", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
@@ -983,6 +997,9 @@ const styles = StyleSheet.create({
   input: { minHeight: 50, borderWidth: 1, borderColor: "#eef3f0", backgroundColor: "#eef3f0", paddingHorizontal: 14, color: "#13201a", fontSize: 15, borderRadius: 12 },
   primaryButton: { minHeight: 52, alignItems: "center", justifyContent: "center", backgroundColor: "#2f7d5a", marginTop: 8, borderRadius: 12 },
   primaryButtonText: { color: "#fff", fontWeight: "600" },
+  floatHistoryHead: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8, paddingRight: 16, paddingTop: 12 },
+  showMore: { minHeight: 48, alignItems: "center", justifyContent: "center", borderTopWidth: 1, borderTopColor: "#e0e7e3" },
+  showMoreText: { color: "#2f7d5a", fontWeight: "600" },
   closeButton: { minHeight: 52, alignItems: "center", justifyContent: "center", backgroundColor: "#b91c1c", marginTop: 8, borderRadius: 12 },
   closeButtonText: { color: "#fff", fontWeight: "600" },
   disabled: { opacity: 0.55 },

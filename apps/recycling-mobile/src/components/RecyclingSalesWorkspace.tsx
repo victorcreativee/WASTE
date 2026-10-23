@@ -409,6 +409,8 @@ export function RecyclingSalesWorkspace({
                 { label: "Kg sold", value: Number(workspace?.myActivity?.soldKg ?? todayKg).toLocaleString("en-GB") },
                 { label: "Owed to us", value: Number(workspace?.myActivity?.outstandingUgx ?? owedToUs).toLocaleString("en-GB") },
               ]} />
+            {paysFromFloat && workspace?.summary?.floatBalanceUgx !== undefined ? <ListRow icon="wallet-outline" iconTone={Number(workspace.summary.floatBalanceUgx) > 0 ? "success" : "danger"}
+              title="Manager float" subtitle="Pays loading, transport and food on sales" value={ugx(Number(workspace.summary.floatBalanceUgx))} /> : null}
             <QuickActions items={[
               { icon: "add-circle-outline", label: "New sale", onPress: () => setScreen("sell"), disabled: !stock.length },
               { icon: "cash-outline", label: "Record payment", onPress: () => setScreen("history"), tone: "success" },

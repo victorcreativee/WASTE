@@ -2,6 +2,7 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -31,6 +32,8 @@ import { RecyclingPurchaseWorkspace } from "./RecyclingPurchaseWorkspace";
 import { RecyclingManagerWorkspace } from "./RecyclingManagerWorkspace";
 import { Banner, Button, Field, Icon, Input } from "../ui/kit";
 import { color, initials, radius, shadow, space, type } from "../ui/theme";
+
+const BRAND_MARK = require("../../assets/brand-mark.png");
 
 type Session = { token: string; user: MobileUser };
 type SavedAccount = Awaited<ReturnType<typeof getSavedAccount>>;
@@ -197,7 +200,7 @@ export function NativeMobileApp() {
         >
           {tablet ? (
             <View style={s.brandPanel}>
-              <View style={s.brandMark}><Text style={s.brandLetters}>KW</Text></View>
+              <Image source={BRAND_MARK} style={s.brandMark} accessibilityLabel="Kampala WMS" />
               <View style={{ gap: 12 }}>
                 <Text style={s.brandPanelTitle}>Kampala Waste Management</Text>
                 <Text style={s.brandPanelText}>Collection, recycling and KCCA reporting for field teams. Work keeps going without internet and synchronizes when the connection returns.</Text>
@@ -206,7 +209,7 @@ export function NativeMobileApp() {
             </View>
           ) : (
             <View style={s.brandRow}>
-              <View style={s.brandMarkSmall}><Text style={s.brandLetters}>KW</Text></View>
+              <Image source={BRAND_MARK} style={s.brandMarkSmall} accessibilityLabel="Kampala WMS" />
               <View>
                 <Text style={s.brandName}>Kampala WMS</Text>
                 <Text style={type.caption}>Field operations</Text>
@@ -337,11 +340,10 @@ const s = StyleSheet.create({
   screen: { flexGrow: 1, padding: space.xl, gap: space.xxl, justifyContent: "center" },
   screenTablet: { flexDirection: "row", alignItems: "stretch", maxWidth: 1080, width: "100%", alignSelf: "center", padding: space.xxl, gap: space.xxl },
   brandRow: { flexDirection: "row", alignItems: "center", gap: space.md },
-  brandMarkSmall: { width: 44, height: 44, borderRadius: radius.md, backgroundColor: color.brand, alignItems: "center", justifyContent: "center" },
+  brandMarkSmall: { width: 44, height: 44, borderRadius: radius.md },
   brandName: { ...type.heading, fontSize: 17 },
   brandPanel: { flex: 1, backgroundColor: color.brand, borderRadius: radius.lg, padding: 40, justifyContent: "space-between", minHeight: 560 },
-  brandMark: { width: 52, height: 52, borderRadius: radius.md, borderWidth: 1, borderColor: "#3d5c4c", alignItems: "center", justifyContent: "center" },
-  brandLetters: { color: color.brandAccent, fontWeight: "700", fontSize: 16 },
+  brandMark: { width: 52, height: 52, borderRadius: radius.md },
   brandPanelTitle: { color: "#ffffff", fontSize: 28, lineHeight: 34, fontWeight: "700" },
   brandPanelText: { color: "#b7c4bc", fontSize: 15, lineHeight: 23, maxWidth: 440 },
   brandPanelFoot: { color: "#8b9a92", fontSize: 13 },

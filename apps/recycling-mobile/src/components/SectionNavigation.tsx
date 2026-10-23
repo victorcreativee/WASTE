@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { color, radius, space, type } from "../ui/theme";
 
 export type SectionNavigationItem = {
@@ -8,7 +8,7 @@ export type SectionNavigationItem = {
   onPress: () => void;
 };
 
-/** Horizontally scrolling sub-sections of a screen, as soft chips. */
+/** Sub-sections of a screen as soft chips that wrap onto a second line, so every section stays visible on a phone. */
 export function SectionNavigation({
   title,
   items,
@@ -19,7 +19,7 @@ export function SectionNavigation({
   return (
     <View style={styles.wrap}>
       {title ? <Text style={type.heading}>{title}</Text> : null}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+      <View style={styles.row}>
         {items.map((item) => (
           <Pressable
             key={item.id}
@@ -32,14 +32,14 @@ export function SectionNavigation({
             <Text style={[styles.label, item.active && styles.labelActive]}>{item.label}</Text>
           </Pressable>
         ))}
-      </ScrollView>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: { gap: space.sm },
-  row: { gap: space.sm, paddingRight: space.lg },
+  row: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   item: { minHeight: 40, justifyContent: "center", paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: color.fill },
   itemActive: { backgroundColor: color.action },
   label: { color: color.text, fontWeight: "500", fontSize: 13 },

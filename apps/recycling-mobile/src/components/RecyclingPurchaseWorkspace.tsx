@@ -430,6 +430,8 @@ export function RecyclingPurchaseWorkspace({
               { label: "Paid out", value: ugx(todaySpent).replace("UGX ", "") },
               { label: "To sync", value: waiting },
             ]} />
+          {paysFromFloat && workspace?.summary?.floatBalanceUgx !== undefined ? <ListRow icon="wallet-outline" iconTone={floatAvailable > 0 ? "success" : "danger"}
+            title="Manager float" subtitle={floatAvailable > 0 ? "Available to spend on purchases and costs" : "Empty. Ask the office to issue float before buying."} value={ugx(floatAvailable)} /> : null}
           <QuickActions items={[
             { icon: "add-circle-outline", label: "New purchase", onPress: () => setScreen("buy") },
             canPaySuppliers && owedLots.length

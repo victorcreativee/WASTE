@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { ComponentProps, createContext, ReactNode, useContext, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { addDays, formatDay, localDay } from "../lib/dates";
 import { Tone, color, initials, radius, shadow, space, tone, type, ugx } from "./theme";
@@ -271,11 +271,12 @@ export function EmptyState({ icon = "file-tray-outline", title, text, action }: 
 
 /** Horizontally scrolling page of figures for screens that have more than a summary card can hold. */
 export function StatStrip({ items }: { items: { label: string; value: string | number; tone?: Tone }[] }) {
-  return <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.strip}>{items.map(item =>
+  // A two-column grid rather than a sideways scroll, so every figure is visible without swiping.
+  return <View style={s.strip}>{items.map(item =>
     <View key={item.label} style={s.stripItem}>
-      <Text style={[s.stripValue, item.tone && item.tone !== "neutral" && { color: tone[item.tone].ink }]} numberOfLines={1}>{item.value}</Text>
-      <Text style={s.stripLabel} numberOfLines={1}>{item.label}</Text>
-    </View>)}</ScrollView>;
+      <Text style={[s.stripValue, item.tone && item.tone !== "neutral" && { color: tone[item.tone].ink }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{item.value}</Text>
+      <Text style={s.stripLabel} numberOfLines={2}>{item.label}</Text>
+    </View>)}</View>;
 }
 
 export function Card({ children, style }: { children: ReactNode; style?: ViewStyle }) {
@@ -373,9 +374,9 @@ const s = StyleSheet.create({
   bannerText: { fontSize: 13, lineHeight: 19 },
   empty: { alignItems: "center", gap: space.sm, backgroundColor: color.surface, borderRadius: radius.lg, padding: space.xxl },
   emptyIcon: { width: 52, height: 52, borderRadius: radius.pill, backgroundColor: color.fill, alignItems: "center", justifyContent: "center", marginBottom: space.xs },
-  strip: { gap: space.sm, paddingRight: space.lg },
-  stripItem: { minWidth: 120, backgroundColor: color.surface, borderRadius: radius.md, paddingHorizontal: space.md, paddingVertical: space.md, ...shadow.card },
-  stripValue: { ...type.heading, fontSize: 17 },
+  strip: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  stripItem: { flexBasis: "46%", flexGrow: 1, minWidth: 0, backgroundColor: color.surface, borderRadius: radius.md, paddingHorizontal: space.md, paddingVertical: space.md, ...shadow.card },
+  stripValue: { ...type.heading, fontSize: 16 },
   stripLabel: { ...type.caption, marginTop: 2 },
   card: { backgroundColor: color.surface, borderRadius: radius.lg, padding: space.lg, gap: space.md, ...shadow.card },
 });

@@ -6,7 +6,7 @@ import { Banner, Button, Card, Chips, DateField, EmptyState, Field, SectionHeade
 import { color, radius, space, type, ugx } from "../ui/theme";
 
 type Line = { direction: "in" | "out" | "transfer"; kind: string; amount: number; entries: number };
-type Flow = { from: string; to: string; moneyIn: number; moneyOut: number; net: number; lines: Line[]; days: { day: string; in: number; out: number }[]; cashNow: number };
+type Flow = { from: string; to: string; moneyIn: number; moneyOut: number; net: number; lines: Line[]; days: { day: string; in: number; out: number }[]; cashNow: number; floatNow?: number; officeCashNow?: number };
 type Period = "today" | "week" | "month" | "last-month" | "custom";
 
 const LABEL: Record<string, string> = {
@@ -93,6 +93,7 @@ export function MoneyFlow({ token, email }: { token: string; email: string }) {
       ...lines("out").map((line) => `  ${LABEL[line.kind] || line.kind}: ${ugx(line.amount)}`),
       `Net: ${showing.net >= 0 ? "+" : "−"}${ugx(Math.abs(showing.net))}`,
       ...(lines("transfer").length ? ["Moved between office and float:", ...lines("transfer").map((line) => `  ${LABEL[line.kind] || line.kind}: ${ugx(line.amount)}`)] : []),
+      ...(showing.floatNow !== undefined ? [`Manager float now: ${ugx(showing.floatNow)}`, `Office cash now: ${ugx(showing.officeCashNow ?? showing.cashNow - showing.floatNow)}`] : []),
       `Company cash now: ${ugx(showing.cashNow)}`,
     ].join("\n");
     void Share.share({ message: text });
@@ -122,6 +123,13 @@ export function MoneyFlow({ token, email }: { token: string; email: string }) {
           { label: "Money out", value: short(showing.moneyOut) },
           { label: "Cash now", value: short(showing.cashNow) },
         ]} />
+
+      {showing.floatNow !== undefined ? <Card style={{ gap: space.sm }}>
+        <Text style={type.heading}>Where the money is now</Text>
+        <View style={s.row}><Text style={[type.body, { flex: 1 }]}>Manager float · available to spend</Text><Text style={[type.body, s.amount]}>{ugx(showing.floatNow)}</Text></View>
+        <View style={s.row}><Text style={[type.body, { flex: 1 }]}>Office cash</Text><Text style={[type.body, s.amount]}>{ugx(showing.officeCashNow ?? showing.cashNow - showing.floatNow)}</Text></View>
+        <View style={s.row}><Text style={[type.body, { flex: 1 }, s.strong]}>Company cash</Text><Text style={[type.body, s.amount, s.strong]}>{ugx(showing.cashNow)}</Text></View>
+      </Card> : null}
 
       {!showing.lines.length ? <EmptyState icon="swap-vertical-outline" title="No money moved in this period" text="Choose another period." /> : null}
 
@@ -183,6 +191,7 @@ const s = StyleSheet.create({
   center: { alignItems: "center", gap: space.sm, paddingVertical: space.xxl },
   row: { flexDirection: "row", alignItems: "center", gap: space.md },
   amount: { fontWeight: "600", color: color.ink },
+  strong: { fontWeight: "700" },
   dayHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   barRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
   barTrack: { flex: 1, height: 8, borderRadius: radius.pill, backgroundColor: color.fill, overflow: "hidden" },

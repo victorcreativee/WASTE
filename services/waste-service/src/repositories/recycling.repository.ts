@@ -31,7 +31,7 @@ export async function cashFlow(org:string,from:string,to:string){
  const total=(direction:string)=>lines.filter(x=>x.direction===direction).reduce((n,x)=>n+x.amount,0);
  const moneyIn=total('in'),moneyOut=total('out');
  return{from,to,moneyIn,moneyOut,net:moneyIn-moneyOut,lines,days:Object.values(days).sort((a,b)=>a.day.localeCompare(b.day)),
-  cashNow:Number((await dbPool.query(`SELECT organization_cash_position($1::uuid)::bigint cash`,[org])).rows[0].cash)};
+  ...(await dbPool.query(`SELECT organization_cash_position($1::uuid)::bigint cash,COALESCE((SELECT SUM(CASE WHEN transaction_type='given' THEN amount_ugx ELSE -amount_ugx END) FROM recycling_manager_float_transactions WHERE organization_id=$1::uuid),0)::bigint float_balance`,[org]).then(({rows})=>({cashNow:Number(rows[0].cash),floatNow:Number(rows[0].float_balance),officeCashNow:Number(rows[0].cash)-Number(rows[0].float_balance)})))};
 }
 /** Recycling permission codes this member holds, so clients only offer actions the server will accept. */
 export async function recyclingPermissions(user:string,org:string){return(await dbPool.query(`SELECT code FROM organization_effective_permissions($1::uuid,$2::uuid) WHERE code LIKE 'recycling.%' ORDER BY code`,[user,org])).rows.map((row:{code:string})=>row.code)}

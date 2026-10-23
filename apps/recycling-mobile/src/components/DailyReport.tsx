@@ -17,6 +17,7 @@ type Workspace = {
   stockAdjustments?: Row[];
   cashMovements?: Row[];
   dailyClosures?: Row[];
+  summary?: { floatBalanceUgx?: number; officeCashUgx?: number };
 };
 
 const num = (value: unknown) => Number(value || 0);
@@ -74,7 +75,7 @@ function buildReport(data: Workspace, day: string) {
   };
 }
 
-function reportText(organization: string, day: string, r: ReturnType<typeof buildReport>) {
+function reportText(organization: string, day: string, r: ReturnType<typeof buildReport>, floatNow?: number) {
   const lines = [
     `${organization} · daily report`,
     formatDay(day),
@@ -93,6 +94,7 @@ function reportText(organization: string, day: string, r: ReturnType<typeof buil
     `  Issued ${ugx(r.floatIn)} · spent ${ugx(r.floatSpent)} · returned ${ugx(r.floatReturned)}`,
     `Manager float closing: ${ugx(r.floatClosing)}`,
   );
+  if (floatNow !== undefined) lines.push("", `Manager float available now: ${ugx(floatNow)}`);
   if (r.sorting.length) lines.push("", `Sorting: ${kg(r.sortedIn)} in → ${kg(r.sortedOut)} out, ${kg(r.rejected)} rejected · cost ${ugx(r.processingCost)}`);
   if (r.adjustments.length) lines.push(`Stock corrections: ${r.adjustments.length}`);
   return lines.join("\n");
@@ -144,6 +146,11 @@ export function DailyReport({ token, email }: { token: string; email: string }) 
     {offline ? <Banner tone="warning" text="Showing the copy saved on this phone. Pull down to refresh when connected." /> : null}
     {r.closure ? <Banner tone={r.closure.status === "closed" ? "neutral" : "warning"} title={r.closure.status === "closed" ? "Day closed" : "Day reopened"}
       text={String(r.closure.status === "closed" ? `Closed by ${r.closure.closed_by_name || "a manager"}.` : `Reopened: ${r.closure.reopen_reason || "no reason given"}.`)} /> : null}
+
+    {data.summary?.floatBalanceUgx !== undefined ? <Card style={{ gap: space.sm }}>
+      <Line label="Manager float · available now" value={ugx(num(data.summary.floatBalanceUgx))} strong />
+      {data.summary.officeCashUgx !== undefined ? <Line label="Office cash now" value={ugx(num(data.summary.officeCashUgx))} /> : null}
+    </Card> : null}
 
     <SummaryCard label={`Purchases · ${formatDay(day, false)}`} value={ugx(r.purchaseValue)}
       stats={[{ label: "Purchases", value: r.lots.length }, { label: "Weight", value: kg(r.purchasedKg) }, { label: "On credit", value: ugx(r.onCredit).replace("UGX ", "") }]} />
@@ -208,7 +215,7 @@ export function DailyReport({ token, email }: { token: string; email: string }) 
         subtitle={String(item.adjustment_type || "").replaceAll("_", " ")} value={kg(num(item.quantity_kg))} />)}
     </> : null}
 
-    <Button variant="secondary" icon="share-outline" title="Share this report" onPress={() => void Share.share({ message: reportText(organization, day, r) })} />
+    <Button variant="secondary" icon="share-outline" title="Share this report" onPress={() => void Share.share({ message: reportText(organization, day, r, data.summary?.floatBalanceUgx === undefined ? undefined : num(data.summary.floatBalanceUgx)) })} />
   </View>;
 }
 

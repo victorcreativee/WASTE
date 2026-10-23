@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { apiRequest } from "@/lib/api";
@@ -228,7 +229,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   </nav>;
 
   const brand=<div className="flex items-center gap-3">
-    <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--ui-radius)] bg-[var(--color-action)] text-white"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 19H4.8a1.8 1.8 0 0 1-1.6-2.7L7 9.8"/><path d="M11 19h8.2a1.8 1.8 0 0 0 1.6-2.7l-1.2-2.1"/><path d="m14 16-3 3 3 3"/><path d="M8.3 13.6 7 9.8l-3.8 1.3"/><path d="m9.3 5.4 1.1-1.9a1.8 1.8 0 0 1 3.2 0l3.9 6.7"/><path d="m13.4 9.4 3.9 1.1 1.1-3.9"/></svg></span>
+    <Image src="/logo-mark.svg" alt="" width={36} height={36} unoptimized className="h-9 w-9 shrink-0 rounded-[var(--ui-radius)]" />
     <div className="min-w-0"><p className="truncate text-sm font-semibold leading-5 text-slate-900">{productName}</p><p className="truncate text-xs leading-4 text-slate-500">Kampala WMS</p></div>
   </div>;
 
