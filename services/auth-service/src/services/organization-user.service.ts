@@ -1,3 +1,5 @@
+import { randomBytes, randomUUID } from "node:crypto";
+import { normalizeUgandanPhone } from "../utils/sms";
 import bcrypt from "bcrypt";
 import { dbPool } from "../config/database";
 import { authorizeStaffWrite, protectedStaff } from "../repositories/staff-authorization";
@@ -69,8 +71,13 @@ export async function createOrganizationCustomer(organizationId: string, input: 
   try {
     await client.query("BEGIN");
     await client.query("SELECT set_config('wms.actor_id',$1,true)",[actorId]);
+    // A household without email gets a reserved placeholder address and an unusable random password: it signs in
+    // with the private link or SMS code instead.
+    const phone = input.phone ? normalizeUgandanPhone(input.phone) ?? input.phone : undefined;
     const result = await createOrganizationCustomerRecord(client, {
-      organizationId, ...input, passwordHash: await bcrypt.hash(input.password, 12),
+      organizationId, ...input, phone,
+      email: input.email ?? `household-${randomUUID()}@households.kampalawms.invalid`,
+      passwordHash: await bcrypt.hash(input.password ?? randomBytes(32).toString("hex"), 12),
     });
     await client.query("COMMIT");
     return result;

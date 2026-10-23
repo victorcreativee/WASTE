@@ -1,3 +1,4 @@
+import { normalizeUgandanPhone } from "../utils/sms";
 import { z } from "zod";
 
 export const registerSchema = z.object({
@@ -34,18 +35,21 @@ export const createOrganizationUserSchema = z.object({
   licenseNumber: z.string().trim().max(100).optional(),
 });
 
+// Households often have no email address: a phone number is enough, and they sign in with a private link or SMS code.
 export const createOrganizationCustomerSchema = z.object({
   fullName: z.string().trim().min(2).max(150),
-  email: z.string().email(),
+  email: z.union([z.string().trim().email(), z.literal("")]).optional().transform((value) => value || undefined),
   phone: z.string().trim().max(50).optional(),
-  password: z.string().min(8).max(128),
+  password: z.union([z.string().min(8).max(128), z.literal("")]).optional().transform((value) => value || undefined),
   customerType: z.enum(["residential", "commercial", "office_business", "industrial"]),
   zoneId: z.string().uuid("Choose a valid service zone"),
   locationLabel: z.string().trim().min(2).max(100).default("Primary location"),
   address: z.string().trim().min(5).max(500),
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
-}).refine(value=>(value.latitude===undefined)===(value.longitude===undefined),{message:"Provide both latitude and longitude, or leave both empty",path:["latitude"]});
+}).refine(value=>(value.latitude===undefined)===(value.longitude===undefined),{message:"Provide both latitude and longitude, or leave both empty",path:["latitude"]})
+  .refine(value=>Boolean(value.email)||Boolean(value.phone&&normalizeUgandanPhone(value.phone)),{message:"Enter the household's mobile number (or an email address)",path:["phone"]})
+  .refine(value=>!value.password||Boolean(value.email),{message:"A password is only used with an email address",path:["password"]});
 
 export const updateOrganizationUserStatusSchema = z.object({
   status: z.enum(["active", "inactive", "suspended"]),

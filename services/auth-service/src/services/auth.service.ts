@@ -125,6 +125,13 @@ export async function loginUser(input: LoginInput, meta: SessionMeta = {}) {
     throw error;
   }
 
+  return startSession(user, meta);
+}
+
+type SessionUser = Parameters<typeof sanitizeUser>[0] & { password_hash: string };
+
+/** Opens a session for an account that has already proved who it is (password, household link or one-time code). */
+export async function startSession(user: SessionUser, meta: SessionMeta = {}) {
   const roles = await getUserRoles(user.id);
   await requireActiveOrganization(user.organization_id, roles, user.id);
   await updateLastLogin(user.id);

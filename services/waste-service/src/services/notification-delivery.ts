@@ -90,6 +90,8 @@ async function sendAfricasTalking(message: OutgoingMessage): Promise<SendResult>
 /** Sends one message through the configured provider. Throws a skip error when the channel is switched off or unconfigured. */
 export async function send(message: OutgoingMessage): Promise<SendResult> {
   const provider = (message.channel === "email" ? process.env.NOTIFY_EMAIL_PROVIDER : process.env.NOTIFY_SMS_PROVIDER) || "log";
+  // Households added without email carry a reserved placeholder address (RFC 2606 ".invalid"); never mail it.
+  if (message.channel === "email" && /\.invalid$/i.test(message.to.trim())) throw new SkipDelivery("This account has no email address");
   if (message.channel === "sms") {
     const to = normalizePhone(message.to);
     if (!to) throw new SkipDelivery(`"${message.to}" is not a usable phone number`);

@@ -44,7 +44,7 @@ export async function apiRequest<T>(
       if(result.status<200||result.status>=300){
         if(result.status===401){
           sessionStorage.removeItem("accessToken");sessionStorage.removeItem("refreshToken");sessionStorage.removeItem("currentUser");
-          if(window.location.pathname!=="/login")window.location.href="/login";
+          if(window.location.pathname!=="/login"&&!window.location.pathname.startsWith("/my"))window.location.href="/login";
         }
         throw new Error(`KWMS_HTTP_${result.status}:${typeof data.message==="string"?data.message:"The request could not be completed. Please try again."}`);
       }
@@ -123,7 +123,8 @@ export async function apiRequest<T>(
       sessionStorage.removeItem("accessToken");
       sessionStorage.removeItem("refreshToken");
       sessionStorage.removeItem("currentUser");
-      if (window.location.pathname !== "/login") window.location.href = "/login";
+      // Households on /my sign in again on that page; everyone else goes to the staff sign-in.
+      if (window.location.pathname !== "/login" && !window.location.pathname.startsWith("/my")) window.location.href = "/login";
     }
     const responseMessage =
       typeof data?.message === "string" ? data.message.trim() : "";
