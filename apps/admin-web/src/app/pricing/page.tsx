@@ -76,25 +76,29 @@ export default function PricingPage() {
         {error ? <p role="alert" className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p> : null}
         {!plans && !error ? <p className="py-12 text-sm text-slate-500">Loading plans…</p> : null}
         {plans ? (
-          <div className={`grid gap-5 ${plans.length >= 3 ? "lg:grid-cols-3" : "md:grid-cols-2"}`}>
+          <div className={`grid gap-5 ${plans.length >= 3 ? "md:grid-cols-2 lg:grid-cols-3" : "md:grid-cols-2"}`}>
             {plans.map((plan, index) => {
               const free = plan.monthly_fee_ugx === 0 && plan.annual_fee_ugx === 0;
               const price = cycle === "annual" ? plan.annual_fee_ugx : plan.monthly_fee_ugx;
               const saving = plan.monthly_fee_ugx * 12 - plan.annual_fee_ugx;
-              const featured = plans.length > 1 && index === plans.length - 1;
+              // Enterprise (the custom package) is priced "from": its modules and final price are agreed with the company.
+              const custom = plan.code.endsWith("_custom");
+              const featured = plan.code.endsWith("_professional");
               return (
                 <article key={plan.id} className={`flex flex-col border bg-white p-6 ${featured ? "border-[var(--color-action)] shadow-[0_0_0_1px_var(--color-action)]" : "border-slate-300"}`}>
                   <div className="flex items-start justify-between gap-3">
                     <h2 className="text-xl font-semibold">{plan.name}</h2>
                     {featured ? <span className="bg-[var(--color-action-soft)] px-2 py-1 text-xs font-semibold text-[var(--color-action)]">Everything included</span> : null}
+                    {custom ? <span className="bg-slate-900 px-2 py-1 text-xs font-semibold text-white">Custom</span> : null}
                   </div>
                   {plan.description ? <p className="mt-2 text-sm leading-6 text-slate-600">{plan.description}</p> : null}
                   <p className="mt-6">
+                    {custom ? <span className="mr-1 text-sm font-semibold text-slate-500">From</span> : null}
                     <span className="text-3xl font-semibold tracking-tight">{free ? "Free" : ugx(price)}</span>
                     {free ? null : <span className="text-sm text-slate-500"> / {cycle === "annual" ? "year" : "month"}</span>}
                   </p>
                   <p className="mt-1 min-h-5 text-xs text-slate-500">
-                    {free ? "No charge" : cycle === "annual" && saving > 0 ? `Saves ${ugx(saving)} compared with paying monthly` : plan.trial_days ? `${plan.trial_days}-day free trial` : ""}
+                    {custom ? "Final price agreed for the modules and support you choose" : free ? "No charge" : cycle === "annual" && saving > 0 ? `Saves ${ugx(saving)} compared with paying monthly` : plan.trial_days ? `${plan.trial_days}-day free trial` : ""}
                   </p>
                   <ul className="mt-5 space-y-2 border-t border-slate-200 pt-5 text-sm">
                     <li className="flex justify-between gap-3"><span className="text-slate-600">Vehicles</span><span className="font-semibold">{plan.max_vehicles ?? "Unlimited"}</span></li>
@@ -105,7 +109,7 @@ export default function PricingPage() {
                   {allFeatures.length ? (
                     <ul className="mt-5 space-y-2 text-sm">
                       {allFeatures.map((code) => {
-                        const included = plan.feature_codes.includes(code);
+                        const included = custom || plan.feature_codes.includes(code);
                         return (
                           <li key={code} className={`flex items-start gap-2 ${included ? "text-slate-800" : "text-slate-400"}`}>
                             <span aria-hidden="true" className={included ? "text-[var(--color-action)]" : ""}>{included ? "✓" : "–"}</span>
@@ -118,7 +122,7 @@ export default function PricingPage() {
                   <div className="mt-auto pt-6">
                     <Link href="/register/organization" onClick={() => choose(plan)}
                       className={`block px-4 py-3 text-center text-sm font-semibold ${featured ? "bg-[var(--color-action)] text-white hover:bg-[var(--color-action-hover)]" : "border border-[var(--color-action)] text-[var(--color-action)] hover:bg-[var(--color-action-soft)]"}`}>
-                      {free ? "Get started" : plan.trial_days ? `Start ${plan.trial_days}-day free trial` : "Choose this plan"}
+                      {custom ? "Apply for Enterprise" : free ? "Get started" : plan.trial_days ? `Start ${plan.trial_days}-day free trial` : "Choose this plan"}
                     </Link>
                   </div>
                 </article>
