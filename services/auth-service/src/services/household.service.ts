@@ -47,6 +47,8 @@ async function householdsByPhone(phone: string) {
   )).rows as { id: string }[];
 }
 
+// "SMS not configured" answers 409, not 503: the public proxy retries 5xx answers, which would hang the request and
+// spend the household's attempts.
 /**
  * Sends a one-time sign-in code. The answer never says whether the number is registered; when SMS is not
  * configured the household is told to use the link from its collection company instead.
@@ -55,7 +57,7 @@ export async function requestSignInCode(phoneInput: string) {
   const phone = normalizeUgandanPhone(phoneInput);
   if (!phone) throw failure("Enter a Ugandan mobile number, for example 0772 123 456.", 400);
   if (!smsDelivers() && process.env.NODE_ENV === "production")
-    throw failure("Sign-in by SMS code is not available yet. Use the link your collection company sent you.", 503);
+    throw failure("Sign-in by SMS code is not available yet. Use the link your collection company sent you.", 409);
   const matches = await householdsByPhone(phone);
   // Shared numbers cannot tell households apart; those households use their personal links.
   if (matches.length !== 1) return { sent: true };
@@ -68,7 +70,7 @@ export async function requestSignInCode(phoneInput: string) {
   try {
     await sendSms(phone, `${code} is your Kampala WMS sign-in code. It expires in ${CODE_TTL_MINUTES} minutes. Do not share it.`);
   } catch (error) {
-    if (error instanceof SmsUnavailable) throw failure("Sign-in by SMS code is not available yet. Use the link your collection company sent you.", 503);
+    if (error instanceof SmsUnavailable) throw failure("Sign-in by SMS code is not available yet. Use the link your collection company sent you.", 409);
     throw error;
   }
   return { sent: true };
