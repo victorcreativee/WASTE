@@ -50,10 +50,11 @@ export async function updatePlan(code: string, input: { monthlyFeeUgx: number; a
 
 // ---------- Reading a subscription ----------
 
+/** Vehicles and active staff counted against the plan. Households (citizen accounts) are customers, not staff (107). */
 async function usage(c: PoolClient | typeof dbPool, organizationId: string) {
   const row = (await c.query(
     `SELECT (SELECT COUNT(*)::int FROM waste_trucks WHERE organization_id=$1) AS vehicles,
-       (SELECT COUNT(*)::int FROM users WHERE organization_id=$1 AND status='active') AS users`, [organizationId])).rows[0];
+       (SELECT COUNT(*)::int FROM users u WHERE u.organization_id=$1 AND u.status='active' AND NOT is_household_account(u.id)) AS users`, [organizationId])).rows[0];
   return { vehicles: row.vehicles as number, users: row.users as number };
 }
 
@@ -358,7 +359,7 @@ export async function voidInvoice(id: string, userId: string, reason: string) {
  */
 export async function runBillingCycle() {
   const today = await todayOf(dbPool);
-  const outcome = { renewed: 0, cancelled: 0, past_due: 0, suspended: 0 };
+  const outcome = { renewed: 0, cancelled: 0, past_due: 0, suspended: 0, trial_reminders: 0 };
   const due = (await dbPool.query(
     `SELECT organization_id FROM organization_subscriptions WHERE (status='trialing' AND trial_ends_at<=CURRENT_TIMESTAMP)
        OR (status IN('active','past_due') AND current_period_end<=CURRENT_DATE)`)).rows;
@@ -411,6 +412,25 @@ export async function runBillingCycle() {
         outcome.past_due++;
       }
     });
+  }
+  // Trial-ending reminders a week, three days and a day before the end, each sent once per trial (the notification
+  // key carries the end date, so an extended trial is reminded again before its new end).
+  const ending = (await dbPool.query(
+    `SELECT s.organization_id, s.billing_cycle, p.name AS plan_name, p.monthly_fee_ugx::float AS monthly, p.annual_fee_ugx::float AS annual,
+            (s.trial_ends_at AT TIME ZONE 'Africa/Kampala')::date::text AS ends_on,
+            CEIL(EXTRACT(EPOCH FROM (s.trial_ends_at - CURRENT_TIMESTAMP)) / 86400)::int AS days_left
+       FROM organization_subscriptions s JOIN platform_packages p ON p.id = s.package_id
+      WHERE s.status = 'trialing' AND s.trial_ends_at > CURRENT_TIMESTAMP AND s.trial_ends_at <= CURRENT_TIMESTAMP + interval '7 days'`)).rows;
+  for (const trial of ending) {
+    const price = trial.billing_cycle === "annual" ? trial.annual : trial.monthly;
+    if (!(price > 0)) continue;
+    const step = trial.days_left <= 1 ? 1 : trial.days_left <= 3 ? 3 : 7;
+    const amount = `${ugx(price)} ${trial.billing_cycle === "annual" ? "a year" : "a month"}`;
+    await inTransaction(c => tell(c, trial.organization_id, step === 1 ? "warning" : "info",
+      trial.days_left <= 1 ? "Your free trial ends tomorrow" : `Your free trial ends in ${trial.days_left} days`,
+      `Your ${trial.plan_name} trial ends on ${dayLabel(trial.ends_on)}. Your first invoice of ${amount} follows; pay it from the Subscription page to keep full access. You can change plan before then.`,
+      `subscription-trial-ending:${trial.organization_id}:${trial.ends_on}:${step}`));
+    outcome.trial_reminders++;
   }
   return outcome;
 }

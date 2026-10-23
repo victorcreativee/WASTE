@@ -3,13 +3,12 @@ import {useCallback,useEffect,useState} from "react";
 import {AppShell} from "@/components/layout/AppShell";
 import {Feedback,Modal,PageHeader} from "@/components/ui/System";
 import {apiRequest} from "@/lib/api";
+import { WASTE_FEATURES } from "@/lib/plan-features";
 type CompanyType="waste_collection_company"|"recycling_company";
 type Package={id:string;code:string;name:string;description:string;monthly_fee_ugx:string;organization_type:CompanyType;is_active:boolean;feature_codes:string[]};
 const field="mt-1 w-full border border-slate-300 p-3 font-normal";
 const typeLabel=(value:CompanyType)=>value==="recycling_company"?"Recycling companies":"Waste collection companies";
-const wasteFeatures=[
- ["core_operations","Today’s operations and trips"],["service_areas","Service areas and routes"],["fleet","Fleet and drivers"],["tonnage","Daily tonnage"],["service_issues","Service issues"],["customers","Customer management"],["contracts","Contracts and service levels"],["billing","Income and billing"],["finance","Payroll and accounts payable"],["inventory","Inventory"],["procurement","Procurement"],["reports","Operational reports"],["compliance","KCCA compliance"],["access","Access and permissions"],
-] as const;
+const wasteFeatures=WASTE_FEATURES;
 export default function PlatformPackagesPage(){
  const [items,setItems]=useState<Package[]>([]),[selected,setSelected]=useState<Package|null>(null),[creating,setCreating]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState(""),[saving,setSaving]=useState(false);
  const load=useCallback(async()=>{try{setItems((await apiRequest<{data:Package[]}>("/api/waste/regulatory/platform-packages")).data)}catch(e){setError(e instanceof Error?e.message:"Packages could not be loaded")}},[]);
