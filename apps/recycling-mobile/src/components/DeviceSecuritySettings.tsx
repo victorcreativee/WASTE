@@ -1,7 +1,8 @@
-import Constants from "expo-constants";
 import { useEffect, useState } from "react";
 import { Alert, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { clearSession, getSavedAccount, updateDevicePin } from "../lib/auth-session";
+import { Button, Card, ListRow, SectionHeader } from "../ui/kit";
+import { color, radius, space, type } from "../ui/theme";
 import { AppUpdateButton } from "./AppUpdateButton";
 
 export function DeviceSecuritySettings({ onLogout }: { onLogout: () => Promise<void> }) {
@@ -10,7 +11,6 @@ export function DeviceSecuritySettings({ onLogout }: { onLogout: () => Promise<v
   const [pin, setPin] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [saving, setSaving] = useState(false);
-  const version = Constants.expoConfig?.version || "Unknown";
 
   useEffect(() => { void getSavedAccount().then(setSaved).catch(() => undefined); }, []);
 
@@ -38,45 +38,41 @@ export function DeviceSecuritySettings({ onLogout }: { onLogout: () => Promise<v
   }
 
   return <>
-    <Text style={s.groupTitle}>Device and security</Text>
-    <View style={s.card}>
-      <Setting label="Saved-device access" value={saved?.saved ? "Enabled" : "Not enabled"} />
-      <Setting label="Biometric unlock" value={saved?.biometricAvailable ? "Available" : "Not available"} />
-      <Setting label="Platform" value={`Android ${String(Platform.Version)}`} />
-      <Setting label="Application version" value={version} last />
+    <SectionHeader title="This phone" />
+    <View style={{ gap: space.sm }}>
+      {saved?.saved
+        ? <ListRow icon="keypad-outline" iconTone="action" title="Change device PIN" subtitle="The PIN that unlocks this account offline" onPress={() => setPinOpen(true)} chevron />
+        : <ListRow icon="keypad-outline" title="Device PIN not set" subtitle="Sign in again and choose “Keep on this phone” to work offline with a PIN" />}
+      <ListRow icon="finger-print-outline" title="Fingerprint unlock" subtitle={saved?.biometricAvailable ? "Available on this phone" : "Not available on this phone"} />
+      <AppUpdateButton />
+      <ListRow icon="phone-portrait-outline" title="Device" subtitle={Platform.OS === "android" ? `Android ${String(Platform.Version)}` : Platform.OS === "ios" ? `iOS ${String(Platform.Version)}` : "Browser preview"} />
     </View>
-    {saved?.saved ? <Pressable style={s.action} onPress={() => setPinOpen(true)}><View style={{ flex: 1 }}><Text style={s.actionTitle}>Change device PIN</Text><Text style={s.actionCopy}>Create a new 4–8 digit offline unlock PIN.</Text></View><Text style={s.chevron}>›</Text></Pressable> : null}
-    <View style={s.action}><View style={{ flex: 1 }}><Text style={s.actionTitle}>Application updates</Text><Text style={s.actionCopy}>Securely check the active Expo update channel.</Text></View><AppUpdateButton /></View>
-    <Pressable style={s.signOut} onPress={() => void onLogout()}><Text style={s.signOutText}>Sign out</Text></Pressable>
-    {saved?.saved ? <Pressable style={s.remove} onPress={removeSaved}><Text style={s.removeText}>Sign out and remove saved account</Text></Pressable> : null}
+    <View style={{ gap: space.sm }}>
+      <Button variant="danger" icon="log-out-outline" title="Sign out" onPress={() => void onLogout()} />
+      {saved?.saved ? <Pressable style={s.remove} onPress={removeSaved} hitSlop={8}><Text style={s.removeText}>Sign out and remove this account from the phone</Text></Pressable> : null}
+    </View>
 
     <Modal visible={pinOpen} transparent animationType="fade" onRequestClose={() => setPinOpen(false)}>
-      <View style={s.overlay}><View style={s.modal}>
-        <Text style={s.modalEyebrow}>DEVICE SECURITY</Text>
-        <Text style={s.modalTitle}>Change device PIN</Text>
-        <Text style={s.modalCopy}>This PIN protects offline access on this device. It does not replace your server password.</Text>
-        <Text style={s.label}>New PIN</Text><TextInput value={pin} onChangeText={(value) => setPin(value.replace(/\D/g, "").slice(0, 8))} keyboardType="number-pad" secureTextEntry maxLength={8} style={s.input} />
-        <Text style={s.label}>Confirm PIN</Text><TextInput value={confirmation} onChangeText={(value) => setConfirmation(value.replace(/\D/g, "").slice(0, 8))} keyboardType="number-pad" secureTextEntry maxLength={8} style={s.input} />
-        <Pressable disabled={saving} onPress={() => void savePin()} style={[s.primary, saving && s.disabled]}><Text style={s.primaryText}>{saving ? "Saving…" : "Save new PIN"}</Text></Pressable>
-        <Pressable onPress={() => setPinOpen(false)} style={s.cancel}><Text style={s.cancelText}>Cancel</Text></Pressable>
-      </View></View>
+      <View style={s.overlay}>
+        <Card style={s.modal}>
+          <Text style={type.title}>Change device PIN</Text>
+          <Text style={[type.small, { marginTop: -space.sm }]}>Unlocks this account on this phone only. Your password does not change.</Text>
+          <Text style={type.label}>New PIN</Text>
+          <TextInput value={pin} onChangeText={(value) => setPin(value.replace(/\D/g, "").slice(0, 8))} keyboardType="number-pad" secureTextEntry maxLength={8} style={s.input} />
+          <Text style={type.label}>Confirm PIN</Text>
+          <TextInput value={confirmation} onChangeText={(value) => setConfirmation(value.replace(/\D/g, "").slice(0, 8))} keyboardType="number-pad" secureTextEntry maxLength={8} style={s.input} />
+          <Button loading={saving} title={saving ? "Saving…" : "Save new PIN"} onPress={() => void savePin()} />
+          <Button variant="secondary" title="Cancel" onPress={() => setPinOpen(false)} />
+        </Card>
+      </View>
     </Modal>
   </>;
 }
 
-function Setting({ label, value, last }: { label: string; value: string; last?: boolean }) { return <View style={[s.setting, last && s.last]}><Text style={s.settingLabel}>{label}</Text><Text style={s.settingValue}>{value}</Text></View>; }
-
 const s = StyleSheet.create({
-  groupTitle: { color: "#172033", fontSize: 19, fontWeight: "900", marginTop: 20, marginBottom: 10 },
-  card: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#e0e6ee", borderRadius: 18, paddingHorizontal: 16, marginBottom: 11 },
-  setting: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, borderBottomWidth: 1, borderBottomColor: "#edf1f5" },
-  last: { borderBottomWidth: 0 }, settingLabel: { color: "#5d6b80", fontSize: 13, flex: 1 }, settingValue: { color: "#172033", fontSize: 13, fontWeight: "800", textAlign: "right" },
-  action: { minHeight: 72, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e0e6ee", borderRadius: 18, padding: 15, marginBottom: 10, flexDirection: "row", alignItems: "center", gap: 12 },
-  actionTitle: { color: "#172033", fontSize: 15, fontWeight: "900" }, actionCopy: { color: "#718096", fontSize: 12, lineHeight: 18, marginTop: 3 }, chevron: { color: "#3156a3", fontSize: 28 },
-  signOut: { minHeight: 54, borderRadius: 16, backgroundColor: "#3156a3", alignItems: "center", justifyContent: "center", marginTop: 8 }, signOutText: { color: "#fff", fontWeight: "900" },
-  remove: { minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 4 }, removeText: { color: "#ad3030", fontWeight: "800", fontSize: 13 },
-  overlay: { flex: 1, backgroundColor: "rgba(9,16,29,.58)", justifyContent: "center", padding: 18 }, modal: { width: "100%", maxWidth: 460, alignSelf: "center", backgroundColor: "#fff", borderRadius: 24, padding: 24 },
-  modalEyebrow: { color: "#3156a3", fontSize: 10, fontWeight: "900", letterSpacing: 2 }, modalTitle: { color: "#111827", fontSize: 25, fontWeight: "900", marginTop: 10 }, modalCopy: { color: "#68758b", fontSize: 13, lineHeight: 20, marginTop: 8, marginBottom: 18 },
-  label: { color: "#263247", fontSize: 12, fontWeight: "800", marginBottom: 7 }, input: { minHeight: 56, borderWidth: 1, borderColor: "#cdd7e5", borderRadius: 15, paddingHorizontal: 16, textAlign: "center", fontSize: 22, letterSpacing: 7, marginBottom: 14 },
-  primary: { minHeight: 54, borderRadius: 15, backgroundColor: "#3156a3", alignItems: "center", justifyContent: "center" }, primaryText: { color: "#fff", fontWeight: "900" }, disabled: { opacity: .55 }, cancel: { minHeight: 48, alignItems: "center", justifyContent: "center", marginTop: 6 }, cancelText: { color: "#5f6d82", fontWeight: "800" },
+  remove: { minHeight: 44, alignItems: "center", justifyContent: "center" },
+  removeText: { color: color.danger, fontWeight: "500", fontSize: 13 },
+  overlay: { flex: 1, backgroundColor: "rgba(15,23,42,0.5)", justifyContent: "flex-end", padding: space.md },
+  modal: { width: "100%", maxWidth: 460, alignSelf: "center" },
+  input: { minHeight: 54, borderRadius: radius.md, backgroundColor: color.fill, paddingHorizontal: 16, textAlign: "center", fontSize: 22, letterSpacing: 8, color: color.ink },
 });

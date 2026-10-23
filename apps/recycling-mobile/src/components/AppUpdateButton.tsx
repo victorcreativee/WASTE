@@ -1,9 +1,11 @@
 import * as Updates from "expo-updates";
 import Constants from "expo-constants";
 import { useState } from "react";
-import { Alert, Pressable, StyleSheet, Text } from "react-native";
+import { Alert } from "react-native";
+import { ListRow } from "../ui/kit";
 
-export function AppUpdateButton() {
+/** Checks the Expo update channel, downloads an update if there is one and offers to restart into it. */
+export function useUpdateCheck() {
   const [checking, setChecking] = useState(false);
 
   async function checkForUpdate() {
@@ -32,32 +34,27 @@ export function AppUpdateButton() {
     } catch {
       Alert.alert(
         "Could not check for updates",
-        "Confirm that this tablet is online and try again. Offline work remains available.",
+        "Confirm that this device is online and try again. Offline work remains available.",
       );
     } finally {
       setChecking(false);
     }
   }
 
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={checking}
-      onPress={() => void checkForUpdate()}
-      style={[styles.button, checking && styles.disabled]}
-    >
-      <Text style={styles.text}>{checking ? "Checking…" : "Check updates"}</Text>
-    </Pressable>
-  );
+  return { checking, checkForUpdate };
 }
 
-const styles = StyleSheet.create({
-  button: {
-    borderColor: "#3156a3",
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  disabled: { opacity: 0.55 },
-  text: { color: "#3156a3", fontSize: 13, fontWeight: "700" },
-});
+/** Settings row that checks for an application update. */
+export function AppUpdateButton() {
+  const { checking, checkForUpdate } = useUpdateCheck();
+  return (
+    <ListRow
+      icon="cloud-download-outline"
+      iconTone="action"
+      title="Check for updates"
+      subtitle={checking ? "Checking…" : `Version ${Constants.expoConfig?.version || "unknown"}`}
+      onPress={() => void checkForUpdate()}
+      chevron
+    />
+  );
+}

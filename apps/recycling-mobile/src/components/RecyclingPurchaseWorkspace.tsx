@@ -3,13 +3,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
   RefreshControl,
   SafeAreaView,
   ScrollView,
-  StyleSheet,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -17,8 +14,9 @@ import { MobileUser } from "../lib/auth-session";
 import { mobileRequest } from "../lib/mobile-api";
 import { AccountWorkspace } from "./AccountWorkspace";
 import { RoleBottomNavigation, RoleNavigationItem } from "./RoleBottomNavigation";
-import { SectionNavigation } from "./SectionNavigation";
 import { SyncStatus } from "./SyncStatus";
+import { AppHeader, Banner, Button, Card, Chips, EmptyState, Field, Input, ListRow, MoneyInput, QuickActions, ReferenceInput, SectionHeader, Segmented, SummaryCard, page } from "../ui/kit";
+import { color, type, ugx } from "../ui/theme";
 
 type Screen = "today" | "buy" | "history" | "account";
 type Material = { id: string; name: string; active: boolean };
@@ -221,101 +219,137 @@ export function RecyclingPurchaseWorkspace({
   }
 
   if (loading && !workspace) {
-    return <View style={s.center}><ActivityIndicator size="large" color="#3156a3" /></View>;
+    return <View style={page.center}><ActivityIndicator size="large" color={color.action} /><Text style={type.small}>Loading your purchases…</Text></View>;
   }
 
+  const closed = Boolean(workspace?.operations.isClosed);
   const managerMode = Boolean(onOpenOperations || onOpenSales);
   const navigation: RoleNavigationItem[] = managerMode
     ? [
-        { id: "dashboard", label: "Dashboard", icon: "⌂", onPress: () => onOpenOperations?.("dashboard") },
-        { id: "purchases", label: "Purchases", icon: "↓", active: screen !== "account", onPress: () => setScreen("today") },
-        { id: "operations", label: "Operations", icon: "◫", onPress: () => onOpenOperations?.("operations") },
-        { id: "sales", label: "Sales", icon: "↗", onPress: onOpenSales || (() => undefined) },
-        { id: "account", label: "Account", icon: "●", active: screen === "account", onPress: () => setScreen("account") },
+        { id: "dashboard", label: "Dashboard", icon: "home-outline", onPress: () => onOpenOperations?.("dashboard") },
+        { id: "purchases", label: "Purchases", icon: "download-outline", active: screen !== "account", onPress: () => setScreen("today") },
+        { id: "operations", label: "Operations", icon: "grid-outline", onPress: () => onOpenOperations?.("operations") },
+        { id: "sales", label: "Sales", icon: "trending-up-outline", onPress: onOpenSales || (() => undefined) },
+        { id: "account", label: "Account", icon: "person-outline", active: screen === "account", onPress: () => setScreen("account") },
       ]
     : [
-        { id: "dashboard", label: "Dashboard", icon: "⌂", active: screen === "today", onPress: () => setScreen("today") },
-        { id: "buy", label: "New", icon: "+", active: screen === "buy", onPress: () => setScreen("buy") },
-        { id: "history", label: "History", icon: "▤", active: screen === "history", onPress: () => setScreen("history") },
-        { id: "account", label: "Account", icon: "●", active: screen === "account", onPress: () => setScreen("account") },
+        { id: "dashboard", label: "Home", icon: "home-outline", active: screen === "today", onPress: () => setScreen("today") },
+        { id: "buy", label: "Buy", icon: "add-circle-outline", active: screen === "buy", onPress: () => setScreen("buy") },
+        { id: "history", label: "History", icon: "time-outline", active: screen === "history", onPress: () => setScreen("history") },
+        { id: "account", label: "Account", icon: "person-outline", active: screen === "account", onPress: () => setScreen("account") },
       ];
+  const todaySpent = todayLots.reduce((sum, lot) => sum + Number(lot.total_cost_ugx ?? Number(lot.quantity_kg) * Number(lot.unit_purchase_price_ugx)), 0);
+  const waiting = purchases.filter((lot) => lot.status === "pending_sync").length;
 
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView style={page.safe}>
       <StatusBar style="dark" />
-      <View style={[s.header, tablet && s.headerTablet]}>
-        <View style={s.brand}><Text style={s.brandText}>KW</Text></View>
-        <View style={{ flex: 1 }}>
-          <Text style={s.eyebrow}>RECYCLING FIELD OPERATIONS</Text>
-          <Text style={s.headerTitle}>{workspace?.organization.name || "Material purchasing"}</Text>
-        </View>
-        <SyncStatus token={token} email={user.email} onSynced={() => void load()} />
-      </View>
-      {error ? <Text style={s.error}>{error}</Text> : null}
+      <AppHeader name={user.fullName} organization={workspace?.organization.name || "Material purchasing"}
+        right={<SyncStatus token={token} email={user.email} onSynced={() => void load()} />} />
       <ScrollView
-        contentContainerStyle={[s.page, tablet && s.pageTablet]}
+        contentContainerStyle={[page.content, tablet && page.contentTablet]}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
       >
-        {screen !== "account" ? (
-          <SectionNavigation
-            title="PURCHASING"
-            items={[
-              { id: "overview", label: "Overview", active: screen === "today", onPress: () => setScreen("today") },
-              { id: "new", label: "New purchase", active: screen === "buy", onPress: () => setScreen("buy") },
-              { id: "history", label: "History", active: screen === "history", onPress: () => setScreen("history") },
-            ]}
-          />
+        {error ? <Banner tone="danger" text={error} /> : null}
+        {managerMode && screen !== "account" ? (
+          <Segmented value={screen} onChange={setScreen} options={[
+            { value: "today", label: "Overview" }, { value: "buy", label: "New purchase" }, { value: "history", label: "History" },
+          ]} />
         ) : null}
+
         {screen === "today" ? <>
-          <Text style={s.greeting}>Good day, {user.fullName.split(/\s+/)[0]}.</Text>
-          <Text style={s.roleLabel}>{user.roles.map((role) => role.replaceAll("_", " ")).join(" · ")}</Text>
-          <Text style={s.subtitle}>Record every kilogram purchased and keep company stock current, even without internet.</Text>
-          {workspace?.operations.isClosed ? <Text style={s.warning}>Today has been closed by management. New transactions are locked.</Text> : null}
-          <View style={[s.metrics, tablet && s.metricsTablet]}>
-            <Metric label="Purchases today" value={workspace?.myActivity?.purchases ?? todayLots.length} />
-            <Metric label="Kg received" value={`${Number(workspace?.myActivity?.purchasedKg ?? todayKg).toLocaleString()} kg`} accent />
-            <Metric label="Waiting to sync" value={purchases.filter((lot) => lot.status === "pending_sync").length} />
-          </View>
-          <Pressable disabled={workspace?.operations.isClosed} onPress={() => setScreen("buy")} style={[s.primary, workspace?.operations.isClosed && s.disabled]}><Text style={s.primaryText}>+ New material purchase</Text></Pressable>
-          <Text style={s.sectionTitle}>Today’s activity</Text>
-          {todayLots.slice(0, 8).map((lot) => <PurchaseCard key={lot.id} lot={lot} />)}
-          {!todayLots.length ? <Empty title="No purchases today" text="Tap New material purchase to record the first collection." /> : null}
+          {closed ? <Banner tone="warning" title="Day closed" text="Management has closed today. New purchases are locked until tomorrow." /> : null}
+          <SummaryCard label="Bought today" value={`${Number(workspace?.myActivity?.purchasedKg ?? todayKg).toLocaleString("en-GB")} kg`}
+            caption={new Date(`${today}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
+            stats={[
+              { label: "Purchases", value: workspace?.myActivity?.purchases ?? todayLots.length },
+              { label: "Paid out", value: ugx(todaySpent).replace("UGX ", "") },
+              { label: "To sync", value: waiting },
+            ]} />
+          <QuickActions items={[
+            { icon: "add-circle-outline", label: "New purchase", onPress: () => setScreen("buy"), disabled: closed },
+            { icon: "time-outline", label: "History", onPress: () => setScreen("history"), tone: "neutral" },
+            { icon: "person-outline", label: "My account", onPress: () => setScreen("account"), tone: "neutral" },
+          ]} />
+          <SectionHeader title="Today’s purchases" action={purchases.length ? { label: "See all", onPress: () => setScreen("history") } : undefined} />
+          {todayLots.slice(0, 8).map((lot) => <PurchaseRow key={lot.id} lot={lot} />)}
+          {!todayLots.length ? <EmptyState icon="scale-outline" title="No purchases yet today" text="Each kilogram you buy appears here, even without internet."
+            action={closed ? undefined : { label: "Record a purchase", onPress: () => setScreen("buy") }} /> : null}
         </> : null}
 
         {screen === "buy" ? <>
-          <Text style={s.greeting}>New purchase</Text>
-          <Text style={s.subtitle}>Use the same approved material, supplier, weight and finance rules as the central platform.</Text>
-          <Text style={s.label}>Material type *</Text>
-          <View style={s.chips}>{workspace?.materials.filter((item) => item.active).map((item) => <Choice key={item.id} label={item.name} active={material === item.name && !customMaterial} onPress={() => { setMaterial(item.name); setCustomMaterial(""); }} />)}</View>
-          <Field label="Another material name" value={customMaterial} onChange={setCustomMaterial} placeholder="Only if it is not listed above" />
-          <Text style={s.label}>Saved supplier</Text>
-          <View style={s.chips}>{workspace?.partners.filter((item) => item.active && ["supplier", "both"].includes(item.partner_type)).map((item) => <Choice key={item.id} label={item.name} active={supplierId === item.id} onPress={() => { setSupplierId(item.id); setSource(item.name); }} />)}</View>
-          {!supplierId ? <Field label="Supplier / collection point *" value={source} onChange={setSource} /> : null}
-          <View style={tablet ? s.columns : undefined}>
-            <View style={s.column}><Field label="Weight (kg) *" value={quantity} onChange={setQuantity} numeric /></View>
-            <View style={s.column}><Field label="Price per kg (UGX) *" value={price} onChange={setPrice} numeric /></View>
+          <View>
+            <Text style={page.title}>New purchase</Text>
+            <Text style={[type.small, { marginTop: 4 }]}>Saved on this phone first and sent when there is internet.</Text>
           </View>
-          <Text style={s.label}>Quality</Text>
-          <View style={s.chips}>{["sorted", "clean", "mixed", "contaminated"].map((value) => <Choice key={value} label={value} active={quality === value} onPress={() => setQuality(value)} />)}</View>
-          <Text style={s.label}>Payment</Text>
-          <View style={s.chips}><Choice label="Paid" active={payment === "paid"} onPress={() => setPayment("paid")} /><Choice label="Credit" active={payment === "credit"} onPress={() => setPayment("credit")} /></View>
-          <View style={tablet ? s.columns : undefined}>
-            <View style={s.column}><Field label="Transport (UGX)" value={transport} onChange={setTransport} numeric /></View>
-            <View style={s.column}><Field label="Manager float used (UGX)" value={floatUsed} onChange={setFloatUsed} numeric /></View>
-          </View>
-          <Field label="Payment reference" value={reference} onChange={setReference} placeholder="Receipt, mobile money or voucher" />
-          <Field label="Notes" value={notes} onChange={setNotes} multiline />
-          <View style={s.total}><Text style={s.totalLabel}>TOTAL PURCHASE COST</Text><Text style={s.totalValue}>UGX {total.toLocaleString()}</Text></View>
-          <Pressable disabled={saving || workspace?.operations.isClosed} onPress={() => void savePurchase()} style={[s.primary, (saving || workspace?.operations.isClosed) && s.disabled]}><Text style={s.primaryText}>{saving ? "Saving…" : "Save purchase"}</Text></Pressable>
+          {closed ? <Banner tone="warning" text="Today is closed. Purchases cannot be recorded until management reopens the day." /> : null}
+
+          <Card>
+            <Text style={type.heading}>Material</Text>
+            <Chips value={customMaterial ? "" : material} onChange={(value) => { setMaterial(value); setCustomMaterial(""); }}
+              options={(workspace?.materials || []).filter((item) => item.active).map((item) => ({ value: item.name, label: item.name }))} />
+            <Field label="Not in the list?" hint="Type the material name only if none of the options fit.">
+              <Input value={customMaterial} onChangeText={setCustomMaterial} placeholder="Another material" />
+            </Field>
+          </Card>
+
+          <Card>
+            <Text style={type.heading}>Supplier</Text>
+            {(workspace?.partners || []).some((item) => item.active && ["supplier", "both"].includes(item.partner_type)) ? (
+              <Chips value={supplierId} onChange={(value) => { setSupplierId(value === supplierId ? "" : value); setSource(value === supplierId ? "" : workspace?.partners.find((item) => item.id === value)?.name || ""); }}
+                options={(workspace?.partners || []).filter((item) => item.active && ["supplier", "both"].includes(item.partner_type)).map((item) => ({ value: item.id, label: item.name }))} />
+            ) : null}
+            {!supplierId ? <Field label="Supplier or collection point">
+              <Input value={source} onChangeText={setSource} placeholder="e.g. Nakawa market collectors" />
+            </Field> : null}
+          </Card>
+
+          <Card>
+            <Text style={type.heading}>Weight and price</Text>
+            <View style={page.columns}>
+              <Field label="Weight (kg)" style={page.column}><Input value={quantity} onChangeText={setQuantity} keyboardType="decimal-pad" placeholder="0" /></Field>
+              <Field label="Price per kg" style={page.column}><MoneyInput value={price} onChangeText={setPrice} /></Field>
+            </View>
+            <Field label="Quality">
+              <Chips value={quality} onChange={setQuality} options={["sorted", "clean", "mixed", "contaminated"].map((value) => ({ value, label: value }))} />
+            </Field>
+          </Card>
+
+          <Card>
+            <Text style={type.heading}>Payment</Text>
+            <Segmented value={payment} onChange={setPayment} options={[{ value: "paid", label: "Paid now" }, { value: "credit", label: "On credit" }]} />
+            {payment === "paid" ? <Field label="Payment reference"
+              hint="The number on the receipt or mobile-money message for this payment. No number? Tap New and write it on the voucher you give the supplier.">
+              <ReferenceInput value={reference} onChangeText={setReference} prefix="PUR" placeholder="e.g. MoMo ID or receipt no." />
+            </Field> : <Banner tone="neutral" text="The supplier will be paid later. The purchase is listed as owed until a payment is recorded." />}
+            <View style={page.columns}>
+              <Field label="Transport (UGX)" style={page.column}><MoneyInput value={transport === "0" ? "" : transport} onChangeText={(value) => setTransport(value || "0")} /></Field>
+              <Field label="From manager float" style={page.column}><MoneyInput value={floatUsed === "0" ? "" : floatUsed} onChangeText={(value) => setFloatUsed(value || "0")} /></Field>
+            </View>
+            <Field label="Notes (optional)"><Input value={notes} onChangeText={setNotes} multiline placeholder="Anything the office should know" /></Field>
+          </Card>
+
+          <Card style={{ backgroundColor: color.actionSoft }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" }}>
+              <View>
+                <Text style={type.small}>Total cost</Text>
+                <Text style={[type.display, { color: color.actionInk }]}>{ugx(total)}</Text>
+              </View>
+              {Number(quantity) > 0 && Number(price) > 0 ? <Text style={type.caption}>{Number(quantity).toLocaleString("en-GB")} kg × {ugx(price)}</Text> : null}
+            </View>
+            <Button title={saving ? "Saving…" : "Save purchase"} icon="checkmark-circle-outline" loading={saving} disabled={closed} onPress={() => void savePurchase()} />
+          </Card>
         </> : null}
 
         {screen === "history" ? <>
-          <Text style={s.greeting}>Purchase history</Text>
-          <Text style={s.subtitle}>Server records and unsynchronized device records appear together.</Text>
-          <TextInput value={query} onChangeText={setQuery} placeholder="Search material, supplier, quality or payment" placeholderTextColor="#8793a6" style={s.search} />
-          {filtered.map((lot) => <PurchaseCard key={lot.id} lot={lot} />)}
-          {!filtered.length ? <Empty title="No matching purchases" text="Change the search or record a new purchase." /> : null}
+          <View>
+            <Text style={page.title}>Purchase history</Text>
+            <Text style={[type.small, { marginTop: 4 }]}>Records on this phone that are waiting to sync are included.</Text>
+          </View>
+          <Input value={query} onChangeText={setQuery} placeholder="Search material, supplier or payment" />
+          {filtered.map((lot) => <PurchaseRow key={lot.id} lot={lot} />)}
+          {!filtered.length ? <EmptyState icon="search-outline" title="No matching purchases" text="Try another word, or record a new purchase." /> : null}
         </> : null}
 
         {screen === "account" ? <AccountWorkspace user={user} organizationName={workspace?.organization.name} onLogout={onLogout} /> : null}
@@ -325,74 +359,11 @@ export function RecyclingPurchaseWorkspace({
   );
 }
 
-function Metric({ label, value, accent = false }: { label: string; value: string | number; accent?: boolean }) {
-  return <View style={[s.metric, accent && s.metricAccent]}><Text style={[s.metricLabel, accent && s.metricAccentText]}>{label}</Text><Text style={[s.metricValue, accent && s.metricAccentText]}>{value}</Text></View>;
+function PurchaseRow({ lot }: { lot: Lot }) {
+  const pending = lot.status === "pending_sync";
+  const cost = Number(lot.total_cost_ugx ?? Number(lot.quantity_kg) * Number(lot.unit_purchase_price_ugx));
+  return <ListRow icon="cube-outline" iconTone={pending ? "warning" : "action"} title={lot.material_type}
+    subtitle={`${lot.source_name} · ${lot.quality} · ${new Date(lot.collected_on).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}
+    value={`${Number(lot.quantity_kg).toLocaleString("en-GB")} kg`} detail={cost ? ugx(cost) : undefined}
+    badge={pending ? { label: "Waiting to sync", tone: "warning" } : lot.purchase_payment_status === "credit" ? { label: "Owed", tone: "warning" } : { label: "Paid", tone: "success" }} />;
 }
-function Choice({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  return <Pressable onPress={onPress} style={[s.choice, active && s.choiceActive]}><Text style={[s.choiceText, active && s.choiceTextActive]}>{label}</Text></Pressable>;
-}
-function Field({ label, value, onChange, placeholder, numeric = false, multiline = false }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; numeric?: boolean; multiline?: boolean }) {
-  return <View style={s.field}><Text style={s.label}>{label}</Text><TextInput value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor="#8793a6" keyboardType={numeric ? "decimal-pad" : "default"} multiline={multiline} style={[s.input, multiline && s.textarea]} /></View>;
-}
-function PurchaseCard({ lot }: { lot: Lot }) {
-  return <View style={s.card}><View style={{ flex: 1 }}><Text style={s.cardTitle}>{lot.material_type}</Text><Text style={s.cardCopy}>{lot.source_name} · {lot.quality}</Text><Text style={s.cardCopy}>{new Date(lot.collected_on).toLocaleDateString("en-GB")} · {lot.purchase_payment_status}</Text></View><View style={{ alignItems: "flex-end" }}><Text style={s.cardValue}>{Number(lot.quantity_kg).toLocaleString()} kg</Text><Text style={[s.badge, lot.status === "pending_sync" && s.badgePending]}>{lot.status === "pending_sync" ? "Waiting to sync" : lot.status?.replaceAll("_", " ") || "recorded"}</Text></View></View>;
-}
-function Empty({ title, text }: { title: string; text: string }) { return <View style={s.empty}><Text style={s.cardTitle}>{title}</Text><Text style={s.cardCopy}>{text}</Text></View>; }
-
-const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#f3f5f8" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#f3f5f8" },
-  header: { minHeight: 76, paddingHorizontal: 18, paddingVertical: 12, backgroundColor: "#fff", flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: 1, borderBottomColor: "#e4e8ef" },
-  headerTablet: { paddingHorizontal: 30 },
-  brand: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#162038", alignItems: "center", justifyContent: "center" },
-  brandText: { color: "#f0b35a", fontWeight: "900" },
-  eyebrow: { color: "#3156a3", fontSize: 9, fontWeight: "900", letterSpacing: 1.5 },
-  headerTitle: { color: "#111827", fontSize: 17, fontWeight: "900", marginTop: 3 },
-  page: { width: "100%", padding: 18, paddingBottom: 110 },
-  pageTablet: { maxWidth: 1040, alignSelf: "center", padding: 28 },
-  greeting: { color: "#101727", fontSize: 30, lineHeight: 36, fontWeight: "900" },
-  roleLabel: { alignSelf: "flex-start", color: "#3156a3", backgroundColor: "#eaf0fc", borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6, marginTop: 9, fontSize: 11, fontWeight: "900", textTransform: "capitalize", overflow: "hidden" },
-  subtitle: { color: "#68758a", fontSize: 14, lineHeight: 21, marginTop: 7, marginBottom: 20, maxWidth: 720 },
-  error: { color: "#9b2c2c", backgroundColor: "#fff0f0", borderLeftWidth: 4, borderLeftColor: "#d14343", padding: 13, marginHorizontal: 18, marginTop: 10, fontWeight: "700" },
-  warning: { color: "#8a4b08", backgroundColor: "#fff8e6", borderLeftWidth: 4, borderLeftColor: "#d99a2b", borderRadius: 12, padding: 13, marginBottom: 16, fontWeight: "700" },
-  metrics: { gap: 10, marginBottom: 16 },
-  metricsTablet: { flexDirection: "row" },
-  metric: { flex: 1, minHeight: 106, borderRadius: 22, backgroundColor: "#fff", borderWidth: 1, borderColor: "#e1e6ee", padding: 16, justifyContent: "space-between" },
-  metricAccent: { backgroundColor: "#3156a3", borderColor: "#3156a3" },
-  metricLabel: { color: "#718096", fontSize: 11, fontWeight: "800" },
-  metricValue: { color: "#111827", fontSize: 28, fontWeight: "900", marginTop: 12 },
-  metricAccentText: { color: "#fff" },
-  primary: { minHeight: 56, borderRadius: 18, backgroundColor: "#3156a3", alignItems: "center", justifyContent: "center", paddingHorizontal: 18, marginVertical: 8 },
-  primaryText: { color: "#fff", fontSize: 15, fontWeight: "900" },
-  disabled: { opacity: 0.45 },
-  sectionTitle: { color: "#111827", fontSize: 20, fontWeight: "900", marginTop: 22, marginBottom: 10 },
-  card: { backgroundColor: "#fff", borderRadius: 20, borderWidth: 1, borderColor: "#e1e6ee", padding: 16, marginBottom: 10, flexDirection: "row", gap: 12, shadowColor: "#172033", shadowOpacity: 0.04, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 1 },
-  cardTitle: { color: "#172033", fontSize: 15, fontWeight: "900" },
-  cardCopy: { color: "#718096", fontSize: 12, lineHeight: 18, marginTop: 4 },
-  cardValue: { color: "#172033", fontSize: 16, fontWeight: "900" },
-  badge: { color: "#16804b", backgroundColor: "#eaf8f0", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, marginTop: 7, fontSize: 10, fontWeight: "800", textTransform: "capitalize", overflow: "hidden" },
-  badgePending: { color: "#8a4b08", backgroundColor: "#fff5d9" },
-  empty: { backgroundColor: "#fff", borderRadius: 20, borderWidth: 1, borderColor: "#e1e6ee", padding: 24, alignItems: "center" },
-  label: { color: "#29364c", fontSize: 12, fontWeight: "800", marginBottom: 7 },
-  field: { flex: 1, marginBottom: 14 },
-  input: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: "#d7dee8", backgroundColor: "#fff", paddingHorizontal: 15, fontSize: 15, color: "#111827" },
-  textarea: { minHeight: 92, paddingTop: 14, textAlignVertical: "top" },
-  columns: { flexDirection: "row", gap: 12 },
-  column: { flex: 1 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
-  choice: { minHeight: 42, borderRadius: 14, borderWidth: 1, borderColor: "#d7dee8", backgroundColor: "#fff", paddingHorizontal: 13, alignItems: "center", justifyContent: "center" },
-  choiceActive: { borderColor: "#3156a3", backgroundColor: "#eaf0fc" },
-  choiceText: { color: "#5d6b80", fontSize: 12, fontWeight: "800", textTransform: "capitalize" },
-  choiceTextActive: { color: "#25498d" },
-  total: { borderRadius: 20, backgroundColor: "#eaf0fc", padding: 17, marginVertical: 8 },
-  totalLabel: { color: "#526684", fontSize: 10, fontWeight: "900", letterSpacing: 1 },
-  totalValue: { color: "#111827", fontSize: 25, fontWeight: "900", marginTop: 6 },
-  search: { minHeight: 54, borderRadius: 17, borderWidth: 1, borderColor: "#d7dee8", backgroundColor: "#fff", paddingHorizontal: 15, marginBottom: 14, fontSize: 15, color: "#111827" },
-  bottomNav: { position: "absolute", left: 12, right: 12, bottom: 10, minHeight: 70, flexDirection: "row", borderRadius: 24, backgroundColor: "#151b2b", padding: 6, shadowColor: "#0b1220", shadowOpacity: 0.2, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 10 },
-  bottomNavTablet: { left: "20%", right: "20%", bottom: 16 },
-  navItem: { flex: 1, borderRadius: 18, alignItems: "center", justifyContent: "center", gap: 2 },
-  navActive: { backgroundColor: "#fff" },
-  navIcon: { color: "#aab5c8", fontSize: 17, fontWeight: "900" },
-  navText: { color: "#aab5c8", fontSize: 10, fontWeight: "800" },
-  navTextActive: { color: "#1f3f7e" },
-});

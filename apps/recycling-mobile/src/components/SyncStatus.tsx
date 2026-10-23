@@ -1,13 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import {
   discardMobileOutbox,
   listMobileOutbox,
@@ -18,6 +10,27 @@ import {
   SyncState,
   watchConnectivity,
 } from "../lib/mobile-api";
+import { Banner, Button, EmptyState, Icon, IconButton, StatusBadge } from "../ui/kit";
+import { Tone, color, radius, shadow, space, tone, type } from "../ui/theme";
+
+/** What an offline record is, in the words field staff use. */
+function describe(item: MobileOutboxItem) {
+  const path = item.endpoint;
+  if (path.endsWith("/recycling/lots")) return { title: "Material purchase", icon: "cube-outline" as const };
+  if (path.endsWith("/recycling/sales")) return { title: "Industrial sale", icon: "trending-up-outline" as const };
+  if (/\/recycling\/sales\/[^/]+\/paid$/.test(path)) return { title: "Sale payment received", icon: "cash-outline" as const };
+  if (path.endsWith("/recycling/manager-float")) return { title: "Field money movement", icon: "wallet-outline" as const };
+  if (path.endsWith("/finance/expenses")) return { title: "Expense", icon: "receipt-outline" as const };
+  if (path.endsWith("/recycling/sorting")) return { title: "Sorting batch", icon: "funnel-outline" as const };
+  if (path.endsWith("/recycling/stock-adjustments")) return { title: "Stock adjustment", icon: "swap-vertical-outline" as const };
+  if (path.endsWith("/recycling/daily-closures")) return { title: "Daily close", icon: "lock-closed-outline" as const };
+  if (path.includes("/customer-collection-stops/")) return { title: "Customer collection", icon: "home-outline" as const };
+  if (path.includes("/driver-route-stops/") || path.includes("/driver-jobs/")) return { title: "Route stop", icon: "location-outline" as const };
+  if (path.includes("/driver-routes/") && path.endsWith("/start")) return { title: "Trip started", icon: "play-circle-outline" as const };
+  if (path.includes("/driver-routes/")) return { title: "Trip update", icon: "navigate-outline" as const };
+  if (path.includes("/driver-job-problems")) return { title: "Problem report", icon: "alert-circle-outline" as const };
+  return { title: path.split("/").filter(Boolean).slice(-1)[0]?.replaceAll("-", " ") || "Saved change", icon: "document-outline" as const };
+}
 
 export function SyncStatus({
   token,
@@ -28,22 +41,20 @@ export function SyncStatus({
   email: string;
   onSynced?: () => void;
 }) {
-  const [current, setCurrent] = useState<SyncState>({
-    online: true,
-    pending: 0,
-    conflicts: 0,
-    syncing: false,
-  });
+  const [current, setCurrent] = useState<SyncState>({ online: true, pending: 0, conflicts: 0, syncing: false });
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<MobileOutboxItem[]>([]);
   useEffect(() => subscribeSync(setCurrent), []);
-  useEffect(
-    () => watchConnectivity(token, email, onSynced),
-    [token, email, onSynced],
-  );
+  useEffect(() => watchConnectivity(token, email, onSynced), [token, email, onSynced]);
+
   async function showQueue() {
     setItems(await listMobileOutbox(email));
     setOpen(true);
+  }
+  async function syncNow() {
+    await syncMobileOutbox(token, email);
+    setItems(await listMobileOutbox(email));
+    onSynced?.();
   }
   async function retry(item: MobileOutboxItem) {
     await retryMobileOutbox(item.id, email);
@@ -52,195 +63,76 @@ export function SyncStatus({
     onSynced?.();
   }
   function discard(item: MobileOutboxItem) {
-    Alert.alert(
-      "Discard offline change?",
-      "This unsynchronized operation will be permanently removed from this device.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Discard",
-          style: "destructive",
-          onPress: () =>
-            void discardMobileOutbox(item.id, email)
-              .then(() => listMobileOutbox(email))
-              .then(setItems),
-        },
-      ],
-    );
+    Alert.alert("Discard this change?", "It has not reached the server and will be permanently removed from this phone.", [
+      { text: "Keep it", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: () => void discardMobileOutbox(item.id, email).then(() => listMobileOutbox(email)).then(setItems) },
+    ]);
   }
-  const indicator =
-    current.online && !current.pending && !current.conflicts ? (
-      <Pressable onPress={() => void showQueue()} style={s.good}>
-        <View style={s.dot} />
-        <Text style={s.goodText}>Up to date</Text>
-      </Pressable>
-    ) : (
-      <View
-        style={[
-          s.bar,
-          !current.online && s.offline,
-          current.conflicts > 0 && s.conflict,
-        ]}
-      >
-        <Pressable onPress={() => void showQueue()} style={{ flex: 1 }}>
-          <Text style={s.title}>
-            {current.online
-              ? current.conflicts
-                ? "Sync needs attention"
-                : "Synchronizing work"
-              : "Working offline"}
-          </Text>
-          <Text style={s.text}>
-            {current.conflicts
-              ? `${current.conflicts} item${current.conflicts === 1 ? "" : "s"} must be reviewed online`
-              : `${current.pending} change${current.pending === 1 ? "" : "s"} waiting to sync`}
-          </Text>
-        </Pressable>
-        {current.online && current.pending ? (
-          <Pressable
-            disabled={current.syncing}
-            onPress={() =>
-              void syncMobileOutbox(token, email).then(() => onSynced?.())
-            }
-            style={s.button}
-          >
-            <Text style={s.buttonText}>
-              {current.syncing ? "Syncing…" : "Sync now"}
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
-    );
+
+  const state: { label: string; tone: Tone; icon: React.ComponentProps<typeof Icon>["name"] } =
+    current.conflicts ? { label: "Needs review", tone: "danger", icon: "alert-circle" }
+      : !current.online ? { label: current.pending ? `Offline · ${current.pending}` : "Offline", tone: "warning", icon: "cloud-offline-outline" }
+        : current.syncing || current.pending ? { label: current.syncing ? "Syncing…" : `${current.pending} to sync`, tone: "action", icon: "sync-outline" }
+          : { label: "Up to date", tone: "success", icon: "checkmark-circle" };
+
   return (
     <>
-      {indicator}
-      <Modal
-        visible={open}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setOpen(false)}
-      >
-        <View style={s.modal}>
-          <View style={s.modalHead}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Synchronization: ${state.label}`} onPress={() => void showQueue()}
+        style={({ pressed }) => [s.pill, { backgroundColor: tone[state.tone].soft }, pressed && { opacity: 0.7 }]}>
+        <Icon name={state.icon} size={15} tint={tone[state.tone].ink} />
+        <Text style={[s.pillText, { color: tone[state.tone].ink }]} numberOfLines={1}>{state.label}</Text>
+      </Pressable>
+      <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpen(false)}>
+        <View style={s.sheet}>
+          <View style={s.sheetHead}>
             <View style={{ flex: 1 }}>
-              <Text style={s.modalTitle}>Synchronization activity</Text>
-              <Text style={s.text}>
-                Review operations saved on this device.
-              </Text>
+              <Text style={type.title}>Saved on this phone</Text>
+              <Text style={type.small}>Work recorded here is sent to the server in the order it was made.</Text>
             </View>
-            <Pressable onPress={() => setOpen(false)}>
-              <Text style={s.close}>Close</Text>
-            </Pressable>
+            <IconButton icon="close" label="Close" onPress={() => setOpen(false)} />
           </View>
           <ScrollView contentContainerStyle={s.list}>
-            {items.map((item) => (
-              <View key={item.id} style={s.item}>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.itemTitle}>
-                    {item.method} {item.endpoint.split("/").slice(-2).join("/")}
-                  </Text>
-                  <Text style={s.itemMeta}>
-                    {item.status.replaceAll("_", " ")} ·{" "}
-                    {new Date(item.created_at).toLocaleString("en-GB")}
-                  </Text>
-                  {item.last_error ? (
-                    <Text style={s.itemError}>{item.last_error}</Text>
-                  ) : null}
+            {!current.online ? <Banner tone="warning" text="No internet right now. Keep working; everything below is sent automatically when the connection returns." /> : null}
+            {current.conflicts ? <Banner tone="danger" text="Some changes were refused by the server. Read the reason on each one, then retry or discard it." /> : null}
+            {current.online && items.length ? <Button title={current.syncing ? "Syncing…" : "Sync now"} icon="sync-outline" loading={current.syncing} onPress={() => void syncNow()} /> : null}
+            {items.map((item) => {
+              const what = describe(item);
+              const failed = item.status === "failed" || Boolean(item.last_error);
+              return (
+                <View key={item.id} style={s.item}>
+                  <View style={s.itemTop}>
+                    <View style={[s.itemIcon, { backgroundColor: failed ? color.dangerSoft : color.actionSoft }]}><Icon name={what.icon} size={18} tint={failed ? color.danger : color.action} /></View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={type.heading}>{what.title}</Text>
+                      <Text style={type.caption}>{new Date(item.created_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</Text>
+                    </View>
+                    <StatusBadge label={failed ? "Needs review" : item.status === "syncing" ? "Sending" : "Waiting"} tone={failed ? "danger" : "warning"} />
+                  </View>
+                  {item.last_error ? <Text style={s.itemError}>{item.last_error}</Text> : null}
+                  <View style={s.actions}>
+                    <Button title="Retry" icon="refresh-outline" variant="secondary" onPress={() => void retry(item)} style={{ flex: 1, minHeight: 42 }} />
+                    <Button title="Discard" variant="danger" onPress={() => discard(item)} style={{ flex: 1, minHeight: 42 }} />
+                  </View>
                 </View>
-                <View style={s.actions}>
-                  <Pressable onPress={() => void retry(item)} style={s.retry}>
-                    <Text style={s.retryText}>Retry</Text>
-                  </Pressable>
-                  <Pressable onPress={() => discard(item)} style={s.discard}>
-                    <Text style={s.discardText}>Discard</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ))}
-            {!items.length ? (
-              <View style={s.empty}>
-                <Text style={s.itemTitle}>Everything is synchronized</Text>
-                <Text style={s.text}>No offline changes need attention.</Text>
-              </View>
-            ) : null}
+              );
+            })}
+            {!items.length ? <EmptyState icon="checkmark-done-outline" title="Everything is synchronized" text="Nothing on this phone is waiting to be sent." /> : null}
           </ScrollView>
         </View>
       </Modal>
     </>
   );
 }
+
 const s = StyleSheet.create({
-  good: { flexDirection: "row", alignItems: "center", gap: 6 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#16a34a" },
-  goodText: { fontSize: 11, color: "#64748b", fontWeight: "700" },
-  bar: {
-    backgroundColor: "#eaf0fc",
-    borderLeftWidth: 4,
-    borderLeftColor: "#3156a3",
-    padding: 12,
-    margin: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  offline: { backgroundColor: "#fff7df", borderLeftColor: "#d97706" },
-  conflict: { backgroundColor: "#fff1f2", borderLeftColor: "#dc2626" },
-  title: { fontWeight: "800", fontSize: 13, color: "#172033" },
-  text: { fontSize: 12, color: "#64748b", marginTop: 2 },
-  button: {
-    backgroundColor: "#3156a3",
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  buttonText: { color: "white", fontWeight: "800", fontSize: 12 },
-  modal: { flex: 1, backgroundColor: "#f7f8f5", paddingTop: 20 },
-  modalHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#d8dfeb",
-    padding: 20,
-  },
-  modalTitle: { fontSize: 24, fontWeight: "800", color: "#121827" },
-  close: { color: "#3156a3", fontWeight: "800", padding: 10 },
-  list: { padding: 20 },
-  item: {
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#d8dfeb",
-    padding: 15,
-    marginBottom: 10,
-    flexDirection: "row",
-    gap: 12,
-  },
-  itemTitle: { fontSize: 14, fontWeight: "800", color: "#172033" },
-  itemMeta: {
-    fontSize: 11,
-    color: "#64748b",
-    marginTop: 5,
-    textTransform: "capitalize",
-  },
-  itemError: { fontSize: 12, lineHeight: 17, color: "#991b1b", marginTop: 7 },
-  actions: { gap: 7 },
-  retry: {
-    borderWidth: 1,
-    borderColor: "#3156a3",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  retryText: { color: "#3156a3", fontSize: 11, fontWeight: "800" },
-  discard: {
-    borderWidth: 1,
-    borderColor: "#dc2626",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  discardText: { color: "#b91c1c", fontSize: 11, fontWeight: "800" },
-  empty: {
-    padding: 24,
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#d8dfeb",
-  },
+  pill: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 6, maxWidth: 150 },
+  pillText: { fontSize: 12, fontWeight: "600" },
+  sheet: { flex: 1, backgroundColor: color.page },
+  sheetHead: { flexDirection: "row", alignItems: "flex-start", gap: space.md, padding: space.xl, paddingBottom: space.md },
+  list: { padding: space.xl, paddingTop: space.sm, gap: space.md },
+  item: { backgroundColor: color.surface, borderRadius: radius.lg, padding: space.lg, gap: space.md, ...shadow.card },
+  itemTop: { flexDirection: "row", alignItems: "center", gap: space.md },
+  itemIcon: { width: 38, height: 38, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
+  itemError: { ...type.small, color: color.danger, backgroundColor: color.dangerSoft, borderRadius: radius.sm, padding: space.sm },
+  actions: { flexDirection: "row", gap: space.sm },
 });

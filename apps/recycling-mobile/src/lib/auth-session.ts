@@ -1,6 +1,6 @@
 import * as Crypto from "expo-crypto";
 import * as LocalAuthentication from "expo-local-authentication";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "./secure-store";
 
 const API_URL=(process.env.EXPO_PUBLIC_API_BASE_URL||"http://localhost:3000").replace(/\/$/,"");
 const MAX_OFFLINE_AGE_MS=30*24*60*60*1000,MAX_PIN_ATTEMPTS=5,PIN_LOCK_MS=5*60*1000;

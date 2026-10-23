@@ -1,11 +1,8 @@
-import * as ImagePicker from "expo-image-picker";
-import * as SecureStore from "expo-secure-store";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   RefreshControl,
   SafeAreaView,
@@ -17,7 +14,9 @@ import {
   View,
 } from "react-native";
 import { mobileRequest } from "../lib/mobile-api";
-import { DeviceSecuritySettings } from "./DeviceSecuritySettings";
+import { AccountWorkspace } from "./AccountWorkspace";
+import { AppHeader, Banner, QuickActions, ReferenceInput, Segmented, SummaryCard } from "../ui/kit";
+import { color } from "../ui/theme";
 import { RoleBottomNavigation } from "./RoleBottomNavigation";
 import { SectionNavigation } from "./SectionNavigation";
 import { SyncStatus } from "./SyncStatus";
@@ -90,7 +89,6 @@ export function CompanyTabletWorkspace({
   const { width } = useWindowDimensions();
   const tablet = width >= 760;
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -124,28 +122,6 @@ export function CompanyTabletWorkspace({
   const [operationSection, setOperationSection] = useState<OperationSection>("processing");
   const [expense, setExpense] = useState({ category: "other", description: "", vendor: "", amountUgx: "", reference: "" });
   const [savingExpense, setSavingExpense] = useState(false);
-
-  useEffect(() => {
-    void SecureStore.getItemAsync(`kwms.profilePhoto.${user.email.toLowerCase()}`)
-      .then(setProfilePhoto)
-      .catch(() => undefined);
-  }, [user.email]);
-
-  async function chooseProfilePhoto() {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.75,
-    });
-    if (result.canceled || !result.assets[0]?.uri) return;
-    const uri = result.assets[0].uri;
-    await SecureStore.setItemAsync(
-      `kwms.profilePhoto.${user.email.toLowerCase()}`,
-      uri,
-    );
-    setProfilePhoto(uri);
-  }
 
   const load = useCallback(async () => {
     setError("");
@@ -386,22 +362,8 @@ export function CompanyTabletWorkspace({
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="dark" />
-      <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <Text style={styles.eyebrow}>KAMPALA WASTE MANAGEMENT</Text>
-          <Text style={styles.headerTitle}>{roleLabel}</Text>
-          <Text style={styles.muted}>
-            {user.fullName} · {user.email}
-          </Text>
-        </View>
-        <View style={styles.headerActions}>
-          <SyncStatus
-            token={token}
-            email={user.email}
-            onSynced={() => void load()}
-          />
-        </View>
-      </View>
+      <AppHeader name={user.fullName} organization={roleLabel}
+        right={<SyncStatus token={token} email={user.email} onSynced={() => void load()} />} />
       <ScrollView
         contentContainerStyle={styles.page}
         refreshControl={
@@ -409,40 +371,12 @@ export function CompanyTabletWorkspace({
         }
       >
         {tab === "account" ? (
-          <>
-            <View style={styles.intro}>
-              <Text style={styles.pageTitle}>My account</Text>
-              <Text style={styles.subtitle}>Your identity, role and application settings.</Text>
-            </View>
-            <View style={styles.accountCard}>
-              {profilePhoto ? (
-                <Image source={{ uri: profilePhoto }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarFallback}><Text style={styles.avatarText}>{user.fullName.slice(0, 2).toUpperCase()}</Text></View>
-              )}
-              <View style={styles.accountCopy}>
-                <Text style={styles.accountName}>{user.fullName}</Text>
-                <Text style={styles.muted}>{user.email}</Text>
-                <Text style={styles.rolePill}>{user.roles.map((role) => role.replaceAll("_", " ")).join(" · ")}</Text>
-              </View>
-            </View>
-            <Pressable style={styles.accountAction} onPress={() => void chooseProfilePhoto()}>
-              <Text style={styles.accountActionTitle}>Upload profile picture</Text>
-              <Text style={styles.muted}>Choose and crop a photo from this device.</Text>
-            </Pressable>
-            <DeviceSecuritySettings onLogout={onLogout} />
-          </>
+          <AccountWorkspace user={user} onLogout={onLogout} />
         ) : <>
-        <SectionNavigation
-          title="YOUR WORKSPACE"
-          items={[
-            { id: "dashboard", label: "Dashboard", active: tab === "dashboard", onPress: () => setTab("dashboard") },
-            { id: "operations", label: "Daily operations", active: tab === "operations", onPress: () => setTab("operations") },
-          ]}
-        />
+        <Segmented value={tab === "operations" ? "operations" : "dashboard"} onChange={(value) => setTab(value)}
+          options={[{ value: "dashboard", label: "Overview" }, { value: "operations", label: "Daily operations" }]} />
         <View style={styles.intro}>
-          <Text style={styles.pageTitle}>{tab === "dashboard" ? `Good day, ${user.fullName.split(/\s+/)[0]}.` : "Daily operations"}</Text>
-          <Text style={styles.rolePill}>{roleLabel}</Text>
+          <Text style={styles.pageTitle}>{tab === "dashboard" ? "Today" : "Daily operations"}</Text>
           <Text style={styles.subtitle}>
             {tab === "dashboard"
               ? "A clear view of the business information that needs your attention today."
@@ -451,33 +385,24 @@ export function CompanyTabletWorkspace({
         </View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {loading ? (
-          <ActivityIndicator size="large" color="#3156a3" />
+          <ActivityIndicator size="large" color={color.action} />
         ) : (
           <>
             {tab === "dashboard" ? <>
-            <View style={[styles.metrics, tablet && styles.metricsTablet]}>
-              {(recyclingAvailable
-                ? [
-                    ["Purchases", data.recycling.length],
-                    ["Sales", data.recyclingSales.length],
-                    ["Available stock", `${availableStockKg.toLocaleString()} kg`],
-                    ["Trade partners", data.recyclingPartners.length],
-                  ]
-                : [
-                    ["Trips", data.trips.length],
-                    ["In progress", activeTrips.length],
-                    ["Customers", data.customers.length],
-                    ["Vehicles", data.vehicles.length],
-                  ]).map(([label, value]) => (
-                <View
-                  key={String(label)}
-                  style={[styles.metric, tablet && styles.metricTablet]}
-                >
-                  <Text style={styles.metricLabel}>{label}</Text>
-                  <Text style={styles.metricValue}>{value}</Text>
-                </View>
-              ))}
-            </View>
+            {recyclingAvailable ? (
+              <SummaryCard label="Stock on hand" value={`${availableStockKg.toLocaleString("en-GB")} kg`}
+                stats={[{ label: "Purchases", value: data.recycling.length }, { label: "Sales", value: data.recyclingSales.length }, { label: "Partners", value: data.recyclingPartners.length }]} />
+            ) : (
+              <SummaryCard label="Trips today" value={String(data.trips.length)}
+                stats={[{ label: "In progress", value: activeTrips.length }, { label: "Customers", value: data.customers.length }, { label: "Vehicles", value: data.vehicles.length }]} />
+            )}
+            <View style={{ height: 16 }} />
+            <QuickActions items={[
+              ...(onOpenPurchasing ? [{ icon: "download-outline" as const, label: "Record purchase", onPress: onOpenPurchasing }] : []),
+              { icon: "grid-outline" as const, label: "Daily operations", onPress: () => setTab("operations"), tone: "neutral" as const },
+              ...(onOpenSales ? [{ icon: "trending-up-outline" as const, label: "Record sale", onPress: onOpenSales, tone: "success" as const }] : []),
+            ]} />
+            <View style={{ height: 20 }} />
             {data.recycling.length > 0 || data.recyclingSales.length > 0 ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Recycling operations</Text>
@@ -534,14 +459,9 @@ export function CompanyTabletWorkspace({
                 ))}
               </View>
             ) : null}
-            <View style={styles.quickActions}>
-              {onOpenPurchasing ? <Pressable style={styles.quickAction} onPress={onOpenPurchasing}><Text style={styles.quickActionTitle}>Record purchase</Text><Text style={styles.muted}>Add material received from a supplier</Text></Pressable> : null}
-              <Pressable style={styles.quickAction} onPress={() => setTab("operations")}><Text style={styles.quickActionTitle}>Open daily operations</Text><Text style={styles.muted}>Sorting, stock, field money and close</Text></Pressable>
-              {onOpenSales ? <Pressable style={styles.quickAction} onPress={onOpenSales}><Text style={styles.quickActionTitle}>Record sale</Text><Text style={styles.muted}>Sell available stock to a buyer</Text></Pressable> : null}
-            </View>
             </> : null}
             {tab === "operations" ? <>
-            <SectionNavigation title="DAILY WORK" items={[
+            <SectionNavigation title="Daily work" items={[
               { id: "processing", label: "Processing", active: operationSection === "processing", onPress: () => setOperationSection("processing") },
               { id: "stock", label: "Stock", active: operationSection === "stock", onPress: () => setOperationSection("stock") },
               ...(canCreateExpense ? [{ id: "expenses", label: "Expenses", active: operationSection === "expenses", onPress: () => setOperationSection("expenses") }] : []),
@@ -600,7 +520,7 @@ export function CompanyTabletWorkspace({
                   <Text style={styles.inputLabel}>What was paid for?</Text><TextInput value={expense.description} onChangeText={(value) => setExpense((current) => ({ ...current, description: value }))} placeholder="Example: Baling machine repair" style={styles.input} />
                   <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
                     <View style={styles.field}><Text style={styles.inputLabel}>Amount (UGX)</Text><TextInput value={expense.amountUgx} onChangeText={(value) => setExpense((current) => ({ ...current, amountUgx: value }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
-                    <View style={styles.field}><Text style={styles.inputLabel}>Receipt / voucher reference</Text><TextInput value={expense.reference} onChangeText={(value) => setExpense((current) => ({ ...current, reference: value }))} autoCapitalize="characters" placeholder="Example: RCT-001" style={styles.input} /></View>
+                    <View style={styles.field}><Text style={styles.inputLabel}>Receipt or voucher number</Text><ReferenceInput value={expense.reference} onChangeText={(value) => setExpense((current) => ({ ...current, reference: value }))} prefix="EXP" placeholder="Number on the receipt" /><Text style={styles.muted}>Copy the number printed on the shop receipt. No receipt? Tap New, write that number on a petty-cash voucher and keep it with the cash book.</Text></View>
                   </View>
                   <Text style={styles.inputLabel}>Vendor (optional)</Text><TextInput value={expense.vendor} onChangeText={(value) => setExpense((current) => ({ ...current, vendor: value }))} placeholder="Supplier or service provider" style={styles.input} />
                   <Pressable disabled={savingExpense || dayClosed} onPress={() => void saveExpense()} style={[styles.primaryButton, (savingExpense || dayClosed) && styles.disabled]}><Text style={styles.primaryButtonText}>{dayClosed ? "Day is closed" : savingExpense ? "Submitting…" : "Submit for approval"}</Text></Pressable>
@@ -628,7 +548,7 @@ export function CompanyTabletWorkspace({
                     ["Manager float", data.recyclingSummary.floatBalanceUgx ?? 0],
                     ["Available to commit", data.financePosition.available_to_commit_ugx ?? 0],
                     ["Receivables", data.financePosition.receivables_ugx ?? data.recyclingSummary.unpaidSalesUgx ?? 0],
-                  ].map(([label, value]) => <View key={String(label)} style={[styles.metric, tablet && styles.metricTablet]}><Text style={styles.metricLabel}>{String(label)}</Text><Text style={[styles.metricValue, { fontSize: 21 }]}>UGX {Number(value || 0).toLocaleString()}</Text></View>)}
+                  ].map(([label, value]) => <View key={String(label)} style={[styles.metric, tablet && styles.metricTablet]}><Text style={styles.metricLabel}>{String(label)}</Text><Text style={styles.metricValue}>UGX {Number(value || 0).toLocaleString()}</Text></View>)}
                 </View>
                 <View style={styles.formArea}>
                   <Text style={styles.inputLabel}>Money movement</Text>
@@ -644,14 +564,9 @@ export function CompanyTabletWorkspace({
                     placeholder="Example: 200000"
                     style={styles.input}
                   />
-                  <Text style={styles.inputLabel}>Voucher or reference</Text>
-                  <TextInput
-                    value={floatReference}
-                    onChangeText={setFloatReference}
-                    autoCapitalize="characters"
-                    placeholder="Example: FLT-2026-001"
-                    style={styles.input}
-                  />
+                  <Text style={styles.inputLabel}>Voucher number</Text>
+                  <ReferenceInput value={floatReference} onChangeText={setFloatReference} prefix="FLT" placeholder="Number on the cash voucher" />
+                  <Text style={styles.muted}>Each hand-over of cash needs its own number. Write it on the voucher both people sign; the platform refuses a number that was already used.</Text>
                   <Text style={styles.inputLabel}>Purpose or handover details</Text>
                   <TextInput
                     value={floatNotes}
@@ -690,38 +605,31 @@ export function CompanyTabletWorkspace({
               </View>
             ) : null}
             </> : null}
-            <View style={styles.notice}>
-              <Text style={styles.noticeTitle}>Offline safety</Text>
-              <Text style={styles.noticeText}>
-                Field operations can be saved offline. Payments, permits,
-                credentials, access changes and official weighbridge
-                verification require the secure online platform.
-              </Text>
-            </View>
+            <Banner tone="neutral" icon="cloud-offline-outline" title="Working offline" text="Purchases, sales, sorting, stock and expenses can be recorded without internet. Payments approval, permits, access changes and weighbridge records need a connection." />
           </>
         )}
         </>}
       </ScrollView>
       <RoleBottomNavigation items={[
-        { id: "dashboard", label: "Dashboard", icon: "⌂", active: tab === "dashboard", onPress: () => setTab("dashboard") },
-        ...(onOpenPurchasing ? [{ id: "purchase", label: "Purchases", icon: "↓", onPress: onOpenPurchasing }] : []),
-        { id: "operations", label: "Operations", icon: "◫", active: tab === "operations", onPress: () => setTab("operations") },
-        ...(onOpenSales ? [{ id: "sales", label: "Sales", icon: "↗", onPress: onOpenSales }] : []),
-        { id: "account", label: "Account", icon: "●", active: tab === "account", onPress: () => setTab("account") },
+        { id: "dashboard", label: "Dashboard", icon: "home-outline", active: tab === "dashboard", onPress: () => setTab("dashboard") },
+        ...(onOpenPurchasing ? [{ id: "purchase", label: "Purchases", icon: "download-outline" as const, onPress: onOpenPurchasing }] : []),
+        { id: "operations", label: "Operations", icon: "grid-outline", active: tab === "operations", onPress: () => setTab("operations") },
+        ...(onOpenSales ? [{ id: "sales", label: "Sales", icon: "trending-up-outline" as const, onPress: onOpenSales }] : []),
+        { id: "account", label: "Account", icon: "person-outline", active: tab === "account", onPress: () => setTab("account") },
       ]} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#f7f8f5" },
+  safe: { flex: 1, backgroundColor: "#f5f7fa" },
   header: {
     minHeight: 86,
     paddingHorizontal: 24,
     paddingVertical: 14,
     backgroundColor: "#fff",
     borderBottomWidth: 1,
-    borderBottomColor: "#d8dfeb",
+    borderBottomColor: "#e3e8ef",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -736,56 +644,50 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   eyebrow: {
-    color: "#3156a3",
-    fontWeight: "800",
-    letterSpacing: 2,
+    color: "#2952cc",
+    fontWeight: "600",
+    letterSpacing: 0.3,
     fontSize: 12,
   },
   headerTitle: {
-    color: "#121827",
-    fontWeight: "800",
+    color: "#0f172a",
+    fontWeight: "600",
     fontSize: 24,
     marginTop: 3,
   },
-  page: {
-    width: "100%",
-    maxWidth: 1280,
-    alignSelf: "center",
-    padding: 24,
-    paddingBottom: 110,
-  },
+  page: { width: "100%", maxWidth: 1280, alignSelf: "center", padding: 16, paddingTop: 8, paddingBottom: 120 },
   accountCard: {
     backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "#d8dfeb",
+    borderColor: "#e3e8ef",
     padding: 20,
     flexDirection: "row",
     alignItems: "center",
     gap: 18,
     marginBottom: 16,
-    borderRadius: 22,
+    borderRadius: 16,
   },
-  avatar: { width: 76, height: 76, borderRadius: 38 },
+  avatar: { width: 76, height: 76, borderRadius: 16 },
   avatarFallback: {
     width: 76,
     height: 76,
-    borderRadius: 38,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#151b2b",
   },
-  avatarText: { color: "#f0b35a", fontWeight: "900", fontSize: 22 },
+  avatarText: { color: "#f0b35a", fontWeight: "700", fontSize: 22 },
   accountCopy: { flex: 1 },
-  accountName: { color: "#121827", fontSize: 24, fontWeight: "800" },
+  accountName: { color: "#0f172a", fontSize: 24, fontWeight: "600" },
   rolePill: {
-    color: "#3156a3",
-    backgroundColor: "#eaf0fc",
+    color: "#2952cc",
+    backgroundColor: "#eef2fd",
     borderRadius: 999,
     paddingHorizontal: 11,
     paddingVertical: 6,
     alignSelf: "flex-start",
     fontSize: 11,
-    fontWeight: "900",
+    fontWeight: "700",
     marginTop: 8,
     textTransform: "capitalize",
     overflow: "hidden",
@@ -794,15 +696,15 @@ const styles = StyleSheet.create({
     minHeight: 72,
     backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "#d8dfeb",
+    borderColor: "#e3e8ef",
     padding: 16,
     marginBottom: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    borderRadius: 18,
+    borderRadius: 12,
   },
-  accountActionTitle: { color: "#121827", fontSize: 16, fontWeight: "800" },
+  accountActionTitle: { color: "#0f172a", fontSize: 16, fontWeight: "600" },
   quickActions: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -814,16 +716,16 @@ const styles = StyleSheet.create({
     flexBasis: 220,
     minHeight: 92,
     backgroundColor: "#fff",
-    borderRadius: 20,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#d8dfeb",
+    borderColor: "#e3e8ef",
     padding: 17,
     justifyContent: "center",
   },
   quickActionTitle: {
-    color: "#172033",
+    color: "#0f172a",
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "700",
     marginBottom: 3,
   },
   signOutButton: {
@@ -834,14 +736,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 10,
   },
-  signOutText: { color: "#b42318", fontWeight: "800" },
+  signOutText: { color: "#b42318", fontWeight: "600" },
   bottomNav: {
     position: "absolute",
     left: 12,
     right: 12,
     bottom: 10,
     minHeight: 70,
-    borderRadius: 24,
+    borderRadius: 16,
     backgroundColor: "#151b2b",
     flexDirection: "row",
     padding: 6,
@@ -855,90 +757,30 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 18,
+    borderRadius: 12,
     gap: 2,
   },
   navItemActive: { backgroundColor: "#fff" },
-  navIcon: { color: "#aab5c8", fontSize: 17, fontWeight: "900" },
-  navText: { color: "#aab5c8", fontWeight: "800", fontSize: 10 },
-  navTextActive: { color: "#1f3f7e" },
-  intro: { marginBottom: 20 },
-  pageTitle: { color: "#121827", fontSize: 36, fontWeight: "800" },
-  subtitle: {
-    color: "#62718b",
-    fontSize: 17,
-    lineHeight: 26,
-    marginTop: 8,
-    maxWidth: 820,
-  },
-  muted: { color: "#62718b", fontSize: 14, lineHeight: 20 },
-  metrics: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: "#27364d",
-    marginBottom: 28,
-  },
+  navIcon: { color: "#aab5c8", fontSize: 17, fontWeight: "700" },
+  navText: { color: "#aab5c8", fontWeight: "600", fontSize: 10 },
+  navTextActive: { color: "#1e3a8a" },
+  intro: { marginVertical: 16 },
+  pageTitle: { color: "#0f172a", fontSize: 26, lineHeight: 32, fontWeight: "700" },
+  subtitle: { color: "#64748b", fontSize: 14, lineHeight: 20, marginTop: 4, maxWidth: 820 },
+  muted: { color: "#64748b", fontSize: 13, lineHeight: 19 },
+  metrics: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, marginBottom: 12 },
   metricsTablet: { flexWrap: "nowrap" },
-  metric: {
-    width: "50%",
-    minHeight: 102,
-    padding: 16,
-    borderRightWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: "#d8dfeb",
-  },
-  metricTablet: { flex: 1, width: undefined, borderBottomWidth: 0 },
-  metricLabel: {
-    color: "#667894",
-    fontSize: 13,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  metricValue: {
-    color: "#121827",
-    fontSize: 32,
-    fontWeight: "800",
-    marginTop: 8,
-  },
-  sectionTitle: {
-    color: "#121827",
-    fontSize: 24,
-    fontWeight: "800",
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-  sectionCopy: {
-    color: "#62718b",
-    fontSize: 14,
-    lineHeight: 20,
-    paddingHorizontal: 20,
-    paddingTop: 5,
-    paddingBottom: 16,
-  },
-  section: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#d8dfeb",
-    marginBottom: 20,
-    paddingTop: 1,
-    borderRadius: 22,
-    overflow: "hidden",
-  },
-  row: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#e1e6ef",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 16,
-  },
+  metric: { flexBasis: "46%", flexGrow: 1, backgroundColor: "#f1f4f8", borderRadius: 12, padding: 12 },
+  metricTablet: { flex: 1 },
+  metricLabel: { color: "#64748b", fontSize: 12, fontWeight: "500" },
+  metricValue: { color: "#0f172a", fontSize: 18, fontWeight: "700", marginTop: 4 },
+  sectionTitle: { color: "#0f172a", fontSize: 17, fontWeight: "600", paddingHorizontal: 16, paddingTop: 16 },
+  sectionCopy: { color: "#64748b", fontSize: 13, lineHeight: 19, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 },
+  section: { backgroundColor: "#fff", marginBottom: 16, borderRadius: 16, overflow: "hidden", shadowColor: "#0f172a", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  row: { paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: 1, borderTopColor: "#eef1f5", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
   rowCopy: { flex: 1 },
-  rowTitle: { color: "#121827", fontWeight: "700", fontSize: 16 },
-  status: { color: "#216e45", fontWeight: "800", textTransform: "capitalize" },
+  rowTitle: { color: "#0f172a", fontWeight: "600", fontSize: 15 },
+  status: { color: "#334155", fontWeight: "600", textTransform: "capitalize" },
   empty: {
     borderTopWidth: 1,
     borderTopColor: "#e1e6ef",
@@ -946,9 +788,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   cardTitle: {
-    color: "#121827",
+    color: "#0f172a",
     fontSize: 18,
-    fontWeight: "800",
+    fontWeight: "600",
     marginBottom: 6,
   },
   notice: {
@@ -957,22 +799,16 @@ const styles = StyleSheet.create({
     borderLeftColor: "#cf8d22",
     padding: 18,
   },
-  noticeTitle: { color: "#734711", fontSize: 16, fontWeight: "800" },
+  noticeTitle: { color: "#734711", fontSize: 16, fontWeight: "600" },
   noticeText: { color: "#734711", fontSize: 14, lineHeight: 21, marginTop: 5 },
-  floatSummary: {
-    marginHorizontal: 20,
-    marginBottom: 14,
-    padding: 16,
-    backgroundColor: "#eef4ff",
-    borderRadius: 16,
-  },
+  floatSummary: { marginHorizontal: 16, marginBottom: 12, padding: 16, backgroundColor: "#eef2fd", borderRadius: 12 },
   floatBalance: {
-    color: "#121827",
+    color: "#0f172a",
     fontSize: 26,
-    fontWeight: "800",
+    fontWeight: "600",
     marginTop: 4,
   },
-  formArea: { paddingHorizontal: 20, paddingBottom: 20, gap: 8 },
+  formArea: { paddingHorizontal: 16, paddingBottom: 16, gap: 8 },
   operationGrid: { gap: 20 },
   operationGridTablet: { flexDirection: "row", alignItems: "flex-start" },
   operationPanel: { flex: 1 },
@@ -980,45 +816,16 @@ const styles = StyleSheet.create({
   fieldRowTablet: { flexDirection: "row" },
   field: { flex: 1 },
   choices: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
-  choice: {
-    borderWidth: 1,
-    borderColor: "#bdc8d8",
-    backgroundColor: "#fff",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 14,
-  },
-  choiceActive: { borderColor: "#3156a3", backgroundColor: "#eef4ff" },
-  choiceText: { color: "#43536c", fontWeight: "700" },
-  choiceTextActive: { color: "#3156a3" },
-  inputLabel: { color: "#27364d", fontWeight: "700", marginTop: 6 },
-  input: {
-    minHeight: 48,
-    borderWidth: 1,
-    borderColor: "#bdc8d8",
-    backgroundColor: "#fff",
-    paddingHorizontal: 14,
-    color: "#121827",
-    borderRadius: 14,
-  },
-  primaryButton: {
-    minHeight: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#3156a3",
-    marginTop: 8,
-    borderRadius: 14,
-  },
-  primaryButtonText: { color: "#fff", fontWeight: "800" },
-  closeButton: {
-    minHeight: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#8f2f2f",
-    marginTop: 8,
-    borderRadius: 14,
-  },
-  closeButtonText: { color: "#fff", fontWeight: "800" },
+  choice: { minHeight: 38, justifyContent: "center", backgroundColor: "#f1f4f8", paddingHorizontal: 14, borderRadius: 999 },
+  choiceActive: { backgroundColor: "#eef2fd" },
+  choiceText: { color: "#334155", fontWeight: "500", fontSize: 13 },
+  choiceTextActive: { color: "#1e3a8a", fontWeight: "600" },
+  inputLabel: { color: "#334155", fontWeight: "600", fontSize: 13, marginTop: 6 },
+  input: { minHeight: 50, borderWidth: 1, borderColor: "#f1f4f8", backgroundColor: "#f1f4f8", paddingHorizontal: 14, color: "#0f172a", fontSize: 15, borderRadius: 12 },
+  primaryButton: { minHeight: 52, alignItems: "center", justifyContent: "center", backgroundColor: "#2952cc", marginTop: 8, borderRadius: 12 },
+  primaryButtonText: { color: "#fff", fontWeight: "600" },
+  closeButton: { minHeight: 52, alignItems: "center", justifyContent: "center", backgroundColor: "#b91c1c", marginTop: 8, borderRadius: 12 },
+  closeButtonText: { color: "#fff", fontWeight: "600" },
   disabled: { opacity: 0.55 },
   error: {
     color: "#a52c2c",
@@ -1033,23 +840,23 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#3156a3",
+    borderColor: "#2952cc",
     paddingHorizontal: 16,
     backgroundColor: "#fff",
   },
-  secondaryButtonText: { color: "#3156a3", fontWeight: "800" },
+  secondaryButtonText: { color: "#2952cc", fontWeight: "600" },
   textButton: {
     minHeight: 44,
     justifyContent: "center",
     paddingHorizontal: 10,
   },
-  textButtonText: { color: "#3156a3", fontWeight: "800" },
+  textButtonText: { color: "#2952cc", fontWeight: "600" },
   messageCard: {
     margin: 24,
     padding: 24,
     backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "#d8dfeb",
+    borderColor: "#e3e8ef",
   },
   webview: { flex: 1, backgroundColor: "#fff" },
   webLoading: {
@@ -1058,6 +865,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 12,
-    backgroundColor: "#f7f8f5",
+    backgroundColor: "#f5f7fa",
   },
 });

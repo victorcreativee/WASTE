@@ -1,10 +1,18 @@
 import * as ImagePicker from "expo-image-picker";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "../lib/secure-store";
 import { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, StyleSheet, Text, View } from "react-native";
+import { Card, ListRow, SectionHeader, StatusBadge } from "../ui/kit";
+import { color, initials, radius, space, type } from "../ui/theme";
 import { DeviceSecuritySettings } from "./DeviceSecuritySettings";
 
 type AccountUser = { fullName: string; email: string; roles: string[] };
+
+const ROLE_LABEL: Record<string, string> = {
+  recycling_collector: "Field buyer", recycling_sales: "Industrial sales", recycling_field_manager: "Field manager",
+  company_admin: "Company administrator", supervisor: "Supervisor", driver: "Driver", kcca_admin: "KCCA officer",
+  system_admin: "Platform administrator", weighbridge_operator: "Weighbridge operator",
+};
 
 export function AccountWorkspace({
   user,
@@ -36,52 +44,33 @@ export function AccountWorkspace({
 
   return (
     <>
-      <Text style={s.title}>My account</Text>
-      <Text style={s.subtitle}>Your identity, organization and application settings.</Text>
-      <View style={s.card}>
-        {photo ? (
-          <Image source={{ uri: photo }} style={s.avatar} />
-        ) : (
-          <View style={s.fallback}><Text style={s.initials}>{user.fullName.slice(0, 2).toUpperCase()}</Text></View>
-        )}
-        <View style={s.copy}>
-          <Text style={s.name}>{user.fullName}</Text>
-          <Text style={s.muted}>{user.email}</Text>
-          {organizationName ? <Text style={s.organization}>{organizationName}</Text> : null}
-          <Text style={s.roles}>{user.roles.map((role) => role.replaceAll("_", " ")).join(" · ")}</Text>
+      <Text style={type.display}>Account</Text>
+      <Card style={s.profile}>
+        {photo ? <Image source={{ uri: photo }} style={s.avatar} /> : <View style={s.fallback}><Text style={s.initials}>{initials(user.fullName)}</Text></View>}
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <Text style={type.title} numberOfLines={1}>{user.fullName}</Text>
+          <Text style={type.small} numberOfLines={1}>{user.email}</Text>
+          {organizationName ? <Text style={[type.small, { color: color.text }]} numberOfLines={1}>{organizationName}</Text> : null}
+          <View style={s.roles}>{user.roles.map((role) => <StatusBadge key={role} label={ROLE_LABEL[role] || role.replaceAll("_", " ")} tone="action" />)}</View>
         </View>
+      </Card>
+
+      <SectionHeader title="Profile" />
+      <View style={{ gap: space.sm }}>
+        <ListRow icon="image-outline" iconTone="action" title="Profile picture" subtitle={photo ? "Change the photo on this phone" : "Add a photo from this phone"} onPress={() => void choosePhoto()} chevron />
+        <ListRow icon="id-card-outline" title="Name, email and role" subtitle="Managed by your administrator"
+          onPress={() => Alert.alert("Account details", "Your name, email and role are managed by your organization administrator, so records stay consistent across the platform. Ask them to make any change.")} chevron />
       </View>
-      <Pressable onPress={() => void choosePhoto()} style={s.action}>
-        <View style={s.copy}>
-          <Text style={s.actionTitle}>Upload profile picture</Text>
-          <Text style={s.muted}>Choose and crop a photo from this device.</Text>
-        </View>
-        <Text style={s.actionLink}>Choose photo</Text>
-      </Pressable>
-      <View style={s.action}>
-        <View style={s.copy}>
-          <Text style={s.actionTitle}>Edit account details</Text>
-          <Text style={s.muted}>Names, email and access roles are managed by your organization administrator to protect synchronized records.</Text>
-        </View>
-      </View>
+
       <DeviceSecuritySettings onLogout={onLogout} />
     </>
   );
 }
 
 const s = StyleSheet.create({
-  title: { fontSize: 30, fontWeight: "800", color: "#111827" },
-  subtitle: { color: "#64748b", fontSize: 15, lineHeight: 22, marginTop: 7, marginBottom: 20 },
-  card: { backgroundColor: "#fff", borderWidth: 1, borderColor: "#dfe4ea", padding: 18, flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 14 },
-  avatar: { width: 76, height: 76, borderRadius: 38 },
-  fallback: { width: 76, height: 76, borderRadius: 38, backgroundColor: "#151b2b", alignItems: "center", justifyContent: "center" },
-  initials: { color: "#f0b35a", fontSize: 22, fontWeight: "900" },
-  copy: { flex: 1 },
-  name: { color: "#111827", fontSize: 22, fontWeight: "800" },
-  muted: { color: "#64748b", fontSize: 13, lineHeight: 19, marginTop: 3 },
-  organization: { color: "#334155", fontSize: 14, fontWeight: "700", marginTop: 8 },
-  roles: { color: "#3156a3", fontWeight: "800", textTransform: "capitalize", marginTop: 6 },
-  action: { minHeight: 72, backgroundColor: "#fff", borderWidth: 1, borderColor: "#dfe4ea", padding: 16, marginBottom: 10, flexDirection: "row", alignItems: "center", gap: 12 },
-  actionTitle: { color: "#111827", fontSize: 16, fontWeight: "800" },
-  actionLink: { color: "#3156a3", fontWeight: "800" },
+  profile: { flexDirection: "row", alignItems: "center", gap: space.lg },
+  avatar: { width: 68, height: 68, borderRadius: radius.lg },
+  fallback: { width: 68, height: 68, borderRadius: radius.lg, backgroundColor: color.brand, alignItems: "center", justifyContent: "center" },
+  initials: { color: color.brandAccent, fontSize: 22, fontWeight: "700" },
+  roles: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
 });

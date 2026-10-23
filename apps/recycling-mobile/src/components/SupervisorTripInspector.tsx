@@ -97,7 +97,7 @@ export function SupervisorTripInspector({
           </Pressable>
         ))}
       </View>
-      {loading ? <ActivityIndicator color="#3156a3" /> : null}
+      {loading ? <ActivityIndicator color="#2952cc" /> : null}
       {error ? <Text style={s.error}>{error}</Text> : null}
       {detail && !loading ? (
         <>
@@ -168,7 +168,7 @@ const s = StyleSheet.create({
     borderTopColor: "#cbd5e1",
     paddingTop: 20,
   },
-  title: { fontSize: 20, fontWeight: "800", color: "#111827" },
+  title: { fontSize: 20, fontWeight: "600", color: "#0f172a" },
   sub: {
     fontSize: 13,
     lineHeight: 18,
@@ -184,7 +184,7 @@ const s = StyleSheet.create({
     paddingVertical: 9,
     backgroundColor: "white",
   },
-  chipActive: { borderColor: "#3156a3", backgroundColor: "#eaf0fc" },
+  chipActive: { borderColor: "#2952cc", backgroundColor: "#eef2fd" },
   chipText: { fontSize: 12, fontWeight: "700", color: "#475569" },
   chipTextActive: { color: "#24498f" },
   error: {
@@ -201,12 +201,12 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: "#d8dee8",
   },
-  route: { fontSize: 18, fontWeight: "800", color: "#111827" },
+  route: { fontSize: 18, fontWeight: "600", color: "#0f172a" },
   meta: { fontSize: 12, lineHeight: 18, color: "#64748b", marginTop: 3 },
   state: {
     fontSize: 11,
-    fontWeight: "800",
-    color: "#3156a3",
+    fontWeight: "600",
+    color: "#2952cc",
     textTransform: "uppercase",
   },
   metrics: {
@@ -221,11 +221,11 @@ const s = StyleSheet.create({
     borderRightWidth: 1,
     borderRightColor: "#d8dee8",
   },
-  metricLabel: { fontSize: 8, fontWeight: "800", color: "#64748b" },
+  metricLabel: { fontSize: 8, fontWeight: "600", color: "#64748b" },
   metricValue: {
     fontSize: 22,
-    fontWeight: "800",
-    color: "#111827",
+    fontWeight: "600",
+    color: "#0f172a",
     marginTop: 4,
   },
   customer: {
@@ -239,20 +239,20 @@ const s = StyleSheet.create({
   number: {
     width: 31,
     height: 31,
-    borderRadius: 16,
+    borderRadius: 12,
     backgroundColor: "#f1f5f9",
     alignItems: "center",
     justifyContent: "center",
   },
   done: { backgroundColor: "#dcfce7" },
   missed: { backgroundColor: "#ffedd5" },
-  numberText: { fontSize: 12, fontWeight: "800", color: "#334155" },
+  numberText: { fontSize: 12, fontWeight: "600", color: "#334155" },
   row: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
-  name: { fontSize: 14, fontWeight: "800", color: "#111827", flex: 1 },
+  name: { fontSize: 14, fontWeight: "600", color: "#0f172a", flex: 1 },
   customerState: {
     fontSize: 10,
-    fontWeight: "800",
-    color: "#3156a3",
+    fontWeight: "600",
+    color: "#2952cc",
     textTransform: "uppercase",
   },
   exception: { fontSize: 11, lineHeight: 17, color: "#9a3412", marginTop: 6 },

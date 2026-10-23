@@ -29,6 +29,8 @@ import { OperationsWorkspace } from "./OperationsWorkspace";
 import { RecyclingSalesWorkspace } from "./RecyclingSalesWorkspace";
 import { RecyclingPurchaseWorkspace } from "./RecyclingPurchaseWorkspace";
 import { RecyclingManagerWorkspace } from "./RecyclingManagerWorkspace";
+import { Banner, Button, Field, Icon, Input } from "../ui/kit";
+import { color, initials, radius, shadow, space, type } from "../ui/theme";
 
 type Session = { token: string; user: MobileUser };
 type SavedAccount = Awaited<ReturnType<typeof getSavedAccount>>;
@@ -192,79 +194,90 @@ export function NativeMobileApp() {
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[s.screen, tablet && s.screenTablet]}
         >
-          <View style={[s.hero, tablet && s.heroTablet]}>
-            <View style={s.brandMark}><Text style={s.brandLetters}>KW</Text></View>
-            <View style={s.heroCopy}>
-              <Text style={s.eyebrow}>KAMPALA WASTE MANAGEMENT</Text>
-              <Text style={s.heroTitle}>One connected operation, wherever work happens.</Text>
-              <Text style={s.heroText}>Secure field operations, stock, finance and service delivery—online or offline.</Text>
+          {tablet ? (
+            <View style={s.brandPanel}>
+              <View style={s.brandMark}><Text style={s.brandLetters}>KW</Text></View>
+              <View style={{ gap: 12 }}>
+                <Text style={s.brandPanelTitle}>Kampala Waste Management</Text>
+                <Text style={s.brandPanelText}>Collection, recycling and KCCA reporting for field teams. Work keeps going without internet and synchronizes when the connection returns.</Text>
+              </View>
+              <Text style={s.brandPanelFoot}>Kampala Capital City Authority</Text>
             </View>
-            <View style={s.heroBadge}><Text style={s.heroBadgeText}>SECURE • OFFLINE READY • SYNCHRONIZED</Text></View>
-          </View>
+          ) : (
+            <View style={s.brandRow}>
+              <View style={s.brandMarkSmall}><Text style={s.brandLetters}>KW</Text></View>
+              <View>
+                <Text style={s.brandName}>Kampala WMS</Text>
+                <Text style={type.caption}>Field operations</Text>
+              </View>
+            </View>
+          )}
 
           <View style={[s.auth, tablet && s.authTablet]}>
             {showSaved ? (
               <>
-                <Text style={s.eyebrowBlue}>SECURE DEVICE ACCESS</Text>
-                <Text style={s.title}>Welcome back, {firstName}</Text>
-                <Text style={s.subtitle}>Continue as {saved?.fullName || saved?.email} using your device PIN.</Text>
+                <Text style={type.display}>Welcome back, {firstName}</Text>
+                <Text style={[type.small, s.lead]}>Unlock with the PIN you set on this phone.</Text>
                 <View style={s.identity}>
-                  <View style={s.avatar}><Text style={s.avatarText}>{(saved?.fullName || saved?.email || "KW").slice(0, 2).toUpperCase()}</Text></View>
-                  <View style={{ flex: 1 }}><Text style={s.identityName}>{saved?.fullName}</Text><Text style={s.muted}>{saved?.email}</Text></View>
+                  <View style={s.avatar}><Text style={s.avatarText}>{initials(saved?.fullName || saved?.email)}</Text></View>
+                  <View style={{ flex: 1, minWidth: 0 }}><Text style={type.heading} numberOfLines={1}>{saved?.fullName}</Text><Text style={type.small} numberOfLines={1}>{saved?.email}</Text></View>
                 </View>
-                <Text style={s.label}>Device PIN</Text>
-                <TextInput
-                  accessibilityLabel="Device PIN"
-                  autoFocus
-                  value={pin}
-                  onChangeText={(value) => setPin(value.replace(/\D/g, "").slice(0, 8))}
-                  keyboardType="number-pad"
-                  secureTextEntry
-                  maxLength={8}
-                  placeholder="••••"
-                  style={s.pinInput}
-                  onSubmitEditing={() => void unlock({ pin })}
-                />
-                {error ? <Message text={error} /> : null}
-                <PrimaryButton disabled={busy || pin.length < 4} title={busy ? "Unlocking…" : "Unlock account"} onPress={() => void unlock({ pin })} />
-                {saved?.biometricAvailable ? <SecondaryButton title="Use fingerprint or device security" onPress={() => void unlock({ biometric: true })} /> : null}
-                <Pressable onPress={() => { setUseAnother(true); setError(""); }} style={s.textButton}><Text style={s.textButtonLabel}>Use another account</Text></Pressable>
-                <Pressable onPress={() => Alert.alert("Remove saved account?", "This removes only the secure account information stored on this device. It does not delete the online account.", [{ text: "Cancel", style: "cancel" }, { text: "Remove", style: "destructive", onPress: () => void removeSavedAccount() }])} style={s.textButton}><Text style={s.removeLabel}>Remove from this device</Text></Pressable>
+                <Field label="Device PIN">
+                  <TextInput
+                    accessibilityLabel="Device PIN"
+                    autoFocus
+                    value={pin}
+                    onChangeText={(value) => setPin(value.replace(/\D/g, "").slice(0, 8))}
+                    keyboardType="number-pad"
+                    secureTextEntry
+                    maxLength={8}
+                    placeholder="••••"
+                    placeholderTextColor={color.subtle}
+                    style={s.pinInput}
+                    onSubmitEditing={() => void unlock({ pin })}
+                  />
+                </Field>
+                {error ? <Banner tone="danger" text={error} /> : null}
+                <Button disabled={pin.length < 4} loading={busy} title={busy ? "Unlocking…" : "Unlock"} onPress={() => void unlock({ pin })} />
+                {saved?.biometricAvailable ? <Button variant="secondary" icon="finger-print-outline" title="Use fingerprint" onPress={() => void unlock({ biometric: true })} /> : null}
+                <View style={s.links}>
+                  <Pressable onPress={() => { setUseAnother(true); setError(""); }} hitSlop={8}><Text style={s.link}>Use another account</Text></Pressable>
+                  <Pressable hitSlop={8} onPress={() => Alert.alert("Remove saved account?", "This removes only the secure account information stored on this device. It does not delete the online account.", [{ text: "Cancel", style: "cancel" }, { text: "Remove", style: "destructive", onPress: () => void removeSavedAccount() }])}><Text style={s.linkDanger}>Remove from this phone</Text></Pressable>
+                </View>
               </>
             ) : (
               <>
-                <Text style={s.eyebrowBlue}>SECURE ACCESS</Text>
-                <Text style={s.title}>Welcome back</Text>
-                <Text style={s.subtitle}>Your first sign-in on this device requires internet. Your role opens the correct workspace automatically.</Text>
-                <Text style={s.label}>Work email</Text>
-                <TextInput
-                  accessibilityLabel="Work email"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  textContentType="username"
-                  inputMode="email"
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="name@company.com"
-                  style={s.input}
-                />
-                <Text style={s.label}>Password</Text>
-                <TextInput
-                  accessibilityLabel="Password"
-                  autoCapitalize="none"
-                  autoComplete="current-password"
-                  textContentType="password"
-                  secureTextEntry
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="Enter your password"
-                  style={s.input}
-                  onSubmitEditing={() => void signIn()}
-                />
-                {error ? <Message text={error} /> : null}
-                <PrimaryButton disabled={busy} title={busy ? "Signing in…" : "Sign in"} onPress={() => void signIn()} />
-                {saved?.saved ? <Pressable onPress={() => { setUseAnother(false); setError(""); }} style={s.textButton}><Text style={s.textButtonLabel}>Return to saved account</Text></Pressable> : null}
-                <View style={s.securityNote}><Text style={s.securityText}>Your password is sent securely for server authentication and is never stored by Kampala WMS.</Text></View>
+                <Text style={type.display}>Sign in</Text>
+                <Text style={[type.small, s.lead]}>Use your work account. The first sign-in on a phone needs internet; after that you can work offline.</Text>
+                <Field label="Work email">
+                  <Input
+                    accessibilityLabel="Work email"
+                    autoCapitalize="none"
+                    autoComplete="email"
+                    textContentType="username"
+                    inputMode="email"
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="name@company.com"
+                  />
+                </Field>
+                <Field label="Password">
+                  <Input
+                    accessibilityLabel="Password"
+                    autoCapitalize="none"
+                    autoComplete="current-password"
+                    textContentType="password"
+                    secureTextEntry
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="Your password"
+                    onSubmitEditing={() => void signIn()}
+                  />
+                </Field>
+                {error ? <Banner tone="danger" text={error} /> : null}
+                <Button loading={busy} title={busy ? "Signing in…" : "Sign in"} onPress={() => void signIn()} />
+                {saved?.saved ? <Pressable onPress={() => { setUseAnother(false); setError(""); }} style={s.center} hitSlop={8}><Text style={s.link}>Back to saved account</Text></Pressable> : null}
+                <View style={s.note}><Icon name="lock-closed-outline" size={16} tint={color.muted} /><Text style={[type.caption, { flex: 1 }]}>Your password is checked by the server and never stored on this phone.</Text></View>
               </>
             )}
           </View>
@@ -276,21 +289,20 @@ export function NativeMobileApp() {
           <View style={[s.modal, tablet && s.modalTablet]}>
             {pinStep === "create" && !newPin ? (
               <>
-                <View style={s.modalIcon}><Text style={s.modalIconText}>✓</Text></View>
-                <Text style={s.modalTitle}>Save this account on this device?</Text>
-                <Text style={s.modalText}>Save your account securely on this device so you can access it faster next time using your PIN.</Text>
-                <PrimaryButton title="Save on this device" onPress={() => setNewPin("pending")} />
-                <SecondaryButton title="Not now" onPress={() => void finishWithoutSaving()} />
+                <View style={s.modalIcon}><Icon name="phone-portrait-outline" size={24} tint={color.action} /></View>
+                <Text style={type.title}>Keep this account on this phone?</Text>
+                <Text style={[type.small, s.lead]}>Next time you can open it with a short PIN, even without internet.</Text>
+                <Button title="Keep on this phone" onPress={() => setNewPin("pending")} />
+                <Button variant="secondary" title="Not now" onPress={() => void finishWithoutSaving()} />
               </>
             ) : (
               <>
-                <Text style={s.eyebrowBlue}>DEVICE SECURITY</Text>
-                <Text style={s.modalTitle}>{pinStep === "create" ? "Create a device PIN" : "Confirm your PIN"}</Text>
-                <Text style={s.modalText}>{pinStep === "create" ? "Use 4 to 8 digits. This PIN unlocks only this device and never replaces server authentication." : "Enter the same PIN once more."}</Text>
+                <Text style={type.title}>{pinStep === "create" ? "Choose a PIN" : "Enter the PIN again"}</Text>
+                <Text style={[type.small, s.lead]}>{pinStep === "create" ? "4 to 8 digits. It unlocks this phone only and does not change your password." : "Type the same PIN once more to confirm."}</Text>
                 <TextInput autoFocus value={pin} onChangeText={(value) => setPin(value.replace(/\D/g, "").slice(0, 8))} keyboardType="number-pad" secureTextEntry maxLength={8} style={s.pinInput} />
-                {error ? <Message text={error} /> : null}
-                <PrimaryButton disabled={busy || pin.length < 4} title={pinStep === "create" ? "Continue" : busy ? "Saving…" : "Save account"} onPress={() => void confirmPin(pin)} />
-                <SecondaryButton title="Cancel" onPress={() => { setPendingSave(null); setNewPin(""); setPin(""); setPinStep("create"); }} />
+                {error ? <Banner tone="danger" text={error} /> : null}
+                <Button disabled={pin.length < 4} loading={busy && pinStep === "confirm"} title={pinStep === "create" ? "Continue" : busy ? "Saving…" : "Save PIN"} onPress={() => void confirmPin(pin)} />
+                <Button variant="secondary" title="Cancel" onPress={() => { setPendingSave(null); setNewPin(""); setPin(""); setPinStep("create"); }} />
               </>
             )}
           </View>
@@ -317,60 +329,36 @@ function Workspace({ session, onLogout }: { session: Session; onLogout: () => Pr
   return <CompanyTabletWorkspace token={session.token} user={session.user} onLogout={onLogout} />;
 }
 
-function PrimaryButton({ title, disabled, onPress }: { title: string; disabled?: boolean; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [s.primary, (disabled || pressed) && s.primaryMuted]}><Text style={s.primaryText}>{title}</Text></Pressable>;
-}
-function SecondaryButton({ title, onPress }: { title: string; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" onPress={onPress} style={s.secondary}><Text style={s.secondaryText}>{title}</Text></Pressable>;
-}
-function Message({ text }: { text: string }) { return <View style={s.message}><Text style={s.messageText}>{text}</Text></View>; }
-function Loading() { return <View style={s.loading}><ActivityIndicator size="large" color="#3156a3" /><Text style={s.muted}>Opening your secure workspace…</Text></View>; }
+function Loading() { return <View style={s.loading}><ActivityIndicator size="large" color={color.action} /><Text style={type.small}>Opening your workspace…</Text></View>; }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#f4f6f9" },
-  screen: { flexGrow: 1, padding: 16, gap: 16, justifyContent: "center" },
-  screenTablet: { flexDirection: "row", alignItems: "stretch", maxWidth: 1120, width: "100%", alignSelf: "center", padding: 28, gap: 24 },
-  hero: { backgroundColor: "#121a2c", borderRadius: 28, padding: 26, minHeight: 230, justifyContent: "space-between" },
-  heroTablet: { flex: 1.05, minHeight: 680, padding: 40 },
-  brandMark: { width: 52, height: 52, borderRadius: 16, borderWidth: 1, borderColor: "#40506d", alignItems: "center", justifyContent: "center", backgroundColor: "#182238" },
-  brandLetters: { color: "#f2b657", fontWeight: "900", fontSize: 17 },
-  heroCopy: { marginVertical: 32 },
-  eyebrow: { color: "#f2b657", fontSize: 11, fontWeight: "900", letterSpacing: 2.1 },
-  eyebrowBlue: { color: "#3156a3", fontSize: 11, fontWeight: "900", letterSpacing: 2.1, marginBottom: 12 },
-  heroTitle: { color: "#fff", fontWeight: "900", fontSize: 34, lineHeight: 41, marginTop: 16, maxWidth: 520 },
-  heroText: { color: "#b8c3d6", fontSize: 15, lineHeight: 23, marginTop: 16, maxWidth: 500 },
-  heroBadge: { alignSelf: "flex-start", borderRadius: 999, backgroundColor: "#202c45", paddingHorizontal: 13, paddingVertical: 8 },
-  heroBadgeText: { color: "#ced7e6", fontSize: 9, fontWeight: "800", letterSpacing: 1 },
-  auth: { backgroundColor: "#fff", borderRadius: 28, padding: 24, borderWidth: 1, borderColor: "#e2e7ef", shadowColor: "#172033", shadowOpacity: 0.08, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 4 },
-  authTablet: { flex: 0.95, alignSelf: "center", padding: 36, maxWidth: 510 },
-  title: { color: "#111827", fontSize: 32, lineHeight: 38, fontWeight: "900" },
-  subtitle: { color: "#67748b", fontSize: 15, lineHeight: 23, marginTop: 9, marginBottom: 24 },
-  label: { color: "#263247", fontSize: 13, fontWeight: "800", marginBottom: 8, marginTop: 4 },
-  input: { minHeight: 56, borderRadius: 16, borderWidth: 1, borderColor: "#d9e0ea", backgroundColor: "#fbfcfe", paddingHorizontal: 16, fontSize: 16, color: "#111827", marginBottom: 16 },
-  pinInput: { minHeight: 64, borderRadius: 18, borderWidth: 1.5, borderColor: "#3156a3", backgroundColor: "#f8faff", paddingHorizontal: 18, fontSize: 26, letterSpacing: 8, textAlign: "center", color: "#111827", marginBottom: 16 },
-  primary: { minHeight: 56, borderRadius: 16, backgroundColor: "#3156a3", alignItems: "center", justifyContent: "center", paddingHorizontal: 18, marginTop: 6 },
-  primaryMuted: { opacity: 0.55 },
-  primaryText: { color: "#fff", fontSize: 15, fontWeight: "900" },
-  secondary: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: "#cbd5e1", alignItems: "center", justifyContent: "center", paddingHorizontal: 18, marginTop: 10 },
-  secondaryText: { color: "#263247", fontSize: 14, fontWeight: "800" },
-  textButton: { minHeight: 44, alignItems: "center", justifyContent: "center", marginTop: 5 },
-  textButtonLabel: { color: "#3156a3", fontWeight: "800" },
-  removeLabel: { color: "#a33a33", fontWeight: "700", fontSize: 13 },
-  message: { backgroundColor: "#fff1f1", borderLeftWidth: 4, borderLeftColor: "#d14343", borderRadius: 12, padding: 13, marginBottom: 12 },
-  messageText: { color: "#9b2c2c", fontSize: 13, lineHeight: 19, fontWeight: "600" },
-  securityNote: { backgroundColor: "#f1f5fb", borderRadius: 14, padding: 14, marginTop: 18 },
-  securityText: { color: "#58677f", fontSize: 12, lineHeight: 18 },
-  identity: { flexDirection: "row", alignItems: "center", gap: 13, padding: 14, borderRadius: 18, backgroundColor: "#f4f7fc", marginBottom: 20 },
-  avatar: { width: 52, height: 52, borderRadius: 18, backgroundColor: "#162138", alignItems: "center", justifyContent: "center" },
-  avatarText: { color: "#f2b657", fontWeight: "900", fontSize: 16 },
-  identityName: { color: "#111827", fontWeight: "900", fontSize: 16 },
-  muted: { color: "#718096", fontSize: 13, marginTop: 3 },
-  overlay: { flex: 1, backgroundColor: "rgba(8,15,28,0.56)", alignItems: "center", justifyContent: "center", padding: 18 },
-  modal: { width: "100%", maxWidth: 480, backgroundColor: "#fff", borderRadius: 26, padding: 24 },
-  modalTablet: { padding: 34 },
-  modalIcon: { width: 54, height: 54, borderRadius: 18, backgroundColor: "#e9f7ef", alignItems: "center", justifyContent: "center", marginBottom: 18 },
-  modalIconText: { color: "#16804b", fontWeight: "900", fontSize: 23 },
-  modalTitle: { color: "#111827", fontWeight: "900", fontSize: 25, lineHeight: 31 },
-  modalText: { color: "#68758b", fontSize: 14, lineHeight: 21, marginTop: 9, marginBottom: 20 },
-  loading: { flex: 1, backgroundColor: "#f4f6f9", alignItems: "center", justifyContent: "center", gap: 14 },
+  safe: { flex: 1, backgroundColor: color.page },
+  screen: { flexGrow: 1, padding: space.xl, gap: space.xxl, justifyContent: "center" },
+  screenTablet: { flexDirection: "row", alignItems: "stretch", maxWidth: 1080, width: "100%", alignSelf: "center", padding: space.xxl, gap: space.xxl },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: space.md },
+  brandMarkSmall: { width: 44, height: 44, borderRadius: radius.md, backgroundColor: color.brand, alignItems: "center", justifyContent: "center" },
+  brandName: { ...type.heading, fontSize: 17 },
+  brandPanel: { flex: 1, backgroundColor: color.brand, borderRadius: radius.lg, padding: 40, justifyContent: "space-between", minHeight: 560 },
+  brandMark: { width: 52, height: 52, borderRadius: radius.md, borderWidth: 1, borderColor: "#3a4a68", alignItems: "center", justifyContent: "center" },
+  brandLetters: { color: color.brandAccent, fontWeight: "700", fontSize: 16 },
+  brandPanelTitle: { color: "#ffffff", fontSize: 28, lineHeight: 34, fontWeight: "700" },
+  brandPanelText: { color: "#b8c3d6", fontSize: 15, lineHeight: 23, maxWidth: 440 },
+  brandPanelFoot: { color: "#8b98b0", fontSize: 13 },
+  auth: { backgroundColor: color.surface, borderRadius: radius.lg, padding: space.xl, gap: space.lg, ...shadow.card },
+  authTablet: { flex: 0.9, alignSelf: "center", padding: 36, maxWidth: 480 },
+  lead: { marginTop: -space.sm },
+  pinInput: { minHeight: 58, borderRadius: radius.md, backgroundColor: color.fill, paddingHorizontal: 18, fontSize: 24, letterSpacing: 10, textAlign: "center", color: color.ink },
+  identity: { flexDirection: "row", alignItems: "center", gap: space.md, padding: space.md, borderRadius: radius.md, backgroundColor: color.fill },
+  avatar: { width: 44, height: 44, borderRadius: radius.md, backgroundColor: color.brand, alignItems: "center", justifyContent: "center" },
+  avatarText: { color: color.brandAccent, fontWeight: "700", fontSize: 15 },
+  links: { flexDirection: "row", justifyContent: "space-between", flexWrap: "wrap", gap: space.md },
+  link: { color: color.action, fontWeight: "600", fontSize: 14 },
+  linkDanger: { color: color.danger, fontWeight: "500", fontSize: 14 },
+  center: { alignItems: "center" },
+  note: { flexDirection: "row", alignItems: "center", gap: space.sm, backgroundColor: color.fill, borderRadius: radius.md, padding: space.md },
+  overlay: { flex: 1, backgroundColor: "rgba(15,23,42,0.5)", alignItems: "center", justifyContent: "flex-end", padding: space.md },
+  modal: { width: "100%", maxWidth: 480, backgroundColor: color.surface, borderRadius: radius.lg, padding: space.xl, gap: space.md },
+  modalTablet: { padding: 34, marginBottom: "20%" },
+  modalIcon: { width: 48, height: 48, borderRadius: radius.pill, backgroundColor: color.actionSoft, alignItems: "center", justifyContent: "center" },
+  loading: { flex: 1, backgroundColor: color.page, alignItems: "center", justifyContent: "center", gap: space.md },
 });

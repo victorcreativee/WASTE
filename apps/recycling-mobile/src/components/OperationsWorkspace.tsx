@@ -1,20 +1,22 @@
 import * as Location from "expo-location";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { StatusBar } from "expo-status-bar";
 import {
   ActivityIndicator,
   Alert,
-  Pressable,
   RefreshControl,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { MobileProblemCenter } from "./MobileProblemCenter";
 import { mobileRequest } from "../lib/mobile-api";
 import { AccountWorkspace } from "./AccountWorkspace";
 import { RoleBottomNavigation } from "./RoleBottomNavigation";
+import { AppHeader, Banner, Button, Card, Chips, EmptyState, Icon, Input, SectionHeader, StatusBadge, SummaryCard, page } from "../ui/kit";
+import { color, radius, space, type } from "../ui/theme";
 
 type User = { fullName: string; email: string; roles: string[] };
 type Trip = {
@@ -284,197 +286,114 @@ export function OperationsWorkspace({
   const visibleTrips = filteredTrips.slice((tripPage - 1) * tripPageSize, tripPage * tripPageSize);
   if (loading)
     return (
-      <View style={s.center}>
-        <ActivityIndicator size="large" color="#3156a3" />
-        <Text style={s.muted}>Preparing your workspace…</Text>
+      <View style={page.center}>
+        <ActivityIndicator size="large" color={color.action} />
+        <Text style={type.small}>Preparing your workspace…</Text>
       </View>
     );
+  const stopsLeft = customers.length - resolved;
   return (
-    <View style={s.safe}>
-      <View style={s.header}>
-        <View>
-          <Text style={s.eyebrow}>KAMPALA WASTE MANAGEMENT</Text>
-          <Text style={s.headerTitle}>
-            {driver ? "Driver workspace" : "Supervisor workspace"}
-          </Text>
-        </View>
-      </View>
-      {error ? <Text style={s.error}>{error}</Text> : null}
+    <SafeAreaView style={page.safe}>
+      <StatusBar style="dark" />
+      <AppHeader name={user.fullName} organization={driver ? "Driver" : "Supervisor"} />
       <ScrollView
-        contentContainerStyle={s.page}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              void load();
-            }}
-          />
-        }
+        contentContainerStyle={page.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
       >
+        {error ? <Banner tone="danger" text={error} /> : null}
         {screen === "account" ? (
           <AccountWorkspace user={user} onLogout={onLogout} />
         ) : <>
-        <Text style={s.title}>Good day, {user.fullName.split(" ")[0]}</Text>
-        <Text style={s.roleLabel}>{driver ? "Driver" : user.roles.map((role) => role.replaceAll("_", " ")).join(" · ")}</Text>
-        <Text style={s.subtitle}>
-          {driver
-            ? "Complete your assigned route in order and record every customer outcome."
-            : "Monitor today’s company trips, teams and collection progress."}
-        </Text>
         {driver ? (
           <>
-            <View style={s.metrics}>
-              <Metric
-                label="TRIPS TODAY"
-                value={dashboard?.summary.trips_today || 0}
-              />
-              <Metric
-                label="COLLECTED"
-                value={dashboard?.summary.collected_households || 0}
-              />
-              <Metric
-                label="NOT COLLECTED"
-                value={dashboard?.summary.not_collected_households || 0}
-              />
-            </View>
+            <SummaryCard label={route ? route.name : "Today"} value={route ? `${resolved} of ${customers.length} stops` : "No route yet"}
+              caption={route ? `${new Date(route.route_date).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })} · ${route.plate_number || "Vehicle pending"}` : "Your dispatched route will appear here"}
+              stats={[
+                { label: "Collected", value: dashboard?.summary.collected_households || 0 },
+                { label: "Not collected", value: dashboard?.summary.not_collected_households || 0 },
+                { label: "Trips today", value: dashboard?.summary.trips_today || 0 },
+              ]} />
             {!route ? (
-              <Empty
-                title="No route assigned"
-                text="A dispatched route from your company will appear here."
-              />
+              <EmptyState icon="navigate-outline" title="No route assigned" text="When your company dispatches a route to you, it appears here. Pull down to refresh." />
             ) : (
               <>
-                <View style={s.routeHead}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.routeName}>{route.name}</Text>
-                    <Text style={s.muted}>
-                      {new Date(route.route_date).toLocaleDateString("en-GB")} ·{" "}
-                      {route.plate_number || "Vehicle pending"}
-                    </Text>
-                  </View>
-                  <Status value={route.status} />
-                </View>
-                <Text style={s.progress}>
-                  {resolved} of {customers.length} customer outcomes recorded
-                </Text>
                 {route.status === "dispatched" ? (
-                  <Action
-                    disabled={!!saving}
-                    label="Start assigned route"
-                    onPress={() =>
-                      void mutate(`/api/waste/driver-routes/${route.id}/start`)
-                    }
-                  />
+                  <Card>
+                    <Text style={type.heading}>Ready to start</Text>
+                    <Text style={type.small}>Start the route when you leave the depot. Stops then unlock in order.</Text>
+                    <Button disabled={!!saving} loading={saving === `/api/waste/driver-routes/${route.id}/start`} icon="play-circle-outline" title="Start route" onPress={() => void mutate(`/api/waste/driver-routes/${route.id}/start`)} />
+                  </Card>
                 ) : null}
+                <SectionHeader title={stopsLeft ? `Stops · ${stopsLeft} left` : "Stops · all done"} />
                 {customers
                   .sort((a, b) => a.stop_order - b.stop_order)
-                  .map((customer, index) => (
-                    <View key={customer.id} style={s.card}>
-                      <View style={s.number}>
-                        <Text style={s.numberText}>{index + 1}</Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={s.cardTitle}>
-                          {customer.customer_name}
-                        </Text>
-                        <Text style={s.muted}>{customer.address}</Text>
-                        <Status value={customer.status} />
-                        {!["completed", "skipped", "cancelled"].includes(
-                          customer.status,
-                        ) && route.status === "in_progress" ? (
-                          <View style={s.actions}>
-                            <Pressable
-                              disabled={!!saving}
-                              onPress={() => void collect(customer, "complete")}
-                              style={s.smallPrimary}
-                            >
-                              <Text style={s.smallPrimaryText}>
-                                Confirm collected
-                              </Text>
-                            </Pressable>
-                            <Pressable
-                              disabled={!!saving}
-                              onPress={() => void collect(customer, "skip")}
-                              style={s.smallSecondary}
-                            >
-                              <Text style={s.smallSecondaryText}>
-                                Could not collect
-                              </Text>
-                            </Pressable>
+                  .map((customer, index) => {
+                    const open = !["completed", "skipped", "cancelled"].includes(customer.status);
+                    const done = customer.status === "completed";
+                    return (
+                      <Card key={customer.id} style={!open ? { opacity: 0.75 } : undefined}>
+                        <View style={s.stopTop}>
+                          <View style={[s.number, done ? s.numberDone : !open ? s.numberSkipped : null]}>
+                            {done ? <Icon name="checkmark" size={16} tint="#ffffff" /> : <Text style={[s.numberText, !open && { color: "#ffffff" }]}>{index + 1}</Text>}
+                          </View>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={type.heading} numberOfLines={1}>{customer.customer_name}</Text>
+                            <Text style={type.small} numberOfLines={2}>{customer.address}</Text>
+                          </View>
+                          <StatusBadge label={label(customer.status)} tone={done ? "success" : !open ? "warning" : customer.status === "in_progress" ? "action" : "neutral"} />
+                        </View>
+                        {open && route.status === "in_progress" ? (
+                          <View style={page.columns}>
+                            <Button title="Not collected" variant="secondary" disabled={!!saving} onPress={() => void collect(customer, "skip")} style={page.column} />
+                            <Button title="Collected" icon="checkmark-circle-outline" disabled={!!saving} onPress={() => void collect(customer, "complete")} style={page.column} />
                           </View>
                         ) : null}
-                      </View>
-                    </View>
-                  ))}
+                      </Card>
+                    );
+                  })}
               </>
             )}
           </>
         ) : (
           <>
-            <View style={s.metrics}>
-              <Metric label="TRIPS" value={trips.length} />
-              <Metric
-                label="IN PROGRESS"
-                value={trips.filter((t) => t.status === "in_progress").length}
-              />
-              <Metric
-                label="COMPLETED"
-                value={trips.filter((t) => t.status === "completed").length}
-              />
-            </View>
-            <Text style={s.section}>Today’s company trips</Text>
-            <TextInput
-              accessibilityLabel="Search company trips"
-              value={tripQuery}
-              onChangeText={(value) => { setTripQuery(value); setTripPage(1); }}
-              placeholder="Search route, driver, vehicle or area"
-              placeholderTextColor="#8390a5"
-              style={s.input}
-            />
-            <View style={s.filters}>
-              {["all", "not_started", "dispatched", "in_progress", "completed"].map((status) => (
-                <Pressable key={status} onPress={() => { setTripStatus(status); setTripPage(1); }} style={[s.filter, tripStatus === status && s.filterActive]}>
-                  <Text style={[s.filterText, tripStatus === status && s.filterTextActive]}>{label(status)}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <Text style={s.resultCount}>{filteredTrips.length} matching trip{filteredTrips.length === 1 ? "" : "s"}</Text>
+            <SummaryCard label="Company trips today" value={String(trips.length)}
+              stats={[
+                { label: "In progress", value: trips.filter((t) => t.status === "in_progress").length },
+                { label: "Completed", value: trips.filter((t) => t.status === "completed").length },
+                { label: "Not started", value: trips.filter((t) => ["not_started", "dispatched", "planned"].includes(t.status)).length },
+              ]} />
+            <Input accessibilityLabel="Search company trips" value={tripQuery} onChangeText={(value) => { setTripQuery(value); setTripPage(1); }} placeholder="Search route, driver, vehicle or area" />
+            <Chips value={tripStatus} onChange={(value) => { setTripStatus(value); setTripPage(1); }}
+              options={["all", "dispatched", "in_progress", "completed"].map((value) => ({ value, label: label(value) }))} />
+            <SectionHeader title={`${filteredTrips.length} trip${filteredTrips.length === 1 ? "" : "s"}`} />
             {visibleTrips.map((trip) => {
               const done = trip.collected_count + trip.not_collected_count;
+              const share = trip.customer_count ? Math.round((done / trip.customer_count) * 100) : 0;
               return (
-                <View key={trip.id} style={s.cardColumn}>
-                  <View style={s.row}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.cardTitle}>{trip.route_name}</Text>
-                      <Text style={s.muted}>
-                        {trip.division_name} · {trip.zone_name}
-                      </Text>
+                <Card key={trip.id}>
+                  <View style={s.stopTop}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={type.heading} numberOfLines={1}>{trip.route_name}</Text>
+                      <Text style={type.small} numberOfLines={1}>{trip.driver_name || "Driver pending"} · {trip.plate_number || "Vehicle pending"}</Text>
                     </View>
-                    <Status value={trip.status} />
+                    <StatusBadge label={label(trip.status)} tone={trip.status === "completed" ? "success" : trip.status === "in_progress" ? "action" : "neutral"} />
                   </View>
-                  <Text style={s.team}>
-                    {trip.driver_name || "Driver pending"} ·{" "}
-                    {trip.plate_number || "Vehicle pending"}
-                  </Text>
-                  <Text style={s.progress}>
-                    {done} / {trip.customer_count} customers ·{" "}
-                    {trip.collected_count} collected
-                  </Text>
-                </View>
+                  <View style={s.track}><View style={[s.trackFill, { width: `${share}%` }]} /></View>
+                  <Text style={type.caption}>{done} of {trip.customer_count} customers · {trip.collected_count} collected · {trip.division_name}, {trip.zone_name}</Text>
+                </Card>
               );
             })}
             {!filteredTrips.length ? (
-              <Empty
-                title={trips.length ? "No matching trips" : "No trips today"}
-                text={trips.length ? "Change the search or status filter." : "Trips appear after your company dispatches a route."}
-              />
+              <EmptyState icon="bus-outline" title={trips.length ? "No matching trips" : "No trips today"}
+                text={trips.length ? "Change the search or status filter." : "Trips appear after your company dispatches a route."} />
             ) : null}
-            {filteredTrips.length > tripPageSize ? <View style={s.pagination}>
-              <Pressable disabled={tripPage === 1} onPress={() => setTripPage((page) => Math.max(1, page - 1))} style={[s.pageButton, tripPage === 1 && s.disabled]}><Text style={s.pageButtonText}>Previous</Text></Pressable>
-              <Text style={s.pageLabel}>Page {tripPage} of {tripPages}</Text>
-              <Pressable disabled={tripPage === tripPages} onPress={() => setTripPage((page) => Math.min(tripPages, page + 1))} style={[s.pageButton, tripPage === tripPages && s.disabled]}><Text style={s.pageButtonText}>Next</Text></Pressable>
-            </View> : null}
+            {filteredTrips.length > tripPageSize ? (
+              <View style={s.pagination}>
+                <Button title="Previous" variant="secondary" disabled={tripPage === 1} onPress={() => setTripPage((n) => Math.max(1, n - 1))} style={{ flex: 1 }} />
+                <Text style={type.small}>{tripPage} / {tripPages}</Text>
+                <Button title="Next" variant="secondary" disabled={tripPage === tripPages} onPress={() => setTripPage((n) => Math.min(tripPages, n + 1))} style={{ flex: 1 }} />
+              </View>
+            ) : null}
           </>
         )}
         <MobileProblemCenter
@@ -493,231 +412,19 @@ export function OperationsWorkspace({
         </>}
       </ScrollView>
       <RoleBottomNavigation items={[
-        { id: "dashboard", label: "Dashboard", icon: "⌂", active: screen === "work", onPress: () => setScreen("work") },
-        { id: "account", label: "Account", icon: "●", active: screen === "account", onPress: () => setScreen("account") },
+        { id: "dashboard", label: driver ? "Route" : "Trips", icon: driver ? "navigate-outline" : "bus-outline", active: screen === "work", onPress: () => setScreen("work") },
+        { id: "account", label: "Account", icon: "person-outline", active: screen === "account", onPress: () => setScreen("account") },
       ]} />
-    </View>
-  );
-}
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <View style={s.metric}>
-      <Text style={s.metricLabel}>{label}</Text>
-      <Text style={s.metricValue}>{value}</Text>
-    </View>
-  );
-}
-function Status({ value }: { value: string }) {
-  return (
-    <Text
-      style={[
-        s.status,
-        ["completed", "active"].includes(value) && s.statusGood,
-        value === "in_progress" && s.statusBlue,
-      ]}
-    >
-      {label(value)}
-    </Text>
-  );
-}
-function Action({
-  label,
-  onPress,
-  disabled,
-}: {
-  label: string;
-  onPress: () => void;
-  disabled: boolean;
-}) {
-  return (
-    <Pressable
-      disabled={disabled}
-      onPress={onPress}
-      style={[s.primary, disabled && { opacity: 0.5 }]}
-    >
-      <Text style={s.primaryText}>{label}</Text>
-    </Pressable>
-  );
-}
-function Empty({ title, text }: { title: string; text: string }) {
-  return (
-    <View style={s.empty}>
-      <Text style={s.cardTitle}>{title}</Text>
-      <Text style={s.muted}>{text}</Text>
-    </View>
+    </SafeAreaView>
   );
 }
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#f6f7f5" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
-  header: {
-    backgroundColor: "white",
-    borderBottomWidth: 1,
-    borderBottomColor: "#dfe4ea",
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  eyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.4,
-    color: "#3156a3",
-  },
-  headerTitle: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#111827",
-    marginTop: 4,
-  },
-  headerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
-  logout: { fontWeight: "800", color: "#3156a3" },
-  page: { padding: 20, paddingBottom: 110 },
-  bottomNav: { minHeight: 66, backgroundColor: "#fff", borderTopWidth: 1, borderTopColor: "#d8dfeb", flexDirection: "row", paddingHorizontal: 12, paddingBottom: 4 },
-  navItem: { flex: 1, alignItems: "center", justifyContent: "center", borderTopWidth: 3, borderTopColor: "transparent" },
-  navItemActive: { borderTopColor: "#3156a3", backgroundColor: "#f5f8ff" },
-  navText: { color: "#64748b", fontWeight: "700" },
-  navTextActive: { color: "#3156a3" },
-  title: { fontSize: 29, fontWeight: "800", color: "#111827" },
-  roleLabel: { alignSelf: "flex-start", color: "#3156a3", backgroundColor: "#eaf0fc", borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6, marginTop: 9, fontSize: 11, fontWeight: "900", textTransform: "capitalize", overflow: "hidden" },
-  subtitle: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: "#64748b",
-    marginTop: 7,
-    marginBottom: 20,
-  },
-  muted: { fontSize: 13, lineHeight: 19, color: "#64748b", marginTop: 3 },
-  error: {
-    backgroundColor: "#fff1f2",
-    borderLeftWidth: 4,
-    borderLeftColor: "#dc2626",
-    color: "#991b1b",
-    fontWeight: "700",
-    padding: 13,
-    margin: 16,
-  },
-  metrics: {
-    flexDirection: "row",
-    borderWidth: 1,
-    borderColor: "#d8dee8",
-    marginBottom: 22,
-  },
-  metric: {
-    flex: 1,
-    padding: 12,
-    borderRightWidth: 1,
-    borderRightColor: "#d8dee8",
-  },
-  metricLabel: { fontSize: 9, fontWeight: "800", color: "#64748b" },
-  metricValue: {
-    fontSize: 25,
-    fontWeight: "800",
-    color: "#111827",
-    marginTop: 5,
-  },
-  routeHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: "#cbd5e1",
-    paddingVertical: 16,
-  },
-  routeName: { fontSize: 23, fontWeight: "800", color: "#111827" },
-  progress: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#3156a3",
-    marginVertical: 13,
-  },
-  primary: {
-    minHeight: 52,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#3156a3",
-    marginBottom: 18,
-  },
-  primaryText: { color: "white", fontWeight: "800", fontSize: 15 },
-  card: {
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#dfe4ea",
-    padding: 15,
-    marginBottom: 12,
-    flexDirection: "row",
-    gap: 12,
-  },
-  cardColumn: {
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#dfe4ea",
-    padding: 16,
-    marginBottom: 12,
-  },
-  number: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#e8eefb",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  numberText: { fontWeight: "800", color: "#3156a3" },
-  cardTitle: { fontSize: 16, fontWeight: "800", color: "#111827" },
-  status: {
-    alignSelf: "flex-start",
-    marginTop: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: "#f1f5f9",
-    color: "#475569",
-    fontSize: 11,
-    fontWeight: "800",
-    textTransform: "capitalize",
-  },
-  statusGood: { backgroundColor: "#ecfdf5", color: "#047857" },
-  statusBlue: { backgroundColor: "#eff6ff", color: "#1d4ed8" },
-  actions: { flexDirection: "row", gap: 8, marginTop: 13, flexWrap: "wrap" },
-  smallPrimary: {
-    backgroundColor: "#3156a3",
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-  },
-  smallPrimaryText: { color: "white", fontWeight: "800", fontSize: 12 },
-  smallSecondary: {
-    borderWidth: 1,
-    borderColor: "#d97706",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  smallSecondaryText: { color: "#92400e", fontWeight: "800", fontSize: 12 },
-  section: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#111827",
-    marginBottom: 13,
-  },
-  row: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  team: { fontSize: 13, fontWeight: "700", color: "#334155", marginTop: 12 },
-  input: { minHeight: 50, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "white", paddingHorizontal: 14, fontSize: 15, color: "#111827", marginBottom: 10 },
-  filters: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginBottom: 10 },
-  filter: { borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "white", paddingHorizontal: 11, paddingVertical: 8 },
-  filterActive: { borderColor: "#3156a3", backgroundColor: "#eaf0fc" },
-  filterText: { color: "#475569", fontSize: 11, fontWeight: "700", textTransform: "capitalize" },
-  filterTextActive: { color: "#24498f" },
-  resultCount: { color: "#64748b", fontSize: 12, fontWeight: "700", marginBottom: 12 },
-  pagination: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 12 },
-  pageButton: { borderWidth: 1, borderColor: "#3156a3", paddingHorizontal: 14, paddingVertical: 10 },
-  pageButtonText: { color: "#3156a3", fontWeight: "800", fontSize: 12 },
-  pageLabel: { color: "#475569", fontWeight: "700", fontSize: 12 },
-  disabled: { opacity: 0.4 },
-  empty: {
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: "#cbd5e1",
-    paddingVertical: 24,
-  },
+  stopTop: { flexDirection: "row", alignItems: "center", gap: space.md },
+  number: { width: 32, height: 32, borderRadius: radius.pill, backgroundColor: color.actionSoft, alignItems: "center", justifyContent: "center" },
+  numberDone: { backgroundColor: color.success },
+  numberSkipped: { backgroundColor: color.warning },
+  numberText: { color: color.action, fontWeight: "700", fontSize: 14 },
+  track: { height: 6, borderRadius: radius.pill, backgroundColor: color.fill, overflow: "hidden" },
+  trackFill: { height: "100%", backgroundColor: color.action, borderRadius: radius.pill },
+  pagination: { flexDirection: "row", alignItems: "center", gap: space.md },
 });
