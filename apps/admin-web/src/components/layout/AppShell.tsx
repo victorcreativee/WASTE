@@ -229,7 +229,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   </nav>;
 
   const brand=<div className="flex items-center gap-3">
-    <Image src="/logo-mark.svg" alt="" width={36} height={36} unoptimized className="h-9 w-9 shrink-0 rounded-[var(--ui-radius)]" />
+    <Image src="/logo-mark-blue.svg" alt="" width={36} height={36} unoptimized className="h-9 w-9 shrink-0 rounded-[var(--ui-radius)]" />
     <div className="min-w-0"><p className="truncate text-sm font-semibold leading-5 text-slate-900">{productName}</p><p className="truncate text-xs leading-4 text-slate-500">Kampala WMS</p></div>
   </div>;
 
