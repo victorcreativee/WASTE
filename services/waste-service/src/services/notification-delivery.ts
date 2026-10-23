@@ -36,11 +36,16 @@ export function normalizePhone(raw: string, countryCode = "256"): string | null 
   return digits;
 }
 
-export function formatMessage(channel: Channel, n: { title: string; body: string; link: string | null }, appUrl = env.publicAppUrl): Pick<OutgoingMessage, "subject" | "text"> {
+export function formatMessage(channel: Channel, n: { title: string; body: string; link: string | null; category?: string }, appUrl = env.publicAppUrl): Pick<OutgoingMessage, "subject" | "text"> {
   const url = n.link ? `${appUrl}${n.link}` : appUrl;
+  // Household reminders read as the collection company's own message (the body names it), with the link to /my.
+  if (channel === "sms" && n.category === "household") {
+    const room = 305 - url.length; // two SMS (306 characters) less the space before the link
+    return { subject: n.title, text: `${n.body.length > room ? `${n.body.slice(0, room - 1)}…` : n.body} ${url}` };
+  }
   if (channel === "sms") {
     const text = `KCCA WMS: ${n.title}. ${n.body}`;
-    const room = 306 - url.length;
+    const room = 305 - url.length; // two SMS (306 characters) less the space before the link
     return { subject: n.title, text: `${text.length > room ? `${text.slice(0, room - 1)}…` : text} ${url}` };
   }
   return {

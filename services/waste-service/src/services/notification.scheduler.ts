@@ -2,9 +2,10 @@ import { dbPool } from "../config/database";
 import { processDueDeliveries, runNotificationChecks } from "../repositories/notification.repository";
 import { runTrackChecks } from "../repositories/track.repository";
 import { runBillingCycle } from "../repositories/subscription.repository";
+import { runHouseholdReminders } from "../repositories/household.repository";
 
 /**
- * Sends due email/SMS every 30 seconds and runs the overdue checks GPS track checks (Module 11) and the subscription billing cycle (Module 12) hourly. Missing tables (migration 098 not applied)
+ * Sends due email/SMS every 30 seconds and runs the overdue checks GPS track checks (Module 11) the subscription billing cycle (Module 12) and household reminders hourly. Missing tables (migration 098 not applied)
  * are reported once and otherwise ignored. NOTIFICATION_WORKER=off disables both. Each delivery tick holds a shared
  * advisory lock, so whoever holds it exclusively (the notifications e2e suite) pauses background sending on that database.
  */
@@ -42,7 +43,7 @@ export function startNotificationScheduler(deliveryMs = 30_000, checksMs = 60 * 
     try {
       const lock = await client.query("SELECT pg_try_advisory_lock(hashtext('notification-checks')) AS locked");
       if (!lock.rows[0].locked) return;
-      try { await runNotificationChecks(); await runTrackChecks(); await runBillingCycle(); } finally { await client.query("SELECT pg_advisory_unlock(hashtext('notification-checks'))"); }
+      try { await runNotificationChecks(); await runTrackChecks(); await runBillingCycle(); await runHouseholdReminders(); } finally { await client.query("SELECT pg_advisory_unlock(hashtext('notification-checks'))"); }
     } finally {
       client.release();
     }

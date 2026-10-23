@@ -76,7 +76,7 @@ export async function deliverySummary() {
 
 // ---------- Delivery worker ----------
 
-type Due = { id: string; channel: Channel; destination: string; attempts: number; title: string; body: string; link: string | null };
+type Due = { id: string; channel: Channel; destination: string; attempts: number; title: string; body: string; link: string | null; category: string };
 
 /**
  * Sends due email/SMS deliveries. Rows are claimed with SKIP LOCKED so several instances never send the same message;
@@ -89,7 +89,7 @@ export async function processDueDeliveries(limit = 25) {
      FROM notifications n
      WHERE n.id=d.notification_id AND d.id IN (
        SELECT id FROM notification_deliveries WHERE status='pending' AND next_attempt_at<=CURRENT_TIMESTAMP ORDER BY next_attempt_at LIMIT $1 FOR UPDATE SKIP LOCKED)
-     RETURNING d.id,d.channel,d.destination,d.attempts,n.title,n.body,n.link`, [limit])).rows as Due[];
+     RETURNING d.id,d.channel,d.destination,d.attempts,n.title,n.body,n.link,n.category`, [limit])).rows as Due[];
   const outcome = { sent: 0, retried: 0, failed: 0, skipped: 0 };
   for (const delivery of claimed) {
     const content = formatMessage(delivery.channel, delivery);

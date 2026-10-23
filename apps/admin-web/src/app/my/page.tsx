@@ -9,7 +9,7 @@ import { apiRequest } from "@/lib/api";
 
 type Session = { user: { id: string; fullName: string; email: string; organizationId: string | null }; roles: { name: string }[]; tokens: { accessToken: string; refreshToken: string } };
 type Overview = {
-  household: { name: string; phone: string | null; customerNumber: string | null; address: string | null; zone: string | null; status: string };
+  household: { name: string; phone: string | null; customerNumber: string | null; address: string | null; zone: string | null; status: string; smsReminders: boolean };
   company: { name: string; phone: string | null; email: string | null } | null;
   plan: { name: string; fee_ugx: string; billing_frequency: string } | null;
   schedule: { weekdays: string[]; routes: string[]; upcoming: { scheduled_date: string; status: string }[] };
@@ -17,6 +17,7 @@ type Overview = {
   invoices: { id: string; invoice_number: string; amount_ugx: string; balance_ugx: string; status: string; due_on: string; period_start: string | null; period_end: string | null }[];
   payments: { id: string; invoice_id: string | null; amount_ugx: string; provider: string; status: string; receipt_number: string | null; created_at: string }[];
   requests: { id: string; category: string; title: string; status: string; created_at: string; resolution_notes: string | null }[];
+  messages: { id: string; title: string; body: string; created_at: string }[];
   balanceUgx: number;
 };
 
@@ -213,6 +214,14 @@ function Dashboard({ overview, reload, setNotice, setError }: { overview: Overvi
     } catch (cause) { setError(cause instanceof Error ? cause.message : "The payment could not be started."); }
     finally { setBusy(false); }
   }
+  async function toggleSms(enabled: boolean) {
+    setBusy(true); setError("");
+    try {
+      await apiRequest("/api/waste/households/me/sms", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }) });
+      await reload();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Your choice could not be saved."); }
+    finally { setBusy(false); }
+  }
   async function sendRequest() {
     if (!requestKind) return;
     setBusy(true); setError("");
@@ -309,6 +318,20 @@ function Dashboard({ overview, reload, setNotice, setError }: { overview: Overvi
           ))}</ul>
         </Card>
       ) : null}
+
+      <Card title="Messages" action={
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" disabled={busy} checked={overview.household.smsReminders} onChange={(event) => void toggleSms(event.target.checked)} className="h-4 w-4 accent-[var(--color-action)]" />
+          SMS reminders
+        </label>}>
+        {overview.messages.length ? <ul className="space-y-3">{overview.messages.map((message) => (
+          <li key={message.id} className="text-sm">
+            <p className="font-medium">{message.title} <span className="font-normal text-slate-500">· {shortDay(message.created_at)}</span></p>
+            <p className="text-slate-600">{message.body}</p>
+          </li>
+        ))}</ul> : <p className="text-sm text-slate-600">Reminders from your collection company appear here: collection days, bills and payments.</p>}
+        <p className="mt-3 text-xs text-slate-500">{overview.household.smsReminders ? "Your company may also send these by SMS to your phone." : "SMS reminders are off. Messages still appear here."}</p>
+      </Card>
 
       <Card title="Recent collections">
         {overview.collections.length ? <ul className="space-y-2">{overview.collections.map((stop) => (

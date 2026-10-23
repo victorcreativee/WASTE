@@ -3,7 +3,7 @@ import { dbPool } from "../config/database";
 /** The household (citizen) account's customer record, primary location and the company that serves it. */
 async function householdContext(userId: string) {
   return (await dbPool.query(
-    `SELECT cp.id AS customer_id, cp.customer_number, cp.customer_type, cp.service_status,
+    `SELECT cp.id AS customer_id, cp.customer_number, cp.customer_type, cp.service_status, cp.sms_reminders,
             u.full_name, u.phone,
             csl.id AS location_id, csl.label AS location_label, csl.address,
             wz.name AS zone_name,
@@ -67,6 +67,7 @@ export async function householdOverview(userId: string) {
     household: {
       name: context.full_name, phone: context.phone, customerNumber: context.customer_number, customerType: context.customer_type,
       status: context.service_status, address: context.address, locationLabel: context.location_label, zone: context.zone_name,
+      smsReminders: context.sms_reminders,
     },
     company: context.organization_id
       ? { name: context.company_name, phone: context.company_phone, email: context.company_email, status: context.relationship_status }
@@ -81,6 +82,7 @@ export async function householdOverview(userId: string) {
     invoices: invoices.rows,
     payments: payments.rows,
     requests: requests.rows,
+    messages: await householdMessages(userId),
     balanceUgx: invoices.rows.reduce((sum: number, invoice: { balance_ugx: string }) => sum + Number(invoice.balance_ugx || 0), 0),
   };
 }
@@ -97,4 +99,89 @@ export async function createHouseholdRequest(userId: string, input: { kind: "mis
      RETURNING id, category, title, status, created_at`,
     [userId, context.organization_id, input.kind, title, description, context.address]
   )).rows[0];
+}
+
+export const REMINDER_KINDS = ["collection_tomorrow", "bill_issued", "bill_due", "payment_received", "missed_collection", "request_resolved"] as const;
+export type ReminderSettings = Record<(typeof REMINDER_KINDS)[number], boolean>;
+
+/** The company's SMS reminder switches (all off until it turns them on) and how many SMS reminders went out in 30 days. */
+export async function reminderSettings(organizationId: string) {
+  const [settings, usage] = await Promise.all([
+    dbPool.query(`SELECT ${REMINDER_KINDS.join(",")}, updated_at FROM household_sms_settings WHERE organization_id = $1::uuid`, [organizationId]),
+    dbPool.query(
+      `SELECT COUNT(*) FILTER (WHERE d.status = 'sent')::int AS sent, COUNT(*) FILTER (WHERE d.status IN ('pending','sending'))::int AS waiting,
+              COUNT(*) FILTER (WHERE d.status IN ('failed','skipped'))::int AS not_sent
+         FROM notification_deliveries d JOIN notifications n ON n.id = d.notification_id
+        WHERE n.category = 'household' AND n.organization_id = $1::uuid AND d.channel = 'sms' AND d.created_at > CURRENT_TIMESTAMP - interval '30 days'`,
+      [organizationId]),
+  ]);
+  const row = settings.rows[0] ?? {};
+  return {
+    settings: Object.fromEntries(REMINDER_KINDS.map((kind) => [kind, Boolean(row[kind])])) as ReminderSettings,
+    updatedAt: row.updated_at ?? null,
+    last30Days: usage.rows[0],
+  };
+}
+
+export async function saveReminderSettings(organizationId: string, userId: string, settings: ReminderSettings) {
+  await dbPool.query(
+    `INSERT INTO household_sms_settings(organization_id, ${REMINDER_KINDS.join(",")}, updated_by)
+     VALUES ($1::uuid, ${REMINDER_KINDS.map((_, index) => `$${index + 2}`).join(",")}, $${REMINDER_KINDS.length + 2}::uuid)
+     ON CONFLICT (organization_id) DO UPDATE SET ${REMINDER_KINDS.map((kind) => `${kind} = EXCLUDED.${kind}`).join(",")},
+       updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP`,
+    [organizationId, ...REMINDER_KINDS.map((kind) => settings[kind]), userId]
+  );
+  return reminderSettings(organizationId);
+}
+
+/** A household turns its own SMS reminders on or off (reminders still appear on /my). */
+export async function setHouseholdSms(userId: string, enabled: boolean) {
+  return (await dbPool.query(`UPDATE customer_profiles SET sms_reminders = $2, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1::uuid RETURNING sms_reminders`, [userId, enabled])).rows[0] ?? null;
+}
+
+/** The household's recent reminders, shown on /my. */
+export async function householdMessages(userId: string) {
+  return (await dbPool.query(
+    `SELECT id, title, body, created_at FROM notifications WHERE recipient_user_id = $1::uuid AND category = 'household'
+      ORDER BY created_at DESC LIMIT 10`, [userId])).rows;
+}
+
+/**
+ * Scheduled household reminders, run hourly. "Collection tomorrow" goes out from 17:00 Kampala time to households whose
+ * route runs tomorrow or who have a planned stop tomorrow; "bill due" goes out three days before an unpaid bill is due.
+ * Each is created once (the notification key), so hourly runs never repeat a reminder.
+ */
+export async function runHouseholdReminders() {
+  const local = (await dbPool.query(
+    `SELECT EXTRACT(HOUR FROM now() AT TIME ZONE 'Africa/Kampala')::int AS hour,
+            ((now() AT TIME ZONE 'Africa/Kampala')::date + 1) AS tomorrow`)).rows[0];
+  let collection = 0;
+  if (local.hour >= 17) {
+    collection = (await dbPool.query(
+      `SELECT notify_household(h.customer_id, h.organization_id, 'collection_tomorrow', 'Collection tomorrow',
+                household_company_name(h.organization_id) || ': we collect your waste tomorrow, ' || to_char($1::date, 'FMDay DD Mon')
+                  || '. Please put it out in the morning.',
+                'household-collect:' || h.customer_id || ':' || $1::date) AS id
+         FROM (
+           SELECT DISTINCT cp.id AS customer_id, rel.organization_id
+             FROM customer_profiles cp
+             JOIN customer_service_locations csl ON csl.customer_id = cp.id AND csl.is_primary
+             JOIN customer_service_relationships rel ON rel.service_location_id = csl.id AND rel.status = 'active'
+             JOIN users u ON u.id = cp.user_id AND u.status = 'active'
+            WHERE cp.service_status = 'active' AND (
+              EXISTS (SELECT 1 FROM service_route_customers src JOIN service_routes sr ON sr.id = src.service_route_id AND sr.is_active
+                       WHERE src.service_location_id = csl.id AND src.is_active AND sr.organization_id = rel.organization_id
+                         AND EXTRACT(ISODOW FROM $1::date)::smallint = ANY(sr.operating_days))
+              OR EXISTS (SELECT 1 FROM customer_collection_stops ccs WHERE ccs.customer_id = cp.id AND ccs.scheduled_date = $1::date AND ccs.status = 'pending'))
+         ) h`, [local.tomorrow])).rows.filter((row: { id: string | null }) => row.id).length;
+  }
+  const due = (await dbPool.query(
+    `SELECT notify_household(i.customer_id, i.organization_id, 'bill_due', 'Bill due soon',
+              household_company_name(i.organization_id) || ': ' || household_money(i.balance_ugx) || ' is due on '
+                || to_char(i.due_on, 'FMDay DD Mon') || '. Pay by mobile money on your household page.',
+              'household-due:' || i.id) AS id
+       FROM customer_invoices i
+      WHERE i.balance_ugx > 0 AND i.status IN ('issued','partially_paid') AND i.due_on = (now() AT TIME ZONE 'Africa/Kampala')::date + 3`)).rows
+    .filter((row: { id: string | null }) => row.id).length;
+  return { collection, due };
 }

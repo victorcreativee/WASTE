@@ -60,6 +60,7 @@ export default function CustomerServicePage() {
     latitude: "", longitude: "",
   });
   const [showCustomerForm,setShowCustomerForm]=useState(false);
+  const [reminders,setReminders]=useState<{settings:Record<string,boolean>;last30Days:{sent:number;waiting:number;not_sent:number}}|null>(null);
   const [householdLink,setHouseholdLink]=useState<{name:string;phone:string|null;url:string}|null>(null);
   const [linkCopied,setLinkCopied]=useState(false);
   const [customerForm,setCustomerForm]=useState({fullName:"",email:"",phone:"",password:"",confirmPassword:"",customerType:"residential",zoneId:"",locationLabel:"Primary location",address:"",latitude:"",longitude:""});
@@ -132,6 +133,9 @@ export default function CustomerServicePage() {
   }
 
   async function createCustomer(event:FormEvent){event.preventDefault();if(!customerForm.email.trim()&&!customerForm.phone.trim()){setError("Enter the household's mobile number (or an email address)");return;}if(customerForm.email.trim()&&customerForm.password!==customerForm.confirmPassword){setError("The passwords do not match");return;}try{setSaving(true);setError("");setMessage("");const result=await apiRequest<{data:{customer:{id:string;customer_number:string}}}>("/api/auth/organization-customers",{method:"POST",body:JSON.stringify({fullName:customerForm.fullName,email:customerForm.email.trim()||undefined,phone:customerForm.phone||undefined,password:customerForm.email.trim()?customerForm.password:undefined,customerType:customerForm.customerType,zoneId:customerForm.zoneId,locationLabel:customerForm.locationLabel,address:customerForm.address,...(customerForm.latitude&&customerForm.longitude?{latitude:Number(customerForm.latitude),longitude:Number(customerForm.longitude)}:{})})});setCreatedCustomer({id:result.data.customer.id,number:result.data.customer.customer_number,name:customerForm.fullName});setCustomerForm({fullName:"",email:"",phone:"",password:"",confirmPassword:"",customerType:"residential",zoneId:"",locationLabel:"Primary location",address:"",latitude:"",longitude:""});setShowCustomerForm(false);setMessage("Customer account and service location created successfully.");await loadCustomers();if(!customerForm.email.trim())void openHouseholdLink({id:result.data.customer.id,full_name:customerForm.fullName,phone:customerForm.phone||null});}catch(e){setError(e instanceof Error?e.message:"Failed to create customer");}finally{setSaving(false);}}
+  // Household SMS reminders: each SMS costs the company, so every reminder starts off until the company turns it on.
+  async function openReminders(){try{setError("");const result=await apiRequest<{data:{settings:Record<string,boolean>;last30Days:{sent:number;waiting:number;not_sent:number}}}>("/api/waste/households/sms-settings");setReminders(result.data);}catch(e){setError(e instanceof Error?e.message:"Reminder settings could not be loaded");}}
+  async function saveReminders(){if(!reminders)return;try{setSaving(true);setError("");const result=await apiRequest<{data:{settings:Record<string,boolean>;last30Days:{sent:number;waiting:number;not_sent:number}}}>("/api/waste/households/sms-settings",{method:"PUT",body:JSON.stringify(reminders.settings)});setReminders(null);setMessage(Object.values(result.data.settings).some(Boolean)?"Household SMS reminders saved.":"Household SMS reminders are off.");}catch(e){setError(e instanceof Error?e.message:"Reminder settings could not be saved");}finally{setSaving(false);}}
   // Private sign-in link for a household: created on demand (replacing any older link) and shared from the staff phone.
   async function openHouseholdLink(customer:{id:string;full_name:string;phone:string|null}){try{setSaving(true);setError("");const result=await apiRequest<{data:{path:string;smsAvailable:boolean}}>(`/api/auth/organization-customers/${customer.id}/access-link`,{method:"POST"});setHouseholdLink({name:customer.full_name,phone:customer.phone,url:`${window.location.origin}${result.data.path}`});setLinkCopied(false);}catch(e){setError(e instanceof Error?e.message:"The household link could not be created");}finally{setSaving(false);}}
   function captureCustomerLocation(){if(!navigator.geolocation){setError("Location is not supported by this browser");return;}navigator.geolocation.getCurrentPosition(position=>setCustomerForm(current=>({...current,latitude:String(position.coords.latitude),longitude:String(position.coords.longitude)})),()=>setError("Location permission was denied. The selected zone location will be used instead."));}
@@ -142,7 +146,7 @@ export default function CustomerServicePage() {
 
   return <AppShell><div className="mx-auto max-w-7xl">
     <OrganizationWorkspaceNav/>
-    <PageHeader eyebrow={isCitizen?"My waste service":"People & customers"} title={isCitizen?"Service area and collections":"Customer management"} description={isCitizen ? "Update your service address and review provider and area information. Address changes do not switch providers." : "Onboard customers, confirm service responsibility and identify who is ready for collection planning."} action={isCompanyAdmin?<button onClick={()=>setShowCustomerForm(true)} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">Add customer</button>:undefined}/>
+    <PageHeader eyebrow={isCitizen?"My waste service":"People & customers"} title={isCitizen?"Service area and collections":"Customer management"} description={isCitizen ? "Update your service address and review provider and area information. Address changes do not switch providers." : "Onboard customers, confirm service responsibility and identify who is ready for collection planning."} action={isCompanyAdmin?<div className="flex flex-wrap gap-2"><button onClick={()=>void openReminders()} className="border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700">SMS reminders</button><button onClick={()=>setShowCustomerForm(true)} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">Add customer</button></div>:undefined}/>
     {error&&<Feedback tone="error">{error}</Feedback>}{message&&<Feedback tone="success">{message}</Feedback>}
     {createdCustomer&&!isCitizen&&<div className="mt-5 flex flex-col justify-between gap-4 border-l-2 border-emerald-600 bg-emerald-50 p-5 sm:flex-row sm:items-center"><div><p className="font-semibold text-emerald-950">{createdCustomer.name} is registered</p><p className="mt-1 text-sm text-emerald-800">Customer number {createdCustomer.number}. Create the service contract next to activate billing and route eligibility.</p></div><a href={`/dashboard/contracts?customerId=${createdCustomer.id}`} className="shrink-0 bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">Continue to contract →</a></div>}
 
@@ -186,6 +190,11 @@ export default function CustomerServicePage() {
       </div>
     ) : (
       <div className="py-8">
+      <Modal open={Boolean(reminders)} onClose={()=>!saving&&setReminders(null)} title="Household SMS reminders" description="Choose which reminders your households receive by SMS. Each SMS is charged to your company. Reminders also appear on each household's page, and households can turn SMS off for themselves.">{reminders?<div className="space-y-4">
+        <div className="divide-y divide-slate-200 border-y border-slate-200">{REMINDER_OPTIONS.map(([kind,label,detail])=><label key={kind} className="flex items-start gap-3 py-3"><input type="checkbox" checked={Boolean(reminders.settings[kind])} onChange={e=>setReminders({...reminders,settings:{...reminders.settings,[kind]:e.target.checked}})} className="mt-1 h-4 w-4 accent-[var(--color-action)]"/><span><span className="block text-sm font-semibold text-slate-900">{label}</span><span className="block text-xs text-slate-500">{detail}</span></span></label>)}</div>
+        <p className="text-xs text-slate-500">Last 30 days: {reminders.last30Days.sent} sent{reminders.last30Days.waiting?`, ${reminders.last30Days.waiting} waiting`:""}{reminders.last30Days.not_sent?`, ${reminders.last30Days.not_sent} not sent`:""}.</p>
+        <div className="flex justify-end gap-3 border-t border-slate-200 pt-4"><button type="button" disabled={saving} onClick={()=>setReminders(null)} className="border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700">Cancel</button><button type="button" disabled={saving} onClick={()=>void saveReminders()} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving?"Saving…":"Save reminders"}</button></div>
+      </div>:null}</Modal>
       <Modal open={Boolean(householdLink)} onClose={()=>setHouseholdLink(null)} title="Household link" description={householdLink?`Send this private link to ${householdLink.name}. It opens their collection days, bills and requests without a password. Making a new link stops the old one.`:""}>{householdLink?(()=>{const text=`Hello ${householdLink.name}, open your waste collection page to see your collection days, pay your bill and report a missed pickup: ${householdLink.url}`;const phone=(householdLink.phone||"").replace(/\D/g,"").replace(/^0/,"256");return <div className="space-y-4">
         <input readOnly value={householdLink.url} onFocus={e=>e.currentTarget.select()} className="w-full border p-2.5 text-sm" aria-label="Household link"/>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -209,5 +218,14 @@ export default function CustomerServicePage() {
     )}
   </div></AppShell>;
 }
+
+const REMINDER_OPTIONS=[
+  ["collection_tomorrow","Collection tomorrow","The evening before each collection day on the household's route."],
+  ["bill_issued","New bill","When a bill is created for the household."],
+  ["bill_due","Bill due soon","Three days before an unpaid bill is due."],
+  ["payment_received","Payment received","When you confirm a household's payment, with the receipt number."],
+  ["missed_collection","Missed collection","When a stop is marked not collected, and again when it is given a new date."],
+  ["request_resolved","Request resolved","When you resolve a household's missed-pickup or extra-pickup request."],
+] as const;
 
 function Field({label,value,set,type="text",required=false,minLength}:{label:string;value:string;set:(value:string)=>void;type?:string;required?:boolean;minLength?:number}){return <label className="text-sm font-semibold">{label}<input value={value} onChange={e=>set(e.target.value)} type={type} required={required} minLength={minLength} step={type==="number"?"any":undefined} className="mt-1 w-full border p-2.5"/></label>}
