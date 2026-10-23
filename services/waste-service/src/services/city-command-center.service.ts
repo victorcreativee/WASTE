@@ -5,7 +5,7 @@
 
 export type ServiceStandards = Record<string, number>;
 
-export const ISSUE_CATEGORIES = ["missed_collection", "overflowing_bin", "illegal_dumping", "pickup_request"] as const;
+export const ISSUE_CATEGORIES = ["missed_collection", "overflowing_bin", "illegal_dumping", "pickup_request", "service_complaint"] as const;
 
 /**
  * Fallback resident-issue response standards (hours from report to resolution), used only
@@ -16,6 +16,7 @@ export const ISSUE_SERVICE_STANDARDS_HOURS: ServiceStandards = {
   overflowing_bin: 24,
   illegal_dumping: 48,
   pickup_request: 72,
+  service_complaint: 72,
 };
 const DEFAULT_STANDARD_HOURS = 48;
 

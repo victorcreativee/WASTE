@@ -1,8 +1,9 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { changePassword, login, logout, me, refresh, register, registerApplicant } from "../controllers/auth.controller";
-import { requireAuth } from "../middlewares/auth.middleware";
+import { AuthenticatedRequest, requireAuth } from "../middlewares/auth.middleware";
 import { AttemptLimiter } from "../utils/attempt-limiter";
-import { requestSignInCode, signInWithCode, signInWithLink } from "../services/household.service";
+import { z } from "zod";
+import { requestSignInCode, setHouseholdPassword, signInWithCode, signInWithLink, signInWithPassword, signUpHousehold } from "../services/household.service";
 
 const router = Router();
 router.post("/refresh",async(req,res,next)=>{try{await refresh(req,res)}catch(error){next(error)}});
@@ -105,6 +106,51 @@ router.post("/households/code/verify", async (req, res, next) => {
     const phone = typeof req.body?.phone === "string" ? req.body.phone : "";
     const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
     await answer(res, () => signInWithCode(phone, code, meta(req)), "Signed in");
+  } catch (error) { next(error); }
+});
+// Customers creating their own account, and signing in with phone and password.
+// Generous per address: many phones share one mobile-network address. Each phone number can only sign up once anyway.
+const householdSignups = new AttemptLimiter(30, 60 * 60_000);
+const householdPasswordAttempts = new AttemptLimiter(30, 15 * 60_000);
+const householdPasswordAccount = new AttemptLimiter(10, 15 * 60_000);
+const password = z.string().min(6, "Use at least 6 characters for your password").max(72);
+const signupSchema = z.object({
+  fullName: z.string().trim().min(2, "Enter your name").max(150),
+  phone: z.string().trim().min(9).max(20),
+  password,
+  customerType: z.enum(["residential", "commercial", "office_business", "industrial"]),
+  divisionId: z.string().uuid("Choose your division"),
+  areaId: z.string().uuid().optional(),
+  address: z.string().trim().min(5, "Describe where you are: street, building or a landmark").max(300),
+  latitude: z.number().min(-1).max(1.5).optional(),
+  longitude: z.number().min(31).max(34).optional(),
+  organizationId: z.string().uuid().optional(),
+  note: z.string().trim().max(500).optional(),
+});
+router.post("/households/signup", async (req, res, next) => {
+  try {
+    const wait = householdSignups.hit(req.ip || "unknown");
+    if (wait) return tooMany(res, wait);
+    const parsed = signupSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ success: false, message: parsed.error.issues[0]?.message || "Check your details" });
+    await answer(res, () => signUpHousehold(parsed.data, meta(req)), "Account created");
+  } catch (error) { next(error); }
+});
+router.post("/households/password", async (req, res, next) => {
+  try {
+    const phone = typeof req.body?.phone === "string" ? req.body.phone : "";
+    const key = phone.replace(/\D/g, "").slice(-9);
+    const wait = Math.max(householdPasswordAttempts.hit(req.ip || "unknown"), householdPasswordAccount.hit(key));
+    if (wait) return tooMany(res, wait);
+    res.on("finish", () => { if (res.statusCode === 200) householdPasswordAccount.reset(key); });
+    await answer(res, () => signInWithPassword(phone, typeof req.body?.password === "string" ? req.body.password : "", meta(req)), "Signed in");
+  } catch (error) { next(error); }
+});
+router.put("/households/me/password", requireAuth, async (req, res, next) => {
+  try {
+    const parsed = z.object({ password }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ success: false, message: parsed.error.issues[0]?.message || "Choose a password" });
+    await answer(res, () => setHouseholdPassword((req as AuthenticatedRequest).user!.userId, parsed.data.password, meta(req)), "Password saved");
   } catch (error) { next(error); }
 });
 router.patch("/password",requireAuth,async(req,res,next)=>{try{await changePassword(req,res)}catch(error){next(error)}});

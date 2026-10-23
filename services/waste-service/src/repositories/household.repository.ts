@@ -5,7 +5,8 @@ async function householdContext(userId: string) {
   return (await dbPool.query(
     `SELECT cp.id AS customer_id, cp.customer_number, cp.customer_type, cp.service_status, cp.sms_reminders,
             u.full_name, u.phone,
-            csl.id AS location_id, csl.label AS location_label, csl.address,
+            csl.id AS location_id, csl.label AS location_label, csl.address, csl.location_precise,
+            csl.division_id, csl.catalog_area_id,
             wz.name AS zone_name,
             o.id AS organization_id, o.name AS company_name, o.phone AS company_phone, o.email AS company_email,
             rel.status AS relationship_status
@@ -67,7 +68,8 @@ export async function householdOverview(userId: string) {
     household: {
       name: context.full_name, phone: context.phone, customerNumber: context.customer_number, customerType: context.customer_type,
       status: context.service_status, address: context.address, locationLabel: context.location_label, zone: context.zone_name,
-      smsReminders: context.sms_reminders,
+      smsReminders: context.sms_reminders, locationPrecise: context.location_precise !== false,
+      divisionId: context.division_id, areaId: context.catalog_area_id,
     },
     company: context.organization_id
       ? { name: context.company_name, phone: context.company_phone, email: context.company_email, status: context.relationship_status }
@@ -83,21 +85,72 @@ export async function householdOverview(userId: string) {
     payments: payments.rows,
     requests: requests.rows,
     messages: await householdMessages(userId),
+    // Until a company serves the household: its latest request to a company, if any.
+    serviceRequest: context.organization_id ? null : (await dbPool.query(
+      `SELECT r.id, r.status, r.review_note, r.created_at, o.name AS company_name, o.phone AS company_phone
+         FROM customer_provider_requests r JOIN organizations o ON o.id = r.requested_organization_id
+        WHERE r.customer_id = $1::uuid ORDER BY r.created_at DESC LIMIT 1`, [context.customer_id])).rows[0] ?? null,
     balanceUgx: invoices.rows.reduce((sum: number, invoice: { balance_ugx: string }) => sum + Number(invoice.balance_ugx || 0), 0),
   };
 }
 
 /** A household's request goes straight to the company that serves it, so it lands in that company's service issues. */
-export async function createHouseholdRequest(userId: string, input: { kind: "missed_collection" | "pickup_request"; note?: string }) {
+const REQUESTS = {
+  missed_collection: { title: "Missed collection", description: "The household reports that its waste was not collected." },
+  pickup_request: { title: "Extra pickup requested", description: "The household asks for an extra pickup." },
+  service_complaint: { title: "Complaint", description: "The household has a complaint about the service." },
+} as const;
+export type HouseholdRequestKind = keyof typeof REQUESTS;
+
+export async function createHouseholdRequest(userId: string, input: { kind: HouseholdRequestKind; note?: string }) {
   const context = await householdContext(userId);
   if (!context?.organization_id) return null;
-  const title = input.kind === "missed_collection" ? "Missed collection" : "Extra pickup requested";
-  const description = input.note?.trim() || (input.kind === "missed_collection" ? "The household reports that its waste was not collected." : "The household asks for an extra pickup.");
+  const { title } = REQUESTS[input.kind];
+  const description = input.note?.trim() || REQUESTS[input.kind].description;
   return (await dbPool.query(
     `INSERT INTO citizen_issues (reporter_user_id, assigned_organization_id, category, title, description, status, address)
      VALUES ($1::uuid, $2::uuid, $3, $4, $5, 'assigned', $6)
      RETURNING id, category, title, status, created_at`,
     [userId, context.organization_id, input.kind, title, description, context.address]
+  )).rows[0];
+}
+
+const failure = (message: string, statusCode: number) => Object.assign(new Error(message), { statusCode });
+
+/**
+ * Updates where a household is. Once a company serves it, the household can share its exact position (and correct the
+ * address) but not move to another area; before that, and with no request waiting, it can also change division and area.
+ */
+export async function updateHouseholdPlace(userId: string, input: { address?: string; latitude?: number; longitude?: number; divisionId?: string; areaId?: string | null }) {
+  const context = await householdContext(userId);
+  if (!context?.location_id) return null;
+  const moving = input.divisionId !== undefined && (input.divisionId !== context.division_id || (input.areaId ?? null) !== (context.catalog_area_id ?? null));
+  if (moving) {
+    if (context.organization_id) throw failure("Your collection company serves this address. Call them to move your service.", 409);
+    const waiting = await dbPool.query(
+      `SELECT 1 FROM customer_provider_requests WHERE customer_id = $1::uuid AND status IN ('pending_current_provider','pending_new_provider')`,
+      [context.customer_id]);
+    if (waiting.rowCount) throw failure("Cancel your request to the company before changing your area.", 409);
+    const place = await dbPool.query(
+      `SELECT 1 FROM kampala_divisions d WHERE d.id = $1::uuid AND d.is_active
+          AND ($2::uuid IS NULL OR EXISTS (SELECT 1 FROM kampala_division_areas a WHERE a.id = $2::uuid AND a.division_id = d.id AND a.is_active))`,
+      [input.divisionId, input.areaId ?? null]);
+    if (!place.rowCount) throw failure("Choose your division and an area within it.", 400);
+  }
+  const pinned = input.latitude !== undefined && input.longitude !== undefined;
+  // A new area without a new position leaves the old point, which no longer marks the household exactly.
+  return (await dbPool.query(
+    `UPDATE customer_service_locations SET
+        address = COALESCE($2, address),
+        location = CASE WHEN $3::float8 IS NULL THEN location ELSE ST_SetSRID(ST_Point($4::float8, $3::float8), 4326)::geography END,
+        location_precise = CASE WHEN $3::float8 IS NOT NULL THEN true WHEN $5 THEN false ELSE location_precise END,
+        division_id = CASE WHEN $5 THEN $6::uuid ELSE division_id END,
+        catalog_area_id = CASE WHEN $5 THEN $7::uuid ELSE catalog_area_id END,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1::uuid
+      RETURNING address, location_precise, division_id, catalog_area_id`,
+    [context.location_id, input.address?.trim() || null, pinned ? input.latitude : null, pinned ? input.longitude : null, moving,
+     moving ? input.divisionId : null, moving ? input.areaId ?? null : null]
   )).rows[0];
 }
 

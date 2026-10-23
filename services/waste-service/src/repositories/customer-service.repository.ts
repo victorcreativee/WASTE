@@ -34,8 +34,9 @@ export async function upsertCustomerService(
        ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5,
          ST_SetSRID(ST_Point($6, $7), 4326)::geography, true)
        ON CONFLICT (customer_id) WHERE is_primary = true DO UPDATE SET
-         zone_id = EXCLUDED.zone_id,
-         label = EXCLUDED.label, address = EXCLUDED.address, location = EXCLUDED.location,
+         -- Outside the provider's drawn zones the assigned zone stays until the provider reviews it.
+         zone_id = COALESCE(EXCLUDED.zone_id, customer_service_locations.zone_id),
+         label = EXCLUDED.label, address = EXCLUDED.address, location = EXCLUDED.location, location_precise = true,
          updated_at = CURRENT_TIMESTAMP
        RETURNING *`,
       [customer.id, zone?.id ?? null, owner, input.label,
@@ -109,7 +110,9 @@ export async function findCustomers(organizationId: string | null, page?: Page) 
        csl.address, wz.name AS zone_name, o.name AS organization_name,
        csr.id relationship_id,csr.status relationship_status,csr.effective_from relationship_started_on,
        u.status account_status,o.is_active provider_active,
-       COALESCE(wz.is_active AND wz.boundary IS NOT NULL AND ST_Covers(wz.boundary,csl.location::geometry),false) coverage_confirmed,
+       -- A zone without a drawn boundary is confirmed by the company assigning it; a drawn one must contain the address.
+       COALESCE(wz.is_active AND (wz.boundary IS NULL OR ST_Covers(wz.boundary,csl.location::geometry)),false) coverage_confirmed,
+       csl.location_precise,
        EXISTS(SELECT 1 FROM customer_contracts c JOIN customer_subscriptions s ON s.id=c.subscription_id
          JOIN service_plans p ON p.id=c.plan_id AND p.id=s.plan_id AND p.organization_id=c.organization_id
          WHERE c.customer_id=cp.id AND c.organization_id=csr.organization_id AND c.status IN ('active','expiring')
@@ -137,6 +140,7 @@ export async function findCustomers(organizationId: string | null, page?: Page) 
     if(row.service_status!=='active')planning_reasons.push('Customer service is not active');
     if(!row.provider_active)planning_reasons.push('Provider is not active');
     if(!row.coverage_confirmed)planning_reasons.push('Provider coverage needs review');
+    if(!row.location_precise)planning_reasons.push('Exact location not recorded: ask the customer to share it from their page');
     if(!row.agreement_confirmed)planning_reasons.push('Current matching contract and subscription required');
     return {...row,planning_ready:planning_reasons.length===0,planning_reasons};
   });

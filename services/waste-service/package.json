@@ -172,7 +172,8 @@
     "test:e2e:dumping": "node scripts/e2e-illegal-dumping.cjs",
     "test:e2e:penalties": "node scripts/e2e-penalties.cjs",
     "test:e2e:tracks": "node scripts/e2e-track-checks.cjs",
-    "test:e2e:subscriptions": "node scripts/e2e-subscriptions.cjs"
+    "test:e2e:subscriptions": "node scripts/e2e-subscriptions.cjs",
+    "test:e2e:customer-signup": "node scripts/e2e-customer-signup.cjs"
   },
   "keywords": [],
   "author": "",

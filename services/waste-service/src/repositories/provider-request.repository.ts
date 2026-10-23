@@ -1,28 +1,48 @@
 import {dbPool} from '../config/database';
 
-type ReviewAction={action:'approve'|'reject';note?:string};
+type ReviewAction={action:'approve'|'reject';note?:string;zoneId?:string};
 function conflict(message:string){throw Object.assign(new Error(message),{statusCode:409});}
 
 const detailSql=`SELECT r.id,r.status,r.customer_note,r.review_note,r.created_at,r.updated_at,
-  r.requested_organization_id,requested.name requested_organization_name,
+  r.requested_organization_id,requested.name requested_organization_name,requested.phone requested_organization_phone,
   current.organization_id current_organization_id,current_org.name current_organization_name,
-  cp.id customer_id,u.full_name customer_name,u.email customer_email,
-  l.id service_location_id,l.address
+  cp.id customer_id,cp.customer_type,u.full_name customer_name,
+  CASE WHEN u.email LIKE '%.invalid' THEN NULL ELSE u.email END customer_email,u.phone customer_phone,
+  l.id service_location_id,l.address,l.location_precise,division.name division_name,area.name area_name,
+  ST_Y(l.location::geometry) latitude,ST_X(l.location::geometry) longitude,
+  (SELECT rc.match FROM recommended_collectors(l.division_id,l.catalog_area_id,l.location,l.location_precise) rc
+    WHERE rc.organization_id=r.requested_organization_id) match,
+  (SELECT rc.zone_id FROM recommended_collectors(l.division_id,l.catalog_area_id,l.location,l.location_precise) rc
+    WHERE rc.organization_id=r.requested_organization_id) suggested_zone_id
  FROM customer_provider_requests r
+ LEFT JOIN kampala_divisions division ON division.id=(SELECT division_id FROM customer_service_locations WHERE id=r.service_location_id)
+ LEFT JOIN kampala_division_areas area ON area.id=(SELECT catalog_area_id FROM customer_service_locations WHERE id=r.service_location_id)
  JOIN customer_profiles cp ON cp.id=r.customer_id JOIN users u ON u.id=cp.user_id
  JOIN customer_service_locations l ON l.id=r.service_location_id
  JOIN organizations requested ON requested.id=r.requested_organization_id
  LEFT JOIN customer_service_relationships current ON current.id=r.current_relationship_id
  LEFT JOIN organizations current_org ON current_org.id=current.organization_id`;
 
+// The companies that serve a place, best match first, with their lowest monthly plan for this kind of customer.
+const collectorsSql=(source:string)=>`SELECT o.id,o.name,o.phone,o.email,rc.match,rc.rank,
+  (SELECT MIN(sp.fee_ugx) FROM service_plans sp WHERE sp.organization_id=o.id AND sp.is_active AND sp.billing_frequency='monthly'
+    AND (sp.customer_type IS NULL OR sp.customer_type=$CUSTOMER_TYPE))::bigint from_fee_ugx
+ FROM ${source} JOIN organizations o ON o.id=rc.organization_id`;
+
+export async function collectorsFor(input:{divisionId?:string;areaId?:string;latitude?:number;longitude?:number;customerType?:string}){
+ const precise=Number.isFinite(input.latitude)&&Number.isFinite(input.longitude);
+ const result=await dbPool.query(`${collectorsSql(`recommended_collectors($1::uuid,$2::uuid,
+   CASE WHEN $3::float8 IS NULL THEN NULL ELSE ST_SetSRID(ST_Point($4::float8,$3::float8),4326)::geography END,$5) rc`).replace('$CUSTOMER_TYPE','$6')}
+  ORDER BY rc.rank,o.name`,[input.divisionId??null,input.areaId??null,precise?input.latitude:null,precise?input.longitude:null,precise,input.customerType??null]);
+ return result.rows;
+}
+
 export async function providerOptions(userId:string){
- const result=await dbPool.query(`SELECT o.id,o.name,o.phone,COUNT(DISTINCT z.id)::int matching_zones
-  FROM customer_profiles cp JOIN customer_service_locations l ON l.customer_id=cp.id AND l.is_primary
-  JOIN waste_zones z ON z.is_active AND z.boundary IS NOT NULL AND ST_Covers(z.boundary,l.location::geometry)
-  JOIN organizations o ON o.id=z.organization_id AND o.type='waste_collection_company' AND o.is_active
+ const result=await dbPool.query(`${collectorsSql(`customer_profiles cp JOIN customer_service_locations l ON l.customer_id=cp.id AND l.is_primary
+   CROSS JOIN LATERAL recommended_collectors(l.division_id,l.catalog_area_id,l.location,l.location_precise) rc`).replace('$CUSTOMER_TYPE','cp.customer_type')}
   LEFT JOIN customer_service_relationships current ON current.service_location_id=l.id AND current.status IN ('active','suspended')
   WHERE cp.user_id=$1::uuid AND o.id<>COALESCE(current.organization_id,'00000000-0000-0000-0000-000000000000'::uuid)
-  GROUP BY o.id,o.name,o.phone ORDER BY o.name`,[userId]);
+  ORDER BY rc.rank,o.name`,[userId]);
  return result.rows;
 }
 
@@ -47,11 +67,10 @@ export async function createProviderRequest(userId:string,organizationId:string,
    WHERE cp.user_id=$1::uuid FOR UPDATE OF l`,[userId]);
   const customer=found.rows[0];if(!customer)conflict('Save your primary service location before requesting a provider');
   if(customer.organization_id===organizationId)conflict('This organization is already your provider');
-  const coverage=await client.query(`SELECT z.id FROM waste_zones z JOIN organizations o ON o.id=z.organization_id
-   JOIN customer_service_locations l ON l.id=$2::uuid
-   WHERE z.organization_id=$1::uuid AND z.is_active AND z.boundary IS NOT NULL AND o.is_active
-    AND o.type='waste_collection_company' AND ST_Covers(z.boundary,l.location::geometry) ORDER BY z.id LIMIT 1`,[organizationId,customer.location_id]);
-  if(!coverage.rowCount)conflict('The selected provider does not currently cover this service address');
+  const coverage=await client.query(`SELECT 1 FROM customer_service_locations l
+   CROSS JOIN LATERAL recommended_collectors(l.division_id,l.catalog_area_id,l.location,l.location_precise) rc
+   WHERE l.id=$2::uuid AND rc.organization_id=$1::uuid`,[organizationId,customer.location_id]);
+  if(!coverage.rowCount)conflict('This company does not serve your area. Choose one of the companies listed for your area');
   const result=await client.query(`INSERT INTO customer_provider_requests(customer_id,service_location_id,current_relationship_id,
    requested_organization_id,status,customer_note,requested_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
    [customer.customer_id,customer.location_id,customer.relationship_id,organizationId,
@@ -107,11 +126,13 @@ export async function reviewProviderRequest(actorId:string,organizationId:string
     current_provider_reviewed_by=$3,current_provider_reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *`,
     [id,input.note??null,actorId]);await client.query('COMMIT');return advanced.rows[0];
   }
-  const coverage=await client.query(`SELECT z.id FROM waste_zones z JOIN organizations o ON o.id=z.organization_id
-   JOIN customer_service_locations l ON l.id=$2::uuid
-   WHERE z.organization_id=$1 AND z.is_active AND z.boundary IS NOT NULL AND o.is_active
-    AND ST_Covers(z.boundary,l.location::geometry) ORDER BY z.id LIMIT 1`,[organizationId,request.service_location_id]);
-  if(!coverage.rowCount)conflict('Approval blocked because this address is no longer inside active provider coverage');
+  // The zone the customer will be served from: the one the company chose, or the best match for the customer's place.
+  const coverage=input.zoneId
+   ?await client.query(`SELECT id FROM waste_zones WHERE id=$1::uuid AND organization_id=$2::uuid AND is_active`,[input.zoneId,organizationId])
+   :await client.query(`SELECT rc.zone_id id FROM customer_service_locations l
+     CROSS JOIN LATERAL recommended_collectors(l.division_id,l.catalog_area_id,l.location,l.location_precise) rc
+     WHERE l.id=$2::uuid AND rc.organization_id=$1::uuid AND rc.zone_id IS NOT NULL`,[organizationId,request.service_location_id]);
+  if(!coverage.rowCount)conflict(input.zoneId?'Choose one of your active service zones':'Choose the service zone this customer will be served from');
   const live=await client.query(`SELECT id,organization_id,effective_from FROM customer_service_relationships
    WHERE service_location_id=$1 AND status IN ('active','suspended') FOR UPDATE`,[request.service_location_id]);
   const current=live.rows[0]??null;
@@ -127,8 +148,10 @@ export async function reviewProviderRequest(actorId:string,organizationId:string
   await client.query(`INSERT INTO customer_service_relationships(customer_id,service_location_id,organization_id,status,
    relationship_source,effective_from,created_by) VALUES($1,$2,$3,'active',$4,CURRENT_DATE,$5)`,
    [request.customer_id,request.service_location_id,organizationId,current?'reviewed_transfer':'reviewed_link',actorId]);
-  await client.query('UPDATE customer_service_locations SET organization_id=$2,zone_id=$3,updated_at=CURRENT_TIMESTAMP WHERE id=$1',
-   [request.service_location_id,organizationId,coverage.rows[0].id]);
+  // A customer who did not share their position is placed at the zone's centre until the company records the exact spot.
+  await client.query(`UPDATE customer_service_locations l SET organization_id=$2,zone_id=$3,
+    location=CASE WHEN l.location_precise OR z.center_point IS NULL THEN l.location ELSE z.center_point END,updated_at=CURRENT_TIMESTAMP
+    FROM waste_zones z WHERE l.id=$1 AND z.id=$3`,[request.service_location_id,organizationId,coverage.rows[0].id]);
   await client.query("UPDATE customer_profiles SET service_status='active',updated_at=CURRENT_TIMESTAMP WHERE id=$1",[request.customer_id]);
   const approved=await client.query(`UPDATE customer_provider_requests SET status='approved',review_note=$2,final_reviewed_by=$3,
    final_reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING *`,[id,input.note??null,actorId]);
