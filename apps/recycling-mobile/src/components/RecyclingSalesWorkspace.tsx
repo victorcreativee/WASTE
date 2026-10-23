@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { SyncStatus } from "./SyncStatus";
 import { mobileRequest, readCachedResponse } from "../lib/mobile-api";
 import { AccountWorkspace } from "./AccountWorkspace";
+import { DailyReport } from "./DailyReport";
 import { useBottomNavigationSpace, RoleBottomNavigation, RoleNavigationItem } from "./RoleBottomNavigation";
 import { AppHeader, Banner, Button, Card, Chips, DateField, EmptyState, Field, Input, ListRow, MoneyInput, QuickActions, ReferenceInput, SectionHeader, Segmented, SummaryCard, page } from "../ui/kit";
 import { color, radius, space, type, ugx } from "../ui/theme";
@@ -63,8 +64,9 @@ type Workspace = {
     outstandingUgx?: number;
   };
   dailyClosures?: { operating_date: string; status: string }[];
+  summary?: { floatBalanceUgx?: number };
 };
-type Screen = "today" | "sell" | "history" | "account";
+type Screen = "today" | "sell" | "history" | "report" | "account";
 
 async function request<T>(
   path: string,
@@ -174,6 +176,7 @@ export function RecyclingSalesWorkspace({
   ];
   // The form follows the business day until someone picks another date.
   const saleDay = saleDate || workspace?.operations.operatingDate || localDay();
+  const paysFromFloat = user.roles.some((role) => ["recycling_field_manager", "recycling_collector", "recycling_sales"].includes(role));
   const saleCostTotal = Number(transport || 0) + Number(saleCosts.wages || 0) + Number(saleCosts.food || 0) + Number(saleCosts.other || 0);
   const todaySales =
     workspace?.sales.filter(
@@ -409,7 +412,7 @@ export function RecyclingSalesWorkspace({
             <QuickActions items={[
               { icon: "add-circle-outline", label: "New sale", onPress: () => setScreen("sell"), disabled: !stock.length },
               { icon: "cash-outline", label: "Record payment", onPress: () => setScreen("history"), tone: "success" },
-              { icon: "time-outline", label: "Sales history", onPress: () => setScreen("history"), tone: "neutral" },
+              { icon: "document-text-outline", label: "Day report", onPress: () => setScreen("report"), tone: "neutral" },
             ]} />
             <SectionHeader title={`Stock to sell · ${stockKg.toLocaleString("en-GB")} kg`} />
             {stock.slice(0, 8).map((x) => (
@@ -470,6 +473,7 @@ export function RecyclingSalesWorkspace({
             </Card>
             <Card>
               <Text style={type.heading}>Costs of this sale</Text>
+              {paysFromFloat ? <Text style={type.small}>Paid from the manager float · {ugx(Number(workspace?.summary?.floatBalanceUgx ?? 0))} available.</Text> : null}
               <Field label="Transport (UGX)"><MoneyInput value={transport === "0" ? "" : transport} onChangeText={(value) => setTransport(value || "0")} /></Field>
               {showSaleCosts ? <>
                 <View style={page.columns}>
@@ -535,6 +539,15 @@ export function RecyclingSalesWorkspace({
                 <Button title="Next" variant="secondary" disabled={historyPage === historyPages} onPress={() => setHistoryPage((n) => Math.min(historyPages, n + 1))} style={{ flex: 1 }} />
               </View>
             ) : null}
+          </>
+        )}
+        {screen === "report" && (
+          <>
+            <View>
+              <Text style={page.title}>Day report</Text>
+              <Text style={[type.small, { marginTop: 4 }]}>Choose a day to see sales, money received and costs, or share it.</Text>
+            </View>
+            <DailyReport token={token} email={user.email} />
           </>
         )}
         {screen === "account" && (

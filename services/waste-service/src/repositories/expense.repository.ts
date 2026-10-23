@@ -21,7 +21,7 @@ export async function findExpenses(organizationId:string|null){
    UNION ALL
    SELECT f.id,('REC-FLOAT-'||UPPER(LEFT(f.id::text,8))),'other',COALESCE(f.notes,'Manager float expense'),NULL,
     f.amount_ugx,f.transaction_date,'paid',NULL,'recycling_float',true,f.created_at
-   FROM recycling_manager_float_transactions f WHERE f.transaction_type='spent' AND f.purchase_lot_id IS NULL AND ($1::uuid IS NULL OR f.organization_id=$1::uuid)
+   FROM recycling_manager_float_transactions f WHERE f.transaction_type='spent' AND f.purchase_lot_id IS NULL AND f.sorting_batch_id IS NULL AND f.sale_id IS NULL AND ($1::uuid IS NULL OR f.organization_id=$1::uuid)
   ) x ORDER BY expense_date DESC,created_at DESC`,[organizationId]);
  const expenses=[...rows.rows.map(x=>({...x,read_only:false,source_type:x.source_type||'manual'})),...recycling.rows].sort((a,b)=>new Date(b.expense_date).getTime()-new Date(a.expense_date).getTime());
  const recyclingPayments=await dbPool.query(`SELECT COALESCE(SUM(GREATEST(p.paid-l.manager_float_used_ugx,0)),0)::bigint amount FROM recycling_material_lots l JOIN(SELECT lot_id,SUM(amount_ugx) paid FROM recycling_purchase_payments WHERE ($1::uuid IS NULL OR organization_id=$1::uuid) AND paid_on>=date_trunc('month',CURRENT_DATE)::date GROUP BY lot_id)p ON p.lot_id=l.id`,[organizationId]);
@@ -38,8 +38,8 @@ export async function findFinancialPosition(organizationId:string){const r=await
  COALESCE((SELECT SUM(amount_ugx) FROM organization_expenses WHERE organization_id=$1::uuid AND status='paid' AND COALESCE(paid_at::date,expense_date)>=s.as_of_date),0)::bigint standard_operating_payments_ugx,
  COALESCE((SELECT SUM(GREATEST(p.paid-l.manager_float_used_ugx,0)) FROM recycling_material_lots l JOIN(SELECT lot_id,SUM(amount_ugx) paid FROM recycling_purchase_payments WHERE organization_id=$1::uuid AND paid_on>=s.as_of_date GROUP BY lot_id)p ON p.lot_id=l.id),0)::bigint recycling_purchase_payments_ugx,
  COALESCE((SELECT SUM(amount_ugx) FROM recycling_manager_float_transactions WHERE organization_id=$1::uuid AND transaction_type='spent' AND transaction_date>=s.as_of_date),0)::bigint recycling_float_spent_ugx,
- COALESCE((SELECT SUM(processing_cost_ugx) FROM recycling_sorting_batches WHERE organization_id=$1::uuid AND processed_on>=s.as_of_date),0)::bigint recycling_processing_payments_ugx,
- COALESCE((SELECT SUM(worker_wages_ugx+food_ugx+transport_ugx+other_expense_ugx) FROM recycling_material_sales WHERE organization_id=$1::uuid AND sold_on>=s.as_of_date),0)::bigint recycling_sale_cost_payments_ugx,
+ COALESCE((SELECT SUM(processing_cost_ugx-manager_float_used_ugx) FROM recycling_sorting_batches WHERE organization_id=$1::uuid AND processed_on>=s.as_of_date),0)::bigint recycling_processing_payments_ugx,
+ COALESCE((SELECT SUM(worker_wages_ugx+food_ugx+transport_ugx+other_expense_ugx-manager_float_used_ugx) FROM recycling_material_sales WHERE organization_id=$1::uuid AND sold_on>=s.as_of_date),0)::bigint recycling_sale_cost_payments_ugx,
  COALESCE((SELECT SUM(amount_ugx) FROM supplier_payments WHERE organization_id=$1::uuid AND paid_on>=s.as_of_date),0)::bigint supplier_payments_ugx,
  COALESCE((SELECT SUM(balance_ugx) FROM customer_invoices WHERE organization_id=$1::uuid AND status<>'cancelled'),0)::bigint service_receivables_ugx,
  COALESCE((SELECT SUM(sale.quantity_kg*sale.unit_price_ugx-COALESCE(p.paid,0)) FROM recycling_material_sales sale LEFT JOIN(SELECT sale_id,SUM(amount_ugx) paid FROM recycling_sale_payments GROUP BY sale_id)p ON p.sale_id=sale.id WHERE sale.organization_id=$1::uuid AND sale.status<>'paid'),0)::bigint recycling_receivables_ugx,

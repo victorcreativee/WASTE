@@ -15,8 +15,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { discardMobileOutbox, mobileRequest, readCachedResponse } from "../lib/mobile-api";
 import { AccountWorkspace } from "./AccountWorkspace";
-import { AppHeader, Banner, DateField, QuickActions, ReferenceInput, Segmented, SummaryCard } from "../ui/kit";
-import { color } from "../ui/theme";
+import { AppHeader, Banner, DateField, QuickActions, ReferenceInput, Segmented, StatStrip, SummaryCard } from "../ui/kit";
+import { color, ugx } from "../ui/theme";
+import { DailyReport } from "./DailyReport";
+import { MoneyFlow } from "./MoneyFlow";
 import { useBottomNavigationSpace, RoleBottomNavigation } from "./RoleBottomNavigation";
 import { SectionNavigation } from "./SectionNavigation";
 import { SyncStatus } from "./SyncStatus";
@@ -28,7 +30,7 @@ type User = {
   roles: string[];
   permissions?: string[];
 };
-type Tab = "dashboard" | "operations" | "account";
+type Tab = "dashboard" | "operations" | "reports" | "account";
 type OperationSection = "processing" | "stock" | "expenses" | "finance" | "close";
 type RecordMap = Record<string, unknown>;
 
@@ -71,6 +73,9 @@ function isActive(item: RecordMap) {
     String(item.status || "").toLowerCase(),
   );
 }
+
+const num = (value: unknown) => Number(value || 0);
+const EXPENSE_CATEGORIES = [["fuel", "Fuel"], ["maintenance", "Maintenance"], ["equipment", "Equipment"], ["utilities", "Utilities"], ["disposal_fees", "Disposal fees"], ["office", "Office"], ["other", "Other"]] as const;
 
 const DASHBOARD_ENDPOINTS = [
   ["trips", "/api/waste/trips"],
@@ -117,7 +122,7 @@ export function CompanyTabletWorkspace({
     floatTransactions: [] as RecordMap[],
     recyclingOperations: {} as RecordMap,
     recyclingMaterials: [] as RecordMap[],
-    sortingRecords: [] as RecordMap[],
+    sortingBatches: [] as RecordMap[],
     stockAdjustments: [] as RecordMap[],
     dailyClosures: [] as RecordMap[],
     expenses: [] as RecordMap[],
@@ -133,6 +138,7 @@ export function CompanyTabletWorkspace({
   const emptySorting = { lotId: "", inputKg: "", outputMaterial: "", outputKg: "", rejectedKg: "0", wages: "", utilities: "", transport: "", consumables: "", other: "", float: "", notes: "" };
   const [sorting, setSorting] = useState(emptySorting);
   const [entryDate, setEntryDate] = useState("");
+  const [reportView, setReportView] = useState<"day" | "money">("day");
   const [adjustment, setAdjustment] = useState({ lotId: "", type: "loss", quantityKg: "", reason: "", notes: "" });
   const [closeNotes, setCloseNotes] = useState("");
   const [reopenReason, setReopenReason] = useState("");
@@ -171,7 +177,7 @@ export function CompanyTabletWorkspace({
         next.floatTransactions = records(recycling?.floatTransactions);
         next.recyclingOperations = objectData(recycling?.operations) || {};
         next.recyclingMaterials = records(recycling?.materials);
-        next.sortingRecords = records(recycling?.sortingRecords);
+        next.sortingBatches = records(recycling?.sortingBatches);
         next.stockAdjustments = records(recycling?.stockAdjustments);
         next.dailyClosures = records(recycling?.dailyClosures);
       });
@@ -295,6 +301,12 @@ export function CompanyTabletWorkspace({
   // until someone picks another.
   const entryDay = entryDate || operatingDate;
   const entryClosed = closedDays.includes(entryDay);
+  const floatBalance = num(data.recyclingSummary.floatBalanceUgx);
+  const officeCash = num(data.recyclingSummary.officeCashUgx);
+  // Field managers spend from the float; company administrators still send expenses for approval.
+  const expenseFromFloat = user.roles.includes("recycling_field_manager");
+  // The server limits money in and out to people who manage company or field money.
+  const canSeeMoneyFlow = user.roles.some((role) => ["recycling_field_manager", "company_admin"].includes(role));
   const canManageInventory =
     user.roles.some((role) => ["company_admin", "recycling_field_manager"].includes(role)) ||
     Boolean(user.permissions?.includes("recycling.inventory.manage"));
@@ -313,19 +325,34 @@ export function CompanyTabletWorkspace({
     }
     try {
       setSavingExpense(true);
-      const result = await mobileRequest<RecordMap>("/api/waste/finance/expenses", token, user.email, {
-        method: "POST",
-        body: JSON.stringify({
-          category: expense.category,
-          description: expense.description.trim(),
-          vendor: expense.vendor.trim() || undefined,
-          amountUgx,
-          expenseDate: entryDay,
-          reference: expense.reference.trim(),
-        }),
-      });
+      const category = EXPENSE_CATEGORIES.find(([value]) => value === expense.category)?.[1] || "Other";
+      const result = expenseFromFloat
+        ? await mobileRequest<RecordMap>("/api/waste/recycling/manager-float", token, user.email, {
+            method: "POST",
+            body: JSON.stringify({
+              transactionDate: entryDay,
+              transactionType: "spent",
+              amountUgx,
+              reference: expense.reference.trim(),
+              notes: `${category}: ${expense.description.trim()}${expense.vendor.trim() ? ` · ${expense.vendor.trim()}` : ""}`,
+            }),
+          })
+        : await mobileRequest<RecordMap>("/api/waste/finance/expenses", token, user.email, {
+            method: "POST",
+            body: JSON.stringify({
+              category: expense.category,
+              description: expense.description.trim(),
+              vendor: expense.vendor.trim() || undefined,
+              amountUgx,
+              expenseDate: entryDay,
+              reference: expense.reference.trim(),
+            }),
+          });
       setExpense({ category: "other", description: "", vendor: "", amountUgx: "", reference: "" });
-      Alert.alert(result.queuedOffline ? "Expense saved offline" : "Expense submitted", result.queuedOffline ? "It will synchronize into the organization finance ledger when internet returns." : "The expense is now awaiting company approval in the organization finance ledger.");
+      Alert.alert(
+        result.queuedOffline ? "Expense saved offline" : expenseFromFloat ? "Expense paid from float" : "Expense submitted",
+        result.queuedOffline ? "It will be sent when internet returns." : expenseFromFloat ? `${ugx(amountUgx)} was taken from the manager float.` : "The expense is now awaiting company approval.",
+      );
       if (!result.queuedOffline) void load();
     } catch (caught) {
       Alert.alert("Could not submit expense", caught instanceof Error ? caught.message : "Please try again.");
@@ -454,14 +481,16 @@ export function CompanyTabletWorkspace({
         {tab === "account" ? (
           <AccountWorkspace user={user} onLogout={onLogout} />
         ) : <>
-        <Segmented value={tab === "operations" ? "operations" : "dashboard"} onChange={(value) => setTab(value)}
-          options={[{ value: "dashboard", label: "Overview" }, { value: "operations", label: "Daily operations" }]} />
+        <Segmented value={tab} onChange={(value) => setTab(value)}
+          options={[{ value: "dashboard", label: "Overview" }, { value: "operations", label: "Operations" }, ...(recyclingAvailable ? [{ value: "reports" as const, label: "Reports" }] : [])]} />
         <View style={styles.intro}>
-          <Text style={styles.pageTitle}>{tab === "dashboard" ? "Today" : "Daily operations"}</Text>
+          <Text style={styles.pageTitle}>{tab === "dashboard" ? "Today" : tab === "reports" ? "Reports" : "Daily operations"}</Text>
           <Text style={styles.subtitle}>
             {tab === "dashboard"
-              ? "A clear view of the business information that needs your attention today."
-              : "Manage sorting, stock corrections, active work, field money and daily close."}
+              ? "Money available, stock and what needs your attention."
+              : tab === "reports"
+                ? "A day's work in detail, or all money that came in and went out over a period."
+                : "Manage sorting, stock corrections, active work, field money and daily close."}
           </Text>
         </View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -470,10 +499,21 @@ export function CompanyTabletWorkspace({
         ) : (
           <>
             {tab === "dashboard" ? <>
-            {recyclingAvailable ? (
-              <SummaryCard label="Stock on hand" value={`${availableStockKg.toLocaleString("en-GB")} kg`}
-                stats={[{ label: "Purchases", value: data.recycling.length }, { label: "Sales", value: data.recyclingSales.length }, { label: "Partners", value: data.recyclingPartners.length }]} />
-            ) : (
+            {recyclingAvailable ? <>
+              <SummaryCard label="Manager float · available to spend" value={ugx(floatBalance)}
+                caption={floatBalance > 0 ? "Purchases, sale costs and expenses are paid from this." : "Ask the office to issue float before buying or paying costs."}
+                stats={[
+                  { label: "Office cash", value: ugx(officeCash).replace("UGX ", "") },
+                  { label: "Stock on hand", value: `${availableStockKg.toLocaleString("en-GB")} kg` },
+                ]} />
+              <View style={{ height: 12 }} />
+              <StatStrip items={[
+                { label: "Owed to suppliers", value: ugx(num(data.recyclingSummary.creditPurchasesUgx)), tone: num(data.recyclingSummary.overduePayablesUgx) > 0 ? "danger" : "warning" },
+                { label: "Owed by buyers", value: ugx(num(data.recyclingSummary.unpaidSalesUgx)), tone: num(data.recyclingSummary.overdueReceivablesUgx) > 0 ? "danger" : "action" },
+                { label: "Company cash", value: ugx(num(data.recyclingSummary.cashPositionUgx ?? data.financePosition.cash_position_ugx)) },
+                { label: "Profit so far", value: ugx(num(data.recyclingSummary.profitLossUgx)), tone: num(data.recyclingSummary.profitLossUgx) < 0 ? "danger" : "success" },
+              ]} />
+            </> : (
               <SummaryCard label="Trips today" value={String(data.trips.length)}
                 stats={[{ label: "In progress", value: activeTrips.length }, { label: "Customers", value: data.customers.length }, { label: "Vehicles", value: data.vehicles.length }]} />
             )}
@@ -541,6 +581,13 @@ export function CompanyTabletWorkspace({
               </View>
             ) : null}
             </> : null}
+            {tab === "reports" ? <>
+              {canSeeMoneyFlow ? <>
+                <Segmented value={reportView} onChange={setReportView} options={[{ value: "day", label: "Day report" }, { value: "money", label: "Money in & out" }]} />
+                <View style={{ height: 16 }} />
+              </> : null}
+              {reportView === "money" && canSeeMoneyFlow ? <MoneyFlow token={token} email={user.email} /> : <DailyReport token={token} email={user.email} />}
+            </> : null}
             {tab === "operations" ? <>
             <SectionNavigation title="Daily work" items={[
               { id: "processing", label: "Processing", active: operationSection === "processing", onPress: () => setOperationSection("processing") },
@@ -573,6 +620,7 @@ export function CompanyTabletWorkspace({
                       <View style={styles.field}><Text style={styles.inputLabel}>Rejected kg</Text><TextInput accessibilityLabel="Rejected kg" value={sorting.rejectedKg} onChangeText={(value) => setSorting((current) => ({ ...current, rejectedKg: value }))} keyboardType="decimal-pad" style={styles.input} /></View>
                     </View>
                     <Text style={styles.inputLabel}>Processing costs (UGX)</Text>
+                    {expenseFromFloat ? <Text style={styles.muted}>Paid from the manager float · {ugx(floatBalance)} available.</Text> : null}
                     <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
                       <View style={styles.field}><Text style={styles.inputLabel}>Worker wages</Text><TextInput accessibilityLabel="Worker wages" value={sorting.wages} onChangeText={(value) => setSorting((current) => ({ ...current, wages: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
                       <View style={styles.field}><Text style={styles.inputLabel}>Power and water</Text><TextInput accessibilityLabel="Power and water" value={sorting.utilities} onChangeText={(value) => setSorting((current) => ({ ...current, utilities: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
@@ -583,7 +631,7 @@ export function CompanyTabletWorkspace({
                     </View>
                     <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
                       <View style={styles.field}><Text style={styles.inputLabel}>Other costs</Text><TextInput accessibilityLabel="Other costs" value={sorting.other} onChangeText={(value) => setSorting((current) => ({ ...current, other: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
-                      <View style={styles.field}><Text style={styles.inputLabel}>Paid from manager float</Text><TextInput accessibilityLabel="Paid from manager float" value={sorting.float} onChangeText={(value) => setSorting((current) => ({ ...current, float: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
+                      {expenseFromFloat ? null : <View style={styles.field}><Text style={styles.inputLabel}>Paid from manager float</Text><TextInput accessibilityLabel="Paid from manager float" value={sorting.float} onChangeText={(value) => setSorting((current) => ({ ...current, float: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>}
                     </View>
                     <Text style={styles.inputLabel}>Notes (optional)</Text><TextInput accessibilityLabel="Notes (optional)" value={sorting.notes} onChangeText={(value) => setSorting((current) => ({ ...current, notes: value }))} style={styles.input} />
                     <Pressable disabled={savingOperation || entryClosed} onPress={() => void saveSorting()} style={[styles.primaryButton, (savingOperation || entryClosed) && styles.disabled]}><Text style={styles.primaryButtonText}>{entryClosed ? "This day is closed" : savingOperation ? "Saving…" : "Record sorting"}</Text></Pressable>
@@ -609,13 +657,15 @@ export function CompanyTabletWorkspace({
             ) : null}
             {recyclingAvailable && canCreateExpense && operationSection === "expenses" ? (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Submit organization expense</Text>
-                <Text style={styles.sectionCopy}>Record a real field expense with its receipt or voucher. It enters the organization finance ledger as a draft and must be approved before payment affects cash.</Text>
+                <Text style={styles.sectionTitle}>{expenseFromFloat ? "Pay an expense from the float" : "Submit organization expense"}</Text>
+                <Text style={styles.sectionCopy}>{expenseFromFloat
+                  ? `Record money spent from the manager float, with its receipt or voucher. ${ugx(floatBalance)} is available in the float.`
+                  : "Record a real field expense with its receipt or voucher. It enters the organization finance ledger as a draft and must be approved before payment affects cash."}</Text>
                 <View style={styles.formArea}>
                   <Text style={styles.inputLabel}>Date on the receipt</Text>
                   <DateField value={entryDay} onChange={setEntryDate} blocked={closedDays} />
                   <Text style={styles.inputLabel}>Category</Text>
-                  <View style={styles.choices}>{[["fuel","Fuel"],["maintenance","Maintenance"],["equipment","Equipment"],["utilities","Utilities"],["disposal_fees","Disposal fees"],["office","Office"],["other","Other"]].map(([value,label]) => <Pressable key={value} onPress={() => setExpense((current) => ({ ...current, category: value }))} accessibilityRole="radio" accessibilityState={{ checked: expense.category === value }} style={[styles.choice, expense.category === value && styles.choiceActive]}><Text style={[styles.choiceText, expense.category === value && styles.choiceTextActive]}>{label}</Text></Pressable>)}</View>
+                  <View style={styles.choices}>{EXPENSE_CATEGORIES.map(([value,label]) => <Pressable key={value} onPress={() => setExpense((current) => ({ ...current, category: value }))} accessibilityRole="radio" accessibilityState={{ checked: expense.category === value }} style={[styles.choice, expense.category === value && styles.choiceActive]}><Text style={[styles.choiceText, expense.category === value && styles.choiceTextActive]}>{label}</Text></Pressable>)}</View>
                   <Text style={styles.inputLabel}>What was paid for?</Text><TextInput accessibilityLabel="What was paid for?" value={expense.description} onChangeText={(value) => setExpense((current) => ({ ...current, description: value }))} placeholder="Example: Baling machine repair" style={styles.input} />
                   <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
                     <View style={styles.field}><Text style={styles.inputLabel}>Amount (UGX)</Text><TextInput accessibilityLabel="Amount (UGX)" value={expense.amountUgx} onChangeText={(value) => setExpense((current) => ({ ...current, amountUgx: value }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
@@ -649,10 +699,10 @@ export function CompanyTabletWorkspace({
                 </Text>
                 <View style={[styles.metrics, tablet && styles.metricsTablet]}>
                   {[
-                    ["Office cash", data.recyclingSummary.officeCashUgx ?? data.financePosition.cash_position_ugx ?? 0],
-                    ["Manager float", data.recyclingSummary.floatBalanceUgx ?? 0],
-                    ["Available to commit", data.financePosition.available_to_commit_ugx ?? 0],
-                    ["Receivables", data.financePosition.receivables_ugx ?? data.recyclingSummary.unpaidSalesUgx ?? 0],
+                    ["Manager float · to spend", data.recyclingSummary.floatBalanceUgx ?? 0],
+                    ["Office cash", data.recyclingSummary.officeCashUgx ?? 0],
+                    ["Available to commit", data.recyclingSummary.availableToCommitUgx ?? data.financePosition.available_to_commit_ugx ?? 0],
+                    ["Owed by buyers", data.recyclingSummary.unpaidSalesUgx ?? data.financePosition.receivables_ugx ?? 0],
                   ].map(([label, value]) => <View key={String(label)} style={[styles.metric, tablet && styles.metricTablet]}><Text style={styles.metricLabel}>{String(label)}</Text><Text style={styles.metricValue}>UGX {Number(value || 0).toLocaleString()}</Text></View>)}
                 </View>
                 <View style={styles.formArea}>

@@ -1,9 +1,10 @@
 import {NextFunction,Request,Response,Router} from 'express';
 import {requireAnyOrganizationPermission,requireOrganizationPermission} from '../middlewares/organization-permission.middleware';
-import {getRecycling,patchDailyReopen,patchLot,patchMaterialState,patchPartner,patchPartnerState,patchPurchaseDueDate,patchSale,patchSaleDueDate,payPurchase,paySale,postCashMovement,postDailyClose,postLot,postManagerFloat,postMaterial,postPartner,postPaymentFollowUp,postSale,postSorting,postStockAdjustment} from '../controllers/recycling.controller';
+import {getCashFlow,getRecycling,patchDailyReopen,patchLot,patchMaterialState,patchPartner,patchPartnerState,patchPurchaseDueDate,patchSale,patchSaleDueDate,payPurchase,paySale,postCashMovement,postDailyClose,postLot,postManagerFloat,postMaterial,postPartner,postPaymentFollowUp,postSale,postSorting,postStockAdjustment} from '../controllers/recycling.controller';
 const r=Router(),run=(h:(q:Request,s:Response)=>Promise<unknown>)=>async(q:Request,s:Response,n:NextFunction)=>{try{await h(q,s)}catch(e){n(e)}};
 const permission=(code:string)=>requireOrganizationPermission(code);
 r.get('/recycling',permission('recycling.read'),run(getRecycling));
+r.get('/recycling/cash-flow',requireAnyOrganizationPermission('recycling.finance.manage','recycling.field_float.manage'),run(getCashFlow));
 r.post('/recycling/lots',permission('recycling.purchase.create'),run(postLot));
 r.patch('/recycling/lots/:id',permission('recycling.transaction.edit'),run(patchLot));
 r.post('/recycling/sales',requireAnyOrganizationPermission('recycling.local_sale.create','recycling.industrial_sale.manage'),run(postSale));

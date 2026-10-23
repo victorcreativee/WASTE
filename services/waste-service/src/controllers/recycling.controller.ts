@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { Request, Response } from "express";
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { requireOrganizationScope } from "../middlewares/organization-scope";
@@ -23,6 +24,9 @@ import {
 } from "../validators/recycling.validator";
 import { dateOnly } from "../utils/date-only";
 const identity = (r: Request) => (r as AuthenticatedRequest).auth!;
+// Field staff spend from the manager float; office cash only moves when float is issued or returned.
+const FIELD_ROLES = ["recycling_field_manager", "recycling_collector", "recycling_sales"];
+const paysFromFloat = (r: Request) => identity(r).roles.some((role) => FIELD_ROLES.includes(role));
 const org = (r: Request) => {
   const id = identity(r).organizationId;
   if (!id)
@@ -173,6 +177,11 @@ export async function getRecycling(r: Request, s: Response) {
 export async function postLot(r: Request, s: Response) {
   const organizationId = org(r),
     input = lotSchema.parse(r.body);
+  if (paysFromFloat(r) && input.purchasePaymentStatus === "paid")
+    input.managerFloatUsedUgx = Math.round(
+      input.quantityKg * input.unitPurchasePriceUgx + input.workerWagesUgx + input.foodUgx +
+        input.transportUgx + input.driverFeeUgx + input.otherExpenseUgx,
+    );
   await repo.assertPurchaseFunding(organizationId, input);
   const lot = await repo.createLot(organizationId, identity(r).userId, input);
   if (
@@ -202,14 +211,9 @@ export async function postSale(r: Request, s: Response) {
         success: false,
         message: "Industrial sales staff may record industry sales only",
       });
-  await repo.assertCashFunding(
-    organizationId,
-    input.workerWagesUgx +
-      input.foodUgx +
-      input.transportUgx +
-      input.otherExpenseUgx,
-    "Sale expenses",
-  );
+  const saleCosts = input.workerWagesUgx + input.foodUgx + input.transportUgx + input.otherExpenseUgx;
+  if (paysFromFloat(r)) input.managerFloatUsedUgx = saleCosts;
+  else await repo.assertCashFunding(organizationId, saleCosts, "Sale expenses");
   const result = await repo.createSale(
     organizationId,
     identity(r).userId,
@@ -252,6 +256,8 @@ export async function postCashMovement(r:Request,s:Response){const input=cashMov
 export async function postSorting(r: Request, s: Response) {
   const organizationId = org(r),
     input = sortingSchema.parse(r.body);
+  if (paysFromFloat(r))
+    input.managerFloatUsedUgx = input.workerWagesUgx + input.utilitiesUgx + input.transportUgx + input.consumablesUgx + input.otherExpenseUgx;
   const result = await repo.createSortingBatch(
     organizationId,
     identity(r).userId,
@@ -359,16 +365,20 @@ export async function patchMaterialState(r: Request, s: Response) {
 }
 export async function payPurchase(r: Request, s: Response) {
   const organizationId = org(r),
-    input = salePaymentSchema.parse(r.body);
-  await repo.assertCreditPurchasePaymentFunding(
-    organizationId,
-    input.amountUgx,
-  );
+    input = salePaymentSchema.parse(r.body),
+    fromFloat = paysFromFloat(r);
+  // Field staff pay suppliers from the manager float; the float balance is checked inside the payment transaction.
+  if (!fromFloat)
+    await repo.assertCreditPurchasePaymentFunding(
+      organizationId,
+      input.amountUgx,
+    );
   const result = await repo.markPurchasePaid(
     organizationId,
     identity(r).userId,
     r.params.id as string,
     input,
+    fromFloat,
   );
   return result
     ? s.json({
@@ -494,4 +504,12 @@ export async function patchDailyReopen(r: Request, s: Response) {
     : s
         .status(404)
         .json({ success: false, message: "Closed business day not found" });
+}
+
+const cashFlowQuery = z.object({ from: z.string().date(), to: z.string().date() }).refine((x) => x.from <= x.to, { message: "The start date must be on or before the end date" })
+  .refine((x) => (new Date(x.to).getTime() - new Date(x.from).getTime()) / 86400000 <= 366, { message: "Choose a period of one year or less" });
+export async function getCashFlow(r: Request, s: Response) {
+  const query = cashFlowQuery.parse(r.query);
+  s.set("Cache-Control", "private, no-store");
+  return s.json({ success: true, message: "Money in and out", data: await repo.cashFlow(requireOrganizationScope(r), query.from, query.to) });
 }

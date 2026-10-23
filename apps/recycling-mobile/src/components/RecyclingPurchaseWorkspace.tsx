@@ -14,13 +14,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { MobileUser } from "../lib/auth-session";
 import { mobileRequest, readCachedResponse } from "../lib/mobile-api";
 import { AccountWorkspace } from "./AccountWorkspace";
+import { DailyReport } from "./DailyReport";
 import { useBottomNavigationSpace, RoleBottomNavigation, RoleNavigationItem } from "./RoleBottomNavigation";
 import { SyncStatus } from "./SyncStatus";
-import { AppHeader, Banner, Button, Card, Chips, DateField, EmptyState, Field, Input, ListRow, MoneyInput, QuickActions, ReferenceInput, SectionHeader, Segmented, SummaryCard, page } from "../ui/kit";
+import { AppHeader, Banner, Button, Card, Chips, DateField, EmptyState, Field, Icon, Input, ListRow, MoneyInput, QuickActions, ReferenceInput, SectionHeader, Segmented, SummaryCard, page } from "../ui/kit";
 import { color, type, ugx } from "../ui/theme";
 import { formatDay, localDay } from "../lib/dates";
 
-type Screen = "today" | "buy" | "history" | "account";
+type Screen = "today" | "buy" | "history" | "report" | "account";
 type Material = { id: string; name: string; active: boolean };
 type Partner = { id: string; name: string; partner_type: string; active: boolean };
 type Lot = {
@@ -53,6 +54,7 @@ type Workspace = {
   /** The member's recycling permission codes; older servers do not send this. */
   permissions?: string[];
   dailyClosures?: { operating_date: string; status: string }[];
+  summary?: { floatBalanceUgx?: number };
 };
 
 export function RecyclingPurchaseWorkspace({
@@ -88,7 +90,6 @@ export function RecyclingPurchaseWorkspace({
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
   const [transport, setTransport] = useState("0");
-  const [floatUsed, setFloatUsed] = useState("0");
   const [quality, setQuality] = useState("mixed");
   const [payment, setPayment] = useState("paid");
   const [reference, setReference] = useState("");
@@ -181,6 +182,10 @@ export function RecyclingPurchaseWorkspace({
   const materialCost = Number(quantity || 0) * Number(price || 0);
   const extraCosts = Number(transport || 0) + Number(costs.wages || 0) + Number(costs.food || 0) + Number(costs.driver || 0) + Number(costs.other || 0);
   const total = Math.round(materialCost + extraCosts);
+  // Paid purchases come out of the manager float on the server; warn early when the saved balance is not enough.
+  const paysFromFloat = user.roles.some((role) => ["recycling_field_manager", "recycling_collector", "recycling_sales"].includes(role));
+  const floatAvailable = Number(workspace?.summary?.floatBalanceUgx ?? 0);
+  const floatShort = paysFromFloat && payment === "paid" && workspace?.summary?.floatBalanceUgx !== undefined && total > floatAvailable;
 
   async function attachLocation() {
     try {
@@ -218,8 +223,8 @@ export function RecyclingPurchaseWorkspace({
       setError(`${formatDay(recordDate)} is closed. Choose another date or ask a manager to reopen it.`);
       return;
     }
-    if (Number(floatUsed || 0) > total) {
-      setError("Money from the manager float cannot be more than the total cost.");
+    if (floatShort) {
+      setError(`The manager float has only ${ugx(floatAvailable)} and this purchase costs ${ugx(total)}. Ask the office to issue more float, or record it on credit.`);
       return;
     }
     try {
@@ -247,7 +252,8 @@ export function RecyclingPurchaseWorkspace({
             transportUgx: Number(transport || 0),
             driverFeeUgx: Number(costs.driver || 0),
             otherExpenseUgx: Number(costs.other || 0),
-            managerFloatUsedUgx: Number(floatUsed || 0),
+            // The server takes field staff's paid purchases from the manager float.
+            managerFloatUsedUgx: 0,
             collectionLatitude: location?.latitude,
             collectionLongitude: location?.longitude,
             collectionAccuracyM: location?.accuracy,
@@ -257,7 +263,7 @@ export function RecyclingPurchaseWorkspace({
       );
       if (result.queuedOffline) {
         const local: Lot = {
-          id: result.localId || `local-${Date.now()}`,
+          id: result.localId || "local-purchase",
           material_type: materialType,
           source_name: supplier?.name || source.trim(),
           quantity_kg: String(Number(quantity)),
@@ -272,6 +278,9 @@ export function RecyclingPurchaseWorkspace({
         setWorkspace((current) => current ? {
           ...current,
           lots: [local, ...current.lots],
+          summary: paysFromFloat && payment === "paid" && current.summary
+            ? { ...current.summary, floatBalanceUgx: Number(current.summary.floatBalanceUgx ?? 0) - total }
+            : current.summary,
           // Only field buyers get a personal summary from the server; everyone else's totals come from the lots themselves.
           myActivity: current.myActivity && recordDate === today ? {
             ...current.myActivity,
@@ -289,7 +298,6 @@ export function RecyclingPurchaseWorkspace({
       setQuantity("");
       setPrice("");
       setTransport("0");
-      setFloatUsed("0");
       setReference("");
       setNotes("");
       setPurchaseDate("");
@@ -427,7 +435,7 @@ export function RecyclingPurchaseWorkspace({
             canPaySuppliers && owedLots.length
               ? { icon: "wallet-outline" as const, label: "Pay supplier", onPress: () => { setHistoryFilter("owed"); setScreen("history"); }, tone: "neutral" as const }
               : { icon: "time-outline" as const, label: "History", onPress: () => setScreen("history"), tone: "neutral" as const },
-            { icon: "person-outline", label: "My account", onPress: () => setScreen("account"), tone: "neutral" },
+            { icon: "document-text-outline", label: "Day report", onPress: () => setScreen("report"), tone: "neutral" },
           ]} />
           <SectionHeader title="Today’s purchases" action={purchases.length ? { label: "See all", onPress: () => setScreen("history") } : undefined} />
           {todayLots.slice(0, 8).map((lot) => <PurchaseRow key={lot.id} lot={lot} />)}
@@ -488,9 +496,16 @@ export function RecyclingPurchaseWorkspace({
               hint="The number on the receipt or mobile-money message for this payment. No number? Tap New and write it on the voucher you give the supplier.">
               <ReferenceInput value={reference} onChangeText={setReference} prefix="PUR" placeholder="e.g. MoMo ID or receipt no." />
             </Field> : <Banner tone="neutral" text="The supplier will be paid later. The purchase is listed as owed until a payment is recorded." />}
-            <Field label="Paid from manager float (UGX)" hint="Only the part of this purchase paid with field money the manager is holding.">
-              <MoneyInput value={floatUsed === "0" ? "" : floatUsed} onChangeText={(value) => setFloatUsed(value || "0")} />
-            </Field>
+            {payment === "paid" && paysFromFloat ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Icon name="wallet-outline" size={16} tint={floatShort ? color.danger : color.muted} />
+                <Text style={[type.small, { flex: 1 }, floatShort && { color: color.danger }]}>
+                  {floatShort
+                    ? `The manager float has only ${ugx(floatAvailable)}. Ask the office to issue more float, or buy on credit.`
+                    : `Paid from the manager float · ${ugx(floatAvailable)} available.`}
+                </Text>
+              </View>
+            ) : null}
           </Card>
 
           <Card>
@@ -542,6 +557,7 @@ export function RecyclingPurchaseWorkspace({
             </View>
             <Field label="Amount paid"><MoneyInput value={payAmount} onChangeText={setPayAmount} /></Field>
             <Field label="Date paid"><DateField value={payDate} onChange={setPayDate} min={localDay(payingLot.collected_on)} /></Field>
+            {paysFromFloat ? <Text style={type.small}>Paid from the manager float · {ugx(floatAvailable)} available.</Text> : null}
             <Field label="Payment reference" hint="The mobile-money transaction ID or receipt number. No number? Tap New and write it on the voucher the supplier signs.">
               <ReferenceInput value={payReference} onChangeText={setPayReference} prefix="PUR" placeholder="e.g. MoMo ID or receipt no." />
             </Field>
@@ -553,6 +569,14 @@ export function RecyclingPurchaseWorkspace({
             onPress={canPaySuppliers && owed(lot) && lot.status !== "pending_sync" ? () => startPayment(lot) : undefined} />)}
           {!filtered.length ? <EmptyState icon="search-outline" title={historyFilter === "owed" ? "Nothing owed" : "No matching purchases"}
             text={historyFilter === "owed" ? "Every supplier has been paid in full." : "Try another word, or record a new purchase."} /> : null}
+        </> : null}
+
+        {screen === "report" ? <>
+          <View>
+            <Text style={page.title}>Day report</Text>
+            <Text style={[type.small, { marginTop: 4 }]}>Choose a day to see what was bought, paid and owed, or share it.</Text>
+          </View>
+          <DailyReport token={token} email={user.email} />
         </> : null}
 
         {screen === "account" ? <AccountWorkspace user={user} organizationName={workspace?.organization.name} onLogout={onLogout} /> : null}
