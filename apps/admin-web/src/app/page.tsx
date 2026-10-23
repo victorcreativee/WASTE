@@ -59,9 +59,36 @@ function CityDashboard() {
   </div>;
 }
 
+// Header links: sections of this page, then the pricing page.
+const PUBLIC_LINKS = [["#platform", "Platform"], ["#roles", "Who it serves"], ["#oversight", "KCCA oversight"], ["/pricing", "Pricing"]] as const;
+
 export default function Home() {
   return <main className="min-h-screen bg-[var(--background)] text-[#18202f]">
-    <header className="sticky top-0 z-30 border-b border-slate-200 bg-[var(--background)]/95 backdrop-blur"><div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-6 px-5 lg:px-8"><Link href="/" className="flex items-center gap-3" aria-label="Kampala WMS home"><Image src="/logo-mark-blue.svg" alt="" width={32} height={32} unoptimized className="h-8 w-8 rounded-[var(--ui-radius)]" /><span><strong className="block text-sm font-semibold">Kampala WMS</strong><span className="block text-[11px] text-slate-500">City waste operations</span></span></Link><nav aria-label="Public navigation" className="hidden items-center gap-6 text-sm font-medium text-slate-600 lg:flex"><a href="#platform">Platform</a><a href="#roles">Who it serves</a><a href="#operations">Daily operations</a><a href="#oversight">KCCA oversight</a><Link href="/pricing">Pricing</Link><Link href="/join">For homes &amp; businesses</Link><a href="#start">Get started</a></nav><div className="flex items-center gap-2"><Link href="/register/organization" className="hidden px-3 py-2 text-sm font-semibold text-[var(--color-action)] sm:inline-block">Register organization</Link><Link href="/login" className="border border-[var(--color-action)] px-4 py-2 text-sm font-semibold text-[var(--color-action)] hover:bg-blue-50">Sign in</Link></div></div></header>
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-[var(--background)]/95 backdrop-blur">
+      <div className="mx-auto flex h-16 max-w-7xl items-center gap-8 px-5 lg:px-8">
+        <Link href="/" className="flex shrink-0 items-center gap-3" aria-label="Kampala WMS home"><Image src="/logo-mark-blue.svg" alt="" width={32} height={32} unoptimized className="h-8 w-8 rounded-[var(--ui-radius)]" /><span className="whitespace-nowrap"><strong className="block text-sm font-semibold leading-5">Kampala WMS</strong><span className="block text-[11px] leading-4 text-slate-500">City waste operations</span></span></Link>
+        <nav aria-label="Public navigation" className="hidden flex-1 items-center gap-1 text-sm font-medium text-slate-600 lg:flex">
+          {PUBLIC_LINKS.map(([href, text]) => <a key={href} href={href} className="whitespace-nowrap rounded-[var(--ui-radius)] px-3 py-2 hover:bg-slate-100 hover:text-slate-950">{text}</a>)}
+        </nav>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <Link href="/join" className="hidden whitespace-nowrap px-3 py-2 text-sm font-semibold text-slate-700 hover:text-slate-950 xl:inline-block">Get waste collected</Link>
+          <Link href="/login" className="whitespace-nowrap rounded-[var(--ui-radius)] px-3 py-2 text-sm font-semibold text-[var(--color-action)] hover:bg-[var(--color-action-soft)]">Sign in</Link>
+          <Link href="/register/organization" className="hidden whitespace-nowrap rounded-[var(--ui-radius)] bg-[var(--color-action)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--color-action-hover)] sm:inline-block">Register organization</Link>
+          <details className="group relative lg:hidden">
+            <summary aria-label="Menu" className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-[var(--ui-radius)] border border-slate-300 text-slate-700 [&::-webkit-details-marker]:hidden">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" className="group-open:hidden"/><path d="M6 6l12 12M18 6 6 18" className="hidden group-open:block"/></svg>
+            </summary>
+            <div className="absolute right-0 top-11 w-64 rounded-[var(--ui-radius)] border border-slate-200 bg-white p-2 shadow-lg">
+              {PUBLIC_LINKS.map(([href, text]) => <a key={href} href={href} className="block rounded-[var(--ui-radius)] px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100">{text}</a>)}
+              <div className="mt-2 border-t border-slate-100 pt-2">
+                <Link href="/join" className="block rounded-[var(--ui-radius)] px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-100">Get waste collected</Link>
+                <Link href="/register/organization" className="mt-1 block rounded-[var(--ui-radius)] bg-[var(--color-action)] px-3 py-2.5 text-center text-sm font-semibold text-white sm:hidden">Register organization</Link>
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+    </header>
 
     <section className="border-b border-slate-300"><div className="mx-auto grid max-w-7xl gap-14 px-5 py-16 lg:grid-cols-[.92fr_1.08fr] lg:px-8 lg:py-24"><div className="self-center"><Eyebrow>Kampala&apos;s connected waste operations platform</Eyebrow><h1 className="mt-5 max-w-3xl text-5xl font-semibold leading-[1.04] tracking-[-.04em] text-slate-950 sm:text-6xl">Cleaner city services. One connected operating system.</h1><p className="mt-7 max-w-2xl text-lg leading-8 text-slate-600">Kampala WMS connects KCCA, waste collection providers, recycling companies, field teams and customers—from approval and collection to recovered-material trading, billing and citywide oversight—while every organization remains in control of its own operations.</p><div className="mt-9 flex flex-wrap gap-3"><Link href="/register/organization" className="bg-[var(--color-action)] px-6 py-3 text-sm font-semibold text-white hover:bg-[var(--color-action-hover)]">Register an organization</Link><Link href="/pricing" className="border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-800 hover:border-slate-500">See plans and prices</Link></div><p className="mt-6 max-w-xl text-xs font-semibold uppercase leading-6 tracking-[.08em] text-slate-500">Permits · Collection · Recycling · Fleet · Customers · Finance · City oversight</p></div><div className="self-center"><HeroDashboard /></div></div></section>
 
