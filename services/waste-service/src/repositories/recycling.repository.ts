@@ -1,5 +1,8 @@
 import {dbPool} from '../config/database';
+import {dateOnly} from '../utils/date-only';
 const financeError=(message:string)=>Object.assign(new Error(message),{statusCode:409});
+/** Recycling permission codes this member holds, so clients only offer actions the server will accept. */
+export async function recyclingPermissions(user:string,org:string){return(await dbPool.query(`SELECT code FROM organization_effective_permissions($1::uuid,$2::uuid) WHERE code LIKE 'recycling.%' ORDER BY code`,[user,org])).rows.map((row:{code:string})=>row.code)}
 export async function findRecycling(org:string){
  const [context,lots,sales,float,sorting,partners,stockAdjustments,salePayments,purchasePayments,materials,dailyClosures,transactionEdits,cashMovements]=await Promise.all([
   dbPool.query(`SELECT o.id,o.name,o.type,CURRENT_DATE::text operating_date,
@@ -22,12 +25,12 @@ export async function findRecycling(org:string){
   ,dbPool.query(`SELECT m.*,u.full_name recorded_by_name FROM recycling_cash_movements m JOIN users u ON u.id=m.recorded_by AND u.organization_id=m.organization_id WHERE m.organization_id=$1::uuid ORDER BY m.movement_date DESC,m.created_at DESC LIMIT 100`,[org])
  ]);
  const purchasedLots=lots.rows.filter(x=>x.origin==='purchase');
- const operatingDate=String(context.rows[0]?.operating_date||'').slice(0,10),dateValue=(value:unknown)=>String(value||'').slice(0,10);
+ const operatingDate=dateOnly(context.rows[0]?.operating_date),dateValue=dateOnly;
  const purchaseCost=purchasedLots.reduce((n,x)=>n+Number(x.total_cost_ugx),0),revenue=sales.rows.reduce((n,x)=>n+Number(x.total_ugx),0),saleExpenses=sales.rows.reduce((n,x)=>n+Number(x.expenses_ugx),0),processingCost=sorting.rows.reduce((n,x)=>n+Number(x.processing_cost_ugx),0);
  const floatBalance=float.rows.reduce((n,x)=>n+(x.transaction_type==='given'?1:-1)*Number(x.amount_ugx),0);
  const sortedInputKg=sorting.rows.reduce((n,x)=>n+Number(x.input_kg),0),sortedOutputKg=sorting.rows.reduce((n,x)=>n+Number(x.output_kg),0),rejectedKg=sorting.rows.reduce((n,x)=>n+Number(x.rejected_kg),0);
  const stockAddedKg=stockAdjustments.rows.filter(x=>x.adjustment_type==='correction_in').reduce((n,x)=>n+Number(x.quantity_kg),0),stockRemovedKg=stockAdjustments.rows.filter(x=>x.adjustment_type!=='correction_in').reduce((n,x)=>n+Number(x.quantity_kg),0),lossKg=stockAdjustments.rows.filter(x=>x.adjustment_type==='loss').reduce((n,x)=>n+Number(x.quantity_kg),0);
- const today=Date.now(),daysOverdue=(date:unknown)=>date?Math.max(0,Math.floor((today-new Date(String(date).slice(0,10)+'T00:00:00Z').getTime())/86400000)):0;
+ const today=Date.now(),daysOverdue=(date:unknown)=>date?Math.max(0,Math.floor((today-new Date(dateOnly(date)+'T00:00:00Z').getTime())/86400000)):0;
  const age=(items:any[],dueKey:string,amountKey:string)=>items.reduce((a,x)=>{const days=daysOverdue(x[dueKey]),amount=Number(x[amountKey]);if(!days)a.current+=amount;else if(days<=30)a.days1To30+=amount;else if(days<=60)a.days31To60+=amount;else a.days61Plus+=amount;return a},{current:0,days1To30:0,days31To60:0,days61Plus:0});
  const paymentAging={receivables:age(sales.rows.filter(x=>x.status!=='paid'),'due_on','balance_ugx'),payables:age(purchasedLots.filter(x=>x.purchase_payment_status!=='paid'),'purchase_due_on','balance_ugx')};
  const buyerExposure=[...sales.rows.filter(x=>x.status!=='paid').reduce((m,x)=>m.set(x.buyer_name,(m.get(x.buyer_name)||0)+Number(x.balance_ugx)),new Map<string,number>())].map(([buyerName,amountUgx])=>({buyerName,amountUgx})).sort((a,b)=>b.amountUgx-a.amountUgx);

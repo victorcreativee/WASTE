@@ -42,7 +42,7 @@ async function getDetail(id: string, token: string, ownerEmail: string) {
     )
   ).data;
 }
-const display = (value: string) => value.replaceAll("_", " ");
+const display = (value: string) => { const words = value.replaceAll("_", " "); return words.charAt(0).toUpperCase() + words.slice(1); };
 export function SupervisorTripInspector({
   token,
   ownerEmail,
@@ -97,7 +97,7 @@ export function SupervisorTripInspector({
           </Pressable>
         ))}
       </View>
-      {loading ? <ActivityIndicator color="#2952cc" /> : null}
+      {loading ? <ActivityIndicator color="#2f7d5a" /> : null}
       {error ? <Text style={s.error}>{error}</Text> : null}
       {detail && !loading ? (
         <>
@@ -165,28 +165,28 @@ const s = StyleSheet.create({
   wrap: {
     marginTop: 26,
     borderTopWidth: 1,
-    borderTopColor: "#cbd5e1",
+    borderTopColor: "#cdd6d1",
     paddingTop: 20,
   },
-  title: { fontSize: 20, fontWeight: "600", color: "#0f172a" },
+  title: { fontSize: 20, fontWeight: "600", color: "#13201a" },
   sub: {
     fontSize: 13,
     lineHeight: 18,
-    color: "#64748b",
+    color: "#64736b",
     marginTop: 3,
     marginBottom: 12,
   },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginBottom: 14 },
   chip: {
     borderWidth: 1,
-    borderColor: "#cbd5e1",
+    borderColor: "#cdd6d1",
     paddingHorizontal: 11,
     paddingVertical: 9,
     backgroundColor: "white",
   },
-  chipActive: { borderColor: "#2952cc", backgroundColor: "#eef2fd" },
-  chipText: { fontSize: 12, fontWeight: "700", color: "#475569" },
-  chipTextActive: { color: "#24498f" },
+  chipActive: { borderColor: "#2f7d5a", backgroundColor: "#e8f3ec" },
+  chipText: { fontSize: 12, fontWeight: "700", color: "#4a5a51" },
+  chipTextActive: { color: "#1d4d37" },
   error: {
     backgroundColor: "#fff1f2",
     color: "#991b1b",
@@ -199,39 +199,39 @@ const s = StyleSheet.create({
     paddingVertical: 14,
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: "#d8dee8",
+    borderColor: "#d6ded9",
   },
-  route: { fontSize: 18, fontWeight: "600", color: "#0f172a" },
-  meta: { fontSize: 12, lineHeight: 18, color: "#64748b", marginTop: 3 },
+  route: { fontSize: 18, fontWeight: "600", color: "#13201a" },
+  meta: { fontSize: 12, lineHeight: 18, color: "#64736b", marginTop: 3 },
   state: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#2952cc",
+    color: "#2f7d5a",
     textTransform: "uppercase",
   },
   metrics: {
     flexDirection: "row",
     borderWidth: 1,
-    borderColor: "#d8dee8",
+    borderColor: "#d6ded9",
     marginVertical: 14,
   },
   metric: {
     flex: 1,
     padding: 11,
     borderRightWidth: 1,
-    borderRightColor: "#d8dee8",
+    borderRightColor: "#d6ded9",
   },
-  metricLabel: { fontSize: 8, fontWeight: "600", color: "#64748b" },
+  metricLabel: { fontSize: 8, fontWeight: "600", color: "#64736b" },
   metricValue: {
     fontSize: 22,
     fontWeight: "600",
-    color: "#0f172a",
+    color: "#13201a",
     marginTop: 4,
   },
   customer: {
     backgroundColor: "white",
     borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
+    borderBottomColor: "#e0e7e3",
     padding: 14,
     flexDirection: "row",
     gap: 11,
@@ -240,19 +240,19 @@ const s = StyleSheet.create({
     width: 31,
     height: 31,
     borderRadius: 12,
-    backgroundColor: "#f1f5f9",
+    backgroundColor: "#eef3f0",
     alignItems: "center",
     justifyContent: "center",
   },
   done: { backgroundColor: "#dcfce7" },
   missed: { backgroundColor: "#ffedd5" },
-  numberText: { fontSize: 12, fontWeight: "600", color: "#334155" },
+  numberText: { fontSize: 12, fontWeight: "600", color: "#34433b" },
   row: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
-  name: { fontSize: 14, fontWeight: "600", color: "#0f172a", flex: 1 },
+  name: { fontSize: 14, fontWeight: "600", color: "#13201a", flex: 1 },
   customerState: {
     fontSize: 10,
     fontWeight: "600",
-    color: "#2952cc",
+    color: "#2f7d5a",
     textTransform: "uppercase",
   },
   exception: { fontSize: 11, lineHeight: 17, color: "#9a3412", marginTop: 6 },

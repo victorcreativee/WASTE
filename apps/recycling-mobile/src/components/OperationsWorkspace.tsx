@@ -1,20 +1,20 @@
 import * as Location from "expo-location";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import {
   ActivityIndicator,
   Alert,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { MobileProblemCenter } from "./MobileProblemCenter";
 import { mobileRequest } from "../lib/mobile-api";
 import { AccountWorkspace } from "./AccountWorkspace";
-import { RoleBottomNavigation } from "./RoleBottomNavigation";
+import { useBottomNavigationSpace, RoleBottomNavigation } from "./RoleBottomNavigation";
 import { AppHeader, Banner, Button, Card, Chips, EmptyState, Icon, Input, SectionHeader, StatusBadge, SummaryCard, page } from "../ui/kit";
 import { color, radius, space, type } from "../ui/theme";
 
@@ -84,7 +84,22 @@ async function request<T>(
 ): Promise<T> {
   return mobileRequest<T>(path, token, owner, init);
 }
-const label = (value: string) => value.replaceAll("_", " ");
+const label = (value: string) => { const words = value.replaceAll("_", " "); return words.charAt(0).toUpperCase() + words.slice(1); };
+
+/**
+ * A fresh GPS fix when one arrives within a few seconds, otherwise the phone's last known position.
+ * Waiting indefinitely for satellites would leave the driver stuck at the stop.
+ */
+async function currentLocation(): Promise<Location.LocationObject | null> {
+  const permission = await Location.requestForegroundPermissionsAsync().catch(() => null);
+  if (permission?.status !== "granted") return null;
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000));
+  const fresh = await Promise.race([
+    Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).catch(() => null),
+    timeout,
+  ]);
+  return fresh ?? Location.getLastKnownPositionAsync({ maxAge: 10 * 60_000 }).catch(() => null);
+}
 
 export function OperationsWorkspace({
   token,
@@ -95,6 +110,8 @@ export function OperationsWorkspace({
   user: User;
   onLogout: () => Promise<void>;
 }) {
+  const navSpace = useBottomNavigationSpace();
+  const scrollRef = useRef<ScrollView>(null);
   const driver = user.roles.includes("driver"),
     supervisor =
       user.roles.includes("supervisor") || user.roles.includes("company_admin");
@@ -109,6 +126,15 @@ export function OperationsWorkspace({
   const [tripStatus, setTripStatus] = useState("all");
   const [tripPage, setTripPage] = useState(1);
   const [screen, setScreen] = useState<"work" | "account">("work");
+  // A new screen starts at the top rather than at the previous screen's scroll position.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [screen]);
+  // Messages appear at the top of the screen, so bring them into view when a save fails further down.
+  useEffect(() => {
+    if (error) scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, [error]);
+
   const load = useCallback(async () => {
     try {
       setError("");
@@ -170,7 +196,9 @@ export function OperationsWorkspace({
         user.email,
         { method: "PATCH", body: body ? JSON.stringify(body) : undefined },
       );
-      if (!result.queuedOffline) await load();
+      if (result.queuedOffline) {
+        if (path.endsWith("/start")) setRoute((current) => (current ? { ...current, status: "in_progress" } : current));
+      } else void load();
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Could not save the update",
@@ -180,23 +208,23 @@ export function OperationsWorkspace({
     }
   }
   async function collect(customer: Customer, status: "complete" | "skip") {
-    if (
-      customer.routeStopStatus !== "arrived" &&
-      customer.routeStopStatus !== "completed"
-    )
-      await request(
-        `/api/waste/driver-route-stops/${customer.routeStopId}/arrive`,
-        token,
-        user.email,
-        { method: "PATCH" },
-      );
+    try {
+      if (
+        customer.routeStopStatus !== "arrived" &&
+        customer.routeStopStatus !== "completed"
+      )
+        await request(
+          `/api/waste/driver-route-stops/${customer.routeStopId}/arrive`,
+          token,
+          user.email,
+          { method: "PATCH" },
+        );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not mark arrival at this stop");
+      return;
+    }
     if (status === "complete") {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      let location: Location.LocationObject | null = null;
-      if (permission.status === "granted")
-        location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        }).catch(() => null);
+      const location = await currentLocation();
       const gps = location
         ? `GPS: ${location.coords.latitude.toFixed(6)}, ${location.coords.longitude.toFixed(6)} · ±${Math.round(location.coords.accuracy || 0)} m`
         : "GPS not captured";
@@ -293,11 +321,12 @@ export function OperationsWorkspace({
     );
   const stopsLeft = customers.length - resolved;
   return (
-    <SafeAreaView style={page.safe}>
+    <SafeAreaView style={page.safe} edges={["top", "left", "right"]}>
       <StatusBar style="dark" />
       <AppHeader name={user.fullName} organization={driver ? "Driver" : "Supervisor"} />
       <ScrollView
-        contentContainerStyle={page.content}
+        ref={scrollRef}
+        contentContainerStyle={[page.content, { paddingBottom: navSpace }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} />}
       >
         {error ? <Banner tone="danger" text={error} /> : null}

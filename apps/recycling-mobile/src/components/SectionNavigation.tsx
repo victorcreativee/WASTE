@@ -24,6 +24,7 @@ export function SectionNavigation({
           <Pressable
             key={item.id}
             accessibilityRole="tab"
+            accessibilityLabel={item.label}
             accessibilityState={{ selected: Boolean(item.active) }}
             onPress={item.onPress}
             style={({ pressed }) => [styles.item, item.active && styles.itemActive, pressed && styles.pressed]}
@@ -39,8 +40,8 @@ export function SectionNavigation({
 const styles = StyleSheet.create({
   wrap: { gap: space.sm },
   row: { gap: space.sm, paddingRight: space.lg },
-  item: { minHeight: 38, justifyContent: "center", paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: color.fill },
-  itemActive: { backgroundColor: color.ink },
+  item: { minHeight: 40, justifyContent: "center", paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: color.fill },
+  itemActive: { backgroundColor: color.action },
   label: { color: color.text, fontWeight: "500", fontSize: 13 },
   labelActive: { color: "#ffffff", fontWeight: "600" },
   pressed: { opacity: 0.7 },

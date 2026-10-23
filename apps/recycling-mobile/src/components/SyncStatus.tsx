@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   discardMobileOutbox,
   listMobileOutbox,
@@ -18,6 +19,7 @@ function describe(item: MobileOutboxItem) {
   const path = item.endpoint;
   if (path.endsWith("/recycling/lots")) return { title: "Material purchase", icon: "cube-outline" as const };
   if (path.endsWith("/recycling/sales")) return { title: "Industrial sale", icon: "trending-up-outline" as const };
+  if (/\/recycling\/lots\/[^/]+\/paid$/.test(path)) return { title: "Supplier payment", icon: "wallet-outline" as const };
   if (/\/recycling\/sales\/[^/]+\/paid$/.test(path)) return { title: "Sale payment received", icon: "cash-outline" as const };
   if (path.endsWith("/recycling/manager-float")) return { title: "Field money movement", icon: "wallet-outline" as const };
   if (path.endsWith("/finance/expenses")) return { title: "Expense", icon: "receipt-outline" as const };
@@ -44,21 +46,25 @@ export function SyncStatus({
   const [current, setCurrent] = useState<SyncState>({ online: true, pending: 0, conflicts: 0, syncing: false });
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<MobileOutboxItem[]>([]);
+  const insets = useSafeAreaInsets();
   useEffect(() => subscribeSync(setCurrent), []);
-  useEffect(() => watchConnectivity(token, email, onSynced), [token, email, onSynced]);
+  // Screens pass onSynced inline; reading it through a ref keeps one network subscription for the life of the screen.
+  const onSyncedRef = useRef(onSynced);
+  useEffect(() => { onSyncedRef.current = onSynced; });
+  useEffect(() => watchConnectivity(token, email, () => onSyncedRef.current?.()), [token, email]);
 
   async function showQueue() {
     setItems(await listMobileOutbox(email));
     setOpen(true);
   }
   async function syncNow() {
-    await syncMobileOutbox(token, email);
+    await syncMobileOutbox(token, email).catch(() => 0);
     setItems(await listMobileOutbox(email));
     onSynced?.();
   }
   async function retry(item: MobileOutboxItem) {
     await retryMobileOutbox(item.id, email);
-    if (current.online) await syncMobileOutbox(token, email);
+    await syncMobileOutbox(token, email).catch(() => 0);
     setItems(await listMobileOutbox(email));
     onSynced?.();
   }
@@ -82,8 +88,8 @@ export function SyncStatus({
         <Icon name={state.icon} size={15} tint={tone[state.tone].ink} />
         <Text style={[s.pillText, { color: tone[state.tone].ink }]} numberOfLines={1}>{state.label}</Text>
       </Pressable>
-      <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpen(false)}>
-        <View style={s.sheet}>
+      <Modal visible={open} animationType="slide" presentationStyle="pageSheet" statusBarTranslucent navigationBarTranslucent onRequestClose={() => setOpen(false)}>
+        <View style={[s.sheet, { paddingTop: Platform.OS === "android" ? insets.top : 0, paddingBottom: insets.bottom }]}>
           <View style={s.sheetHead}>
             <View style={{ flex: 1 }}>
               <Text style={type.title}>Saved on this phone</Text>
@@ -92,9 +98,9 @@ export function SyncStatus({
             <IconButton icon="close" label="Close" onPress={() => setOpen(false)} />
           </View>
           <ScrollView contentContainerStyle={s.list}>
-            {!current.online ? <Banner tone="warning" text="No internet right now. Keep working; everything below is sent automatically when the connection returns." /> : null}
+            {!current.online ? <Banner tone="warning" text="The server can't be reached right now. Keep working; everything below is sent automatically when the connection returns." /> : null}
             {current.conflicts ? <Banner tone="danger" text="Some changes were refused by the server. Read the reason on each one, then retry or discard it." /> : null}
-            {current.online && items.length ? <Button title={current.syncing ? "Syncing…" : "Sync now"} icon="sync-outline" loading={current.syncing} onPress={() => void syncNow()} /> : null}
+            {items.length ? <Button title={current.syncing ? "Sending…" : current.online ? "Sync now" : "Try sending now"} icon="sync-outline" loading={current.syncing} onPress={() => void syncNow()} /> : null}
             {items.map((item) => {
               const what = describe(item);
               const failed = item.status === "failed" || Boolean(item.last_error);

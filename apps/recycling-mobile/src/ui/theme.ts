@@ -1,27 +1,27 @@
-// Design tokens for the mobile app. Colours follow the web platform (action blue, slate neutrals); shapes are moderate
+// Design tokens for the mobile app. A soft green carries actions over calm green-grey neutrals; shapes are moderate
 // rather than bubbly, and weights stop at 700 so screens read calmly in the field.
 
 export const color = {
-  page: "#f5f7fa",
+  page: "#f4f7f5",
   surface: "#ffffff",
-  fill: "#f1f4f8",
-  line: "#e3e8ef",
-  ink: "#0f172a",
-  text: "#334155",
-  muted: "#64748b",
-  subtle: "#94a3b8",
-  action: "#2952cc",
-  actionPressed: "#2145b0",
-  actionSoft: "#eef2fd",
-  actionInk: "#1e3a8a",
-  success: "#15803d",
-  successSoft: "#ecf8f0",
+  fill: "#eef3f0",
+  line: "#e0e7e3",
+  ink: "#13201a",
+  text: "#34433b",
+  muted: "#64736b",
+  subtle: "#97a49d",
+  action: "#2f7d5a",
+  actionPressed: "#276a4c",
+  actionSoft: "#e8f3ec",
+  actionInk: "#1d4d37",
+  success: "#1f7a4a",
+  successSoft: "#e6f4ec",
   warning: "#b45309",
   warningSoft: "#fef6e7",
   danger: "#b91c1c",
   dangerSoft: "#fdf0f0",
-  brand: "#14213d",
-  brandAccent: "#f2b657",
+  brand: "#1b3a2c",
+  brandAccent: "#e7c873",
 };
 
 export const radius = { sm: 8, md: 12, lg: 16, pill: 999 };
@@ -38,8 +38,8 @@ export const type = {
 };
 
 export const shadow = {
-  card: { shadowColor: "#0f172a", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
-  float: { shadowColor: "#0f172a", shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
+  card: { shadowColor: "#13201a", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  float: { shadowColor: "#13201a", shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
 };
 
 export type Tone = "action" | "success" | "warning" | "danger" | "neutral";

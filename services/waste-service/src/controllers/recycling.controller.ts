@@ -21,6 +21,7 @@ import {
   sortingSchema,
   stockAdjustmentSchema,
 } from "../validators/recycling.validator";
+import { dateOnly } from "../utils/date-only";
 const identity = (r: Request) => (r as AuthenticatedRequest).auth!;
 const org = (r: Request) => {
   const id = identity(r).organizationId;
@@ -39,8 +40,9 @@ export async function getRecycling(r: Request, s: Response) {
   s.set("Expires", "0");
   const account = identity(r),
     roles = account.roles,
-    data: any = await repo.findRecycling(requireOrganizationScope(r)),
-    date = (value: any) => String(value || "").slice(0, 10),
+    organizationId = requireOrganizationScope(r),
+    data: any = await repo.findRecycling(organizationId),
+    date = dateOnly,
     today = data.operations.operatingDate,
     byDate = (lots: any[], sales: any[]) => {
       const dates = [
@@ -69,6 +71,7 @@ export async function getRecycling(r: Request, s: Response) {
         };
       });
     };
+  data.permissions = await repo.recyclingPermissions(account.userId, organizationId);
   if (roles.includes("recycling_collector")) {
     const sales = data.sales.filter(
         (item: any) => item.sale_channel === "local",
@@ -471,7 +474,7 @@ export async function postDailyClose(r: Request, s: Response) {
     .status(201)
     .json({
       success: true,
-      message: `Business day ${result.operating_date} closed`,
+      message: `Business day ${dateOnly(result.operating_date)} closed`,
       data: result,
     });
 }
@@ -485,7 +488,7 @@ export async function patchDailyReopen(r: Request, s: Response) {
   return result
     ? s.json({
         success: true,
-        message: `Business day ${result.operating_date} reopened`,
+        message: `Business day ${dateOnly(result.operating_date)} reopened`,
         data: result,
       })
     : s

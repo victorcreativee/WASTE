@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon, IconName } from "../ui/kit";
 import { color, radius, shadow } from "../ui/theme";
 
@@ -10,6 +11,20 @@ export type RoleNavigationItem = {
   onPress: () => void;
 };
 
+const BAR_HEIGHT = 70;
+const BAR_GAP = 8;
+
+/** Distance from the system navigation (gesture bar or 3-button bar) to the bottom of the floating bar. */
+function barOffset(bottomInset: number) {
+  return Math.max(bottomInset, BAR_GAP) + BAR_GAP;
+}
+
+/** Bottom padding a scrolling screen needs so its last item clears the floating bar and the system buttons. */
+export function useBottomNavigationSpace() {
+  const { bottom } = useSafeAreaInsets();
+  return barOffset(bottom) + BAR_HEIGHT + 24;
+}
+
 /**
  * Shared post-login navigation. Keeping this in one component prevents each
  * operational workspace from inventing a different mobile navigation model.
@@ -17,10 +32,11 @@ export type RoleNavigationItem = {
  */
 export function RoleBottomNavigation({ items }: { items: RoleNavigationItem[] }) {
   const { width } = useWindowDimensions();
+  const { bottom } = useSafeAreaInsets();
   const tablet = width >= 760;
 
   return (
-    <View style={[styles.shell, tablet && styles.shellTablet]} accessibilityRole="tablist">
+    <View style={[styles.shell, tablet && styles.shellTablet, { bottom: barOffset(bottom) }]} accessibilityRole="tablist">
       {items.slice(0, 5).map((item) => (
         <Pressable
           key={item.id}
@@ -47,10 +63,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 12,
     right: 12,
-    bottom: 10,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
+    height: BAR_HEIGHT,
     paddingHorizontal: 6,
     borderRadius: radius.lg + 4,
     backgroundColor: color.surface,

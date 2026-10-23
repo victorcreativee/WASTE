@@ -1,6 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { ComponentProps, ReactNode, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
+import { ComponentProps, createContext, ReactNode, useContext, useState } from "react";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TextInputProps, View, ViewStyle } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { addDays, formatDay, localDay } from "../lib/dates";
 import { Tone, color, initials, radius, shadow, space, tone, type, ugx } from "./theme";
 
 // Shared building blocks for every workspace: one header, one summary card, quick actions, sections, list rows, segmented
@@ -102,7 +104,7 @@ export function ListRow({ icon, iconTone = "neutral", title, subtitle, value, de
 export function Segmented<T extends string>({ options, value, onChange }: { options: { value: T; label: string }[]; value: T; onChange: (value: T) => void }) {
   return <View style={s.segmented} accessibilityRole="tablist">{options.map(option => {
     const active = option.value === value;
-    return <Pressable key={option.value} accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={() => onChange(option.value)} style={[s.segment, active && s.segmentActive]}>
+    return <Pressable key={option.value} accessibilityRole="tab" accessibilityLabel={option.label} accessibilityState={{ selected: active }} onPress={() => onChange(option.value)} style={[s.segment, active && s.segmentActive]}>
       <Text style={[s.segmentText, active && s.segmentTextActive]} numberOfLines={1}>{option.label}</Text>
     </Pressable>;
   })}</View>;
@@ -112,17 +114,87 @@ export function Segmented<T extends string>({ options, value, onChange }: { opti
 export function Chips({ options, value, onChange }: { options: { value: string; label: string }[]; value: string; onChange: (value: string) => void }) {
   return <View style={s.chips}>{options.map(option => {
     const active = option.value === value;
-    return <Pressable key={option.value} accessibilityRole="radio" accessibilityState={{ checked: active }} onPress={() => onChange(option.value)} style={[s.chip, active && s.chipActive]}>
+    return <Pressable key={option.value} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ checked: active }} hitSlop={4} onPress={() => onChange(option.value)} style={[s.chip, active && s.chipActive]}>
       {active ? <Icon name="checkmark" size={14} tint={color.action} /> : null}
       <Text style={[s.chipText, active && s.chipTextActive]}>{option.label}</Text>
     </Pressable>;
   })}</View>;
 }
 
+/**
+ * Business date chooser: Today and Yesterday as one-tap chips, any other day from a month calendar.
+ * Days after `max` and days in `blocked` (closed business days) cannot be chosen.
+ */
+export function DateField({ value, onChange, max = localDay(), min, blocked = [], blockedLabel = "Closed" }: {
+  value: string; onChange: (value: string) => void; max?: string; min?: string; blocked?: string[]; blockedLabel?: string;
+}) {
+  const insets = useSafeAreaInsets();
+  const [open, setOpen] = useState(false);
+  const [month, setMonth] = useState(value.slice(0, 7));
+  const today = localDay(), yesterday = addDays(today, -1);
+  const usable = (day: string) => day <= max && (!min || day >= min) && !blocked.includes(day);
+  const other = value !== today && value !== yesterday;
+
+  const [year, monthIndex] = month.split("-").map(Number);
+  const first = new Date(year, monthIndex - 1, 1);
+  const lead = (first.getDay() + 6) % 7; // Monday first
+  const daysInMonth = new Date(year, monthIndex, 0).getDate();
+  const cells: (string | null)[] = [...Array(lead).fill(null), ...Array.from({ length: daysInMonth }, (_, index) => `${month}-${String(index + 1).padStart(2, "0")}`)];
+  const shiftMonth = (by: number) => setMonth(localDay(new Date(year, monthIndex - 1 + by, 1)).slice(0, 7));
+
+  return <View style={{ gap: space.sm }}>
+    <View style={s.chips}>
+      {[{ day: today, label: "Today" }, { day: yesterday, label: "Yesterday" }].map(option => {
+        const active = value === option.day, disabled = !usable(option.day);
+        return <Pressable key={option.label} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ checked: active, disabled }} disabled={disabled} hitSlop={4}
+          onPress={() => onChange(option.day)} style={[s.chip, active && s.chipActive, disabled && s.disabled]}>
+          {active ? <Icon name="checkmark" size={14} tint={color.action} /> : null}
+          <Text style={[s.chipText, active && s.chipTextActive]}>{option.label}{disabled && blocked.includes(option.day) ? ` · ${blockedLabel.toLowerCase()}` : ""}</Text>
+        </Pressable>;
+      })}
+      <Pressable accessibilityRole="button" accessibilityLabel="Choose another date" hitSlop={4} onPress={() => { setMonth(value.slice(0, 7)); setOpen(true); }} style={[s.chip, other && s.chipActive]}>
+        <Icon name="calendar-outline" size={14} tint={other ? color.action : color.text} />
+        <Text style={[s.chipText, other && s.chipTextActive]}>{other ? formatDay(value, false) : "Other date"}</Text>
+      </Pressable>
+    </View>
+    {other ? <Text style={s.fieldHint}>Recording for {formatDay(value)}.</Text> : null}
+
+    <Modal visible={open} transparent statusBarTranslucent navigationBarTranslucent animationType="fade" onRequestClose={() => setOpen(false)}>
+      <Pressable style={[s.sheetOverlay, { paddingBottom: insets.bottom + space.md }]} onPress={() => setOpen(false)}>
+        <Pressable style={s.calendar} onPress={() => undefined}>
+          <View style={s.calendarHead}>
+            <IconButton icon="chevron-back" label="Previous month" onPress={() => shiftMonth(-1)} />
+            <Text style={type.heading}>{first.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</Text>
+            <IconButton icon="chevron-forward" label="Next month" onPress={() => shiftMonth(1)} />
+          </View>
+          <View style={s.calendarGrid}>
+            {["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].map(day => <Text key={day} style={s.calendarWeekday}>{day}</Text>)}
+            {cells.map((day, index) => {
+              if (!day) return <View key={`blank-${index}`} style={s.calendarCell} />;
+              const active = day === value, disabled = !usable(day), closed = blocked.includes(day);
+              return <Pressable key={day} accessibilityRole="button" accessibilityLabel={`${formatDay(day)}${closed ? `, ${blockedLabel.toLowerCase()}` : ""}`} accessibilityState={{ selected: active, disabled }}
+                disabled={disabled} onPress={() => { onChange(day); setOpen(false); }} style={s.calendarCell}>
+                <View style={[s.calendarDay, day === today && s.calendarToday, active && s.calendarDayActive]}>
+                  <Text style={[s.calendarDayText, disabled && s.calendarDayDisabled, closed && s.calendarDayClosed, active && s.calendarDayTextActive]}>{Number(day.slice(8))}</Text>
+                </View>
+              </Pressable>;
+            })}
+          </View>
+          {blocked.length ? <Text style={s.fieldHint}>Struck-through days are {blockedLabel.toLowerCase()} and cannot take new records.</Text> : null}
+          <Button variant="ghost" title="Cancel" onPress={() => setOpen(false)} />
+        </Pressable>
+      </Pressable>
+    </Modal>
+  </View>;
+}
+
+// Lets an Input inside a Field announce the field's visible label to screen readers.
+const FieldLabel = createContext<string | undefined>(undefined);
+
 export function Field({ label, hint, error, children, style }: { label: string; hint?: string; error?: string; children: ReactNode; style?: ViewStyle }) {
   return <View style={[s.field, style]}>
     <Text style={type.label}>{label}</Text>
-    {children}
+    <FieldLabel.Provider value={label}>{children}</FieldLabel.Provider>
     {error ? <Text style={s.fieldError}>{error}</Text> : hint ? <Text style={s.fieldHint}>{hint}</Text> : null}
   </View>;
 }
@@ -130,7 +202,8 @@ export function Field({ label, hint, error, children, style }: { label: string; 
 /** Soft filled text input; the border appears only while typing. */
 export function Input({ multiline, style, ...props }: TextInputProps) {
   const [focused, setFocused] = useState(false);
-  return <TextInput placeholderTextColor={color.subtle} multiline={multiline} {...props}
+  const fieldLabel = useContext(FieldLabel);
+  return <TextInput placeholderTextColor={color.subtle} multiline={multiline} accessibilityLabel={fieldLabel} {...props}
     onFocus={event => { setFocused(true); props.onFocus?.(event); }} onBlur={event => { setFocused(false); props.onBlur?.(event); }}
     style={[s.input, multiline && s.textarea, focused && s.inputFocused, style]} />;
 }
@@ -233,21 +306,21 @@ const s = StyleSheet.create({
   iconButton: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: color.surface, borderWidth: 1, borderColor: color.line, alignItems: "center", justifyContent: "center" },
   iconButtonSpace: { width: 40 },
   summary: { borderRadius: radius.lg, backgroundColor: color.action, padding: space.xl, gap: 2 },
-  summaryLabel: { color: "#c9d6f7", fontSize: 13, fontWeight: "500" },
+  summaryLabel: { color: "rgba(255,255,255,0.72)", fontSize: 13, fontWeight: "500" },
   summaryValue: { color: "#ffffff", fontSize: 30, lineHeight: 38, fontWeight: "700" },
-  summaryCaption: { color: "#dbe4fb", fontSize: 13 },
+  summaryCaption: { color: "rgba(255,255,255,0.8)", fontSize: 13 },
   summaryStats: { flexDirection: "row", marginTop: space.lg, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: radius.md, paddingVertical: space.md },
   summaryStat: { flex: 1, paddingHorizontal: space.md },
   summaryStatBorder: { borderLeftWidth: 1, borderLeftColor: "rgba(255,255,255,0.2)" },
   summaryStatValue: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
-  summaryStatLabel: { color: "#c9d6f7", fontSize: 12, marginTop: 2 },
+  summaryStatLabel: { color: "rgba(255,255,255,0.72)", fontSize: 12, marginTop: 2 },
   quick: { flexDirection: "row", flexWrap: "wrap", gap: space.md },
   quickTile: { flexGrow: 1, flexBasis: "28%", minHeight: 96, borderRadius: radius.lg, backgroundColor: color.surface, alignItems: "center", justifyContent: "center", gap: space.sm, padding: space.md, ...shadow.card },
   quickIcon: { width: 44, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
   quickLabel: { ...type.label, textAlign: "center", fontSize: 13 },
   section: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: -space.xs },
   sectionAction: { color: color.action, fontSize: 13, fontWeight: "600" },
-  badge: { alignSelf: "flex-end", borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3, fontSize: 11, fontWeight: "600", overflow: "hidden", textTransform: "capitalize" },
+  badge: { alignSelf: "flex-end", borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 3, fontSize: 11, fontWeight: "600", overflow: "hidden" },
   row: { flexDirection: "row", alignItems: "center", gap: space.md, backgroundColor: color.surface, borderRadius: radius.md, padding: space.md, ...shadow.card },
   rowIcon: { width: 40, height: 40, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
   rowTitle: { ...type.heading, fontSize: 15 },
@@ -255,15 +328,28 @@ const s = StyleSheet.create({
   rowEnd: { alignItems: "flex-end", gap: 3, maxWidth: "45%" },
   rowValue: { ...type.heading, fontSize: 15 },
   rowDetail: { ...type.caption },
-  segmented: { flexDirection: "row", backgroundColor: "#e8edf3", borderRadius: radius.md, padding: 3 },
-  segment: { flex: 1, minHeight: 38, borderRadius: radius.sm + 1, alignItems: "center", justifyContent: "center", paddingHorizontal: space.sm },
+  segmented: { flexDirection: "row", backgroundColor: "#e6ece8", borderRadius: radius.md, padding: 3 },
+  segment: { flex: 1, minHeight: 42, borderRadius: radius.sm + 1, alignItems: "center", justifyContent: "center", paddingHorizontal: space.sm },
   segmentActive: { backgroundColor: color.surface, ...shadow.card },
   segmentText: { color: color.muted, fontSize: 13, fontWeight: "600" },
   segmentTextActive: { color: color.ink },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  chip: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 38, borderRadius: radius.pill, backgroundColor: color.fill, paddingHorizontal: 14 },
+  chip: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 40, borderRadius: radius.pill, backgroundColor: color.fill, paddingHorizontal: 14 },
   chipActive: { backgroundColor: color.actionSoft },
-  chipText: { color: color.text, fontSize: 13, fontWeight: "500", textTransform: "capitalize" },
+  chipText: { color: color.text, fontSize: 13, fontWeight: "500" },
+  sheetOverlay: { flex: 1, backgroundColor: "rgba(19,32,26,0.5)", justifyContent: "flex-end", padding: space.md },
+  calendar: { width: "100%", maxWidth: 420, alignSelf: "center", backgroundColor: color.surface, borderRadius: radius.lg, padding: space.lg, gap: space.md, ...shadow.float },
+  calendarHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
+  calendarWeekday: { width: "14.2857%", textAlign: "center", color: color.muted, fontSize: 12, fontWeight: "600", paddingBottom: space.xs },
+  calendarCell: { width: "14.2857%", aspectRatio: 1, alignItems: "center", justifyContent: "center" },
+  calendarDay: { width: 40, height: 40, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
+  calendarToday: { borderWidth: 1, borderColor: color.action },
+  calendarDayActive: { backgroundColor: color.action, borderColor: color.action },
+  calendarDayText: { color: color.ink, fontSize: 15, fontWeight: "500" },
+  calendarDayTextActive: { color: "#ffffff", fontWeight: "700" },
+  calendarDayDisabled: { color: color.subtle },
+  calendarDayClosed: { textDecorationLine: "line-through" },
   chipTextActive: { color: color.actionInk, fontWeight: "600" },
   field: { gap: 6 },
   fieldHint: { ...type.caption },

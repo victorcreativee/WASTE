@@ -1,11 +1,10 @@
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,13 +12,15 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { mobileRequest } from "../lib/mobile-api";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { discardMobileOutbox, mobileRequest, readCachedResponse } from "../lib/mobile-api";
 import { AccountWorkspace } from "./AccountWorkspace";
-import { AppHeader, Banner, QuickActions, ReferenceInput, Segmented, SummaryCard } from "../ui/kit";
+import { AppHeader, Banner, DateField, QuickActions, ReferenceInput, Segmented, SummaryCard } from "../ui/kit";
 import { color } from "../ui/theme";
-import { RoleBottomNavigation } from "./RoleBottomNavigation";
+import { useBottomNavigationSpace, RoleBottomNavigation } from "./RoleBottomNavigation";
 import { SectionNavigation } from "./SectionNavigation";
 import { SyncStatus } from "./SyncStatus";
+import { localDay } from "../lib/dates";
 
 type User = {
   fullName: string;
@@ -71,6 +72,15 @@ function isActive(item: RecordMap) {
   );
 }
 
+const DASHBOARD_ENDPOINTS = [
+  ["trips", "/api/waste/trips"],
+  ["customers", "/api/waste/customers"],
+  ["vehicles", "/api/waste/trucks"],
+  ["recycling", "/api/waste/recycling"],
+  ["expenses", "/api/waste/finance/expenses"],
+  ["financePosition", "/api/waste/finance/position"],
+] as const;
+
 export function CompanyTabletWorkspace({
   token,
   user,
@@ -78,14 +88,18 @@ export function CompanyTabletWorkspace({
   initialTab = "dashboard",
   onOpenPurchasing,
   onOpenSales,
+  active = true,
 }: {
   token: string;
   user: User;
   onLogout: () => Promise<void>;
   initialTab?: "dashboard" | "operations";
+  active?: boolean;
   onOpenPurchasing?: () => void;
   onOpenSales?: () => void;
 }) {
+  const navSpace = useBottomNavigationSpace();
+  const scrollRef = useRef<ScrollView>(null);
   const { width } = useWindowDimensions();
   const tablet = width >= 760;
   const [tab, setTab] = useState<Tab>(initialTab);
@@ -105,6 +119,7 @@ export function CompanyTabletWorkspace({
     recyclingMaterials: [] as RecordMap[],
     sortingRecords: [] as RecordMap[],
     stockAdjustments: [] as RecordMap[],
+    dailyClosures: [] as RecordMap[],
     expenses: [] as RecordMap[],
     expenseSummary: {} as RecordMap,
     financePosition: {} as RecordMap,
@@ -115,49 +130,39 @@ export function CompanyTabletWorkspace({
   const [floatReference, setFloatReference] = useState("");
   const [floatNotes, setFloatNotes] = useState("");
   const [savingFloat, setSavingFloat] = useState(false);
-  const [sorting, setSorting] = useState({ lotId: "", inputKg: "", outputMaterial: "", outputKg: "", rejectedKg: "0", costUgx: "0", notes: "" });
+  const emptySorting = { lotId: "", inputKg: "", outputMaterial: "", outputKg: "", rejectedKg: "0", wages: "", utilities: "", transport: "", consumables: "", other: "", float: "", notes: "" };
+  const [sorting, setSorting] = useState(emptySorting);
+  const [entryDate, setEntryDate] = useState("");
   const [adjustment, setAdjustment] = useState({ lotId: "", type: "loss", quantityKg: "", reason: "", notes: "" });
   const [closeNotes, setCloseNotes] = useState("");
+  const [reopenReason, setReopenReason] = useState("");
   const [savingOperation, setSavingOperation] = useState(false);
   const [operationSection, setOperationSection] = useState<OperationSection>("processing");
   const [expense, setExpense] = useState({ category: "other", description: "", vendor: "", amountUgx: "", reference: "" });
   const [savingExpense, setSavingExpense] = useState(false);
 
-  const load = useCallback(async () => {
-    setError("");
-    const endpoints = [
-      ["trips", "/api/waste/trips"],
-      ["customers", "/api/waste/customers"],
-      ["vehicles", "/api/waste/trucks"],
-      ["recycling", "/api/waste/recycling"],
-      ["expenses", "/api/waste/finance/expenses"],
-      ["financePosition", "/api/waste/finance/position"],
-    ] as const;
-    const results = await Promise.allSettled(
-      endpoints.map(([, path]) =>
-        mobileRequest<unknown>(path, token, user.email),
-      ),
-    );
+  // Applies one response per DASHBOARD_ENDPOINTS entry; undefined leaves that part of the screen as it was.
+  const apply = useCallback((values: unknown[]) => {
     setData((current) => {
       const next = { ...current };
-      results.forEach((result, index) => {
-        if (result.status !== "fulfilled") return;
-        const key = endpoints[index][0];
+      values.forEach((value, index) => {
+        if (value === undefined || value === null) return;
+        const key = DASHBOARD_ENDPOINTS[index][0];
         if (key === "expenses") {
-          const finance = objectData(result.value);
+          const finance = objectData(value);
           next.expenses = records(finance?.expenses);
           next.expenseSummary = objectData(finance?.summary) || {};
           return;
         }
         if (key === "financePosition") {
-          next.financePosition = objectData(result.value) || {};
+          next.financePosition = objectData(value) || {};
           return;
         }
         if (key !== "recycling") {
-          next[key] = records(result.value);
+          next[key] = records(value);
           return;
         }
-        const recycling = objectData(result.value);
+        const recycling = objectData(value);
         setRecyclingAvailable(true);
         next.recycling = records(recycling?.lots);
         next.recyclingSales = records(recycling?.sales);
@@ -168,21 +173,59 @@ export function CompanyTabletWorkspace({
         next.recyclingMaterials = records(recycling?.materials);
         next.sortingRecords = records(recycling?.sortingRecords);
         next.stockAdjustments = records(recycling?.stockAdjustments);
+        next.dailyClosures = records(recycling?.dailyClosures);
       });
       return next;
     });
+  }, []);
+
+  // A new screen starts at the top rather than at the previous screen's scroll position.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [tab]);
+  // Messages appear at the top of the screen, so bring them into view when a save fails further down.
+  useEffect(() => {
+    if (error) scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, [error]);
+
+  const load = useCallback(async () => {
+    setError("");
+    const results = await Promise.allSettled(
+      DASHBOARD_ENDPOINTS.map(([, path]) =>
+        mobileRequest<unknown>(path, token, user.email),
+      ),
+    );
+    apply(results.map((result) => (result.status === "fulfilled" ? result.value : undefined)));
     if (results.every((result) => result.status === "rejected")) {
       setError(
         "No company data is available on this tablet yet. Connect once and refresh to securely cache your workspace.",
       );
     }
-  }, [token, user.email]);
+  }, [apply, token, user.email]);
 
   useEffect(() => {
-    // Initial encrypted cache hydration is intentionally effect-driven.
+    // Show the saved copy straight away, then replace it with the server's answer.
+    let cancelled = false;
+    void Promise.all(DASHBOARD_ENDPOINTS.map(([, path]) => readCachedResponse<unknown>(path, user.email))).then((cached) => {
+      if (cancelled || cached.every((value) => value === null)) return;
+      apply(cached);
+      setLoading(false);
+    });
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load().finally(() => setLoading(false));
-  }, [load]);
+    void load().finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [apply, load, user.email]);
+
+  // Coming back to this screen refreshes quietly in the background; the last figures stay visible meanwhile.
+  const wasActive = useRef(active);
+  useEffect(() => {
+    if (active && !wasActive.current) {
+      // The manager may arrive here from another module asking for a specific page.
+      setTab(initialTab);
+      void load();
+    }
+    wasActive.current = active;
+  }, [active, initialTab, load]);
 
   async function refresh() {
     setRefreshing(true);
@@ -208,7 +251,7 @@ export function CompanyTabletWorkspace({
         {
           method: "POST",
           body: JSON.stringify({
-            transactionDate: new Date().toISOString().slice(0, 10),
+            transactionDate: entryDay,
             transactionType: floatMovementType,
             amountUgx: amount,
             reference: floatReference.trim(),
@@ -225,7 +268,7 @@ export function CompanyTabletWorkspace({
           ? "This employee-float record will synchronize automatically when internet returns."
           : "The organization and manager-float ledgers have been updated together.",
       );
-      if (!result.queuedOffline) await load();
+      if (!result.queuedOffline) void load();
     } catch (caught) {
       Alert.alert(
         "Could not record field money",
@@ -239,11 +282,19 @@ export function CompanyTabletWorkspace({
   const operatingDate = String(
     data.recyclingOperations.operatingDate ||
       data.recyclingOperations.operating_date ||
-      new Date().toISOString().slice(0, 10),
+      localDay(),
   );
   const dayClosed = Boolean(
     data.recyclingOperations.isClosed || data.recyclingOperations.is_closed,
   );
+  const closedDays = [
+    ...data.dailyClosures.filter((item) => item.status === "closed").map((item) => localDay(String(item.operating_date || ""))),
+    ...(dayClosed ? [operatingDate] : []),
+  ];
+  // Sorting, stock corrections, expenses and field money share one record date, which follows the business day
+  // until someone picks another.
+  const entryDay = entryDate || operatingDate;
+  const entryClosed = closedDays.includes(entryDay);
   const canManageInventory =
     user.roles.some((role) => ["company_admin", "recycling_field_manager"].includes(role)) ||
     Boolean(user.permissions?.includes("recycling.inventory.manage"));
@@ -269,13 +320,13 @@ export function CompanyTabletWorkspace({
           description: expense.description.trim(),
           vendor: expense.vendor.trim() || undefined,
           amountUgx,
-          expenseDate: operatingDate,
+          expenseDate: entryDay,
           reference: expense.reference.trim(),
         }),
       });
       setExpense({ category: "other", description: "", vendor: "", amountUgx: "", reference: "" });
       Alert.alert(result.queuedOffline ? "Expense saved offline" : "Expense submitted", result.queuedOffline ? "It will synchronize into the organization finance ledger when internet returns." : "The expense is now awaiting company approval in the organization finance ledger.");
-      if (!result.queuedOffline) await load();
+      if (!result.queuedOffline) void load();
     } catch (caught) {
       Alert.alert("Could not submit expense", caught instanceof Error ? caught.message : "Please try again.");
     } finally {
@@ -287,8 +338,13 @@ export function CompanyTabletWorkspace({
     const inputKg = Number(sorting.inputKg);
     const outputKg = Number(sorting.outputKg);
     const rejectedKg = Number(sorting.rejectedKg || 0);
-    const costUgx = Number(sorting.costUgx || 0);
-    if (!sorting.lotId || !sorting.outputMaterial.trim() || inputKg <= 0 || outputKg <= 0 || rejectedKg < 0 || outputKg + rejectedKg > inputKg || !Number.isInteger(costUgx) || costUgx < 0) {
+    const cost = (value: string) => Number(value || 0);
+    const processingCost = cost(sorting.wages) + cost(sorting.utilities) + cost(sorting.transport) + cost(sorting.consumables) + cost(sorting.other);
+    if (cost(sorting.float) > processingCost) {
+      Alert.alert("Check the float", "Money from the manager float cannot be more than the processing cost.");
+      return;
+    }
+    if (!sorting.lotId || !sorting.outputMaterial.trim() || inputKg <= 0 || outputKg <= 0 || rejectedKg < 0 || outputKg + rejectedKg > inputKg) {
       Alert.alert("Check sorting details", "Choose an input lot, enter valid kilograms, and ensure output plus rejected weight does not exceed the input weight.");
       return;
     }
@@ -296,11 +352,11 @@ export function CompanyTabletWorkspace({
       setSavingOperation(true);
       const result = await mobileRequest<RecordMap>("/api/waste/recycling/sorting", token, user.email, {
         method: "POST",
-        body: JSON.stringify({ inputLotId: sorting.lotId, processedOn: operatingDate, inputKg, outputMaterialType: sorting.outputMaterial.trim(), allowNewMaterial: true, outputKg, rejectedKg, workerWagesUgx: 0, utilitiesUgx: 0, transportUgx: 0, consumablesUgx: 0, otherExpenseUgx: costUgx, managerFloatUsedUgx: 0, notes: sorting.notes.trim() || undefined }),
+        body: JSON.stringify({ inputLotId: sorting.lotId, processedOn: entryDay, inputKg, outputMaterialType: sorting.outputMaterial.trim(), allowNewMaterial: true, outputKg, rejectedKg, workerWagesUgx: cost(sorting.wages), utilitiesUgx: cost(sorting.utilities), transportUgx: cost(sorting.transport), consumablesUgx: cost(sorting.consumables), otherExpenseUgx: cost(sorting.other), managerFloatUsedUgx: cost(sorting.float), notes: sorting.notes.trim() || undefined }),
       });
-      setSorting({ lotId: "", inputKg: "", outputMaterial: "", outputKg: "", rejectedKg: "0", costUgx: "0", notes: "" });
+      setSorting(emptySorting);
       Alert.alert(result.queuedOffline ? "Sorting saved offline" : "Sorting recorded", result.queuedOffline ? "The stock movement will synchronize automatically." : "Input, recovered stock, rejects, and processing cost are updated together.");
-      if (!result.queuedOffline) await load();
+      if (!result.queuedOffline) void load();
     } catch (caught) {
       Alert.alert("Could not record sorting", caught instanceof Error ? caught.message : "Please try again.");
     } finally { setSavingOperation(false); }
@@ -316,11 +372,11 @@ export function CompanyTabletWorkspace({
       setSavingOperation(true);
       const result = await mobileRequest<RecordMap>("/api/waste/recycling/stock-adjustments", token, user.email, {
         method: "POST",
-        body: JSON.stringify({ lotId: adjustment.lotId, adjustmentDate: operatingDate, adjustmentType: adjustment.type, quantityKg, reason: adjustment.reason.trim(), notes: adjustment.notes.trim() || undefined }),
+        body: JSON.stringify({ lotId: adjustment.lotId, adjustmentDate: entryDay, adjustmentType: adjustment.type, quantityKg, reason: adjustment.reason.trim(), notes: adjustment.notes.trim() || undefined }),
       });
       setAdjustment({ lotId: "", type: "loss", quantityKg: "", reason: "", notes: "" });
       Alert.alert(result.queuedOffline ? "Adjustment saved offline" : "Stock adjusted", result.queuedOffline ? "It will synchronize automatically when connectivity returns." : "The material ledger now reflects this adjustment.");
-      if (!result.queuedOffline) await load();
+      if (!result.queuedOffline) void load();
     } catch (caught) {
       Alert.alert("Could not adjust stock", caught instanceof Error ? caught.message : "Please try again.");
     } finally { setSavingOperation(false); }
@@ -335,8 +391,32 @@ export function CompanyTabletWorkspace({
           const result = await mobileRequest<RecordMap>("/api/waste/recycling/daily-closures", token, user.email, { method: "POST", body: JSON.stringify({ operatingDate, notes: closeNotes.trim() || undefined }) });
           setCloseNotes("");
           Alert.alert(result.queuedOffline ? "Closure queued offline" : "Day closed", result.queuedOffline ? "The closure will be checked and synchronized when internet returns." : "Daily operations are now locked and recorded.");
-          if (!result.queuedOffline) await load();
+          if (!result.queuedOffline) void load();
         } catch (caught) { Alert.alert("Could not close the day", caught instanceof Error ? caught.message : "Please try again."); }
+        finally { setSavingOperation(false); }
+      })() },
+    ]);
+  }
+
+  // Reopening needs the server to check the closure, so it is not queued offline.
+  function reopenOperatingDay() {
+    const closureId = String(objectData(data.recyclingOperations.currentClosure)?.id || "");
+    if (!closureId) return Alert.alert("Refresh first", "Pull down to refresh, then try again.");
+    if (reopenReason.trim().length < 5) return Alert.alert("Give a reason", "Explain in a few words why the day must be reopened. It is kept with the audit record.");
+    Alert.alert("Reopen this day?", `New recycling transactions will be allowed again for ${operatingDate}.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Reopen", onPress: () => void (async () => {
+        try {
+          setSavingOperation(true);
+          const result = await mobileRequest<RecordMap>(`/api/waste/recycling/daily-closures/${closureId}/reopen`, token, user.email, { method: "PATCH", body: JSON.stringify({ reason: reopenReason.trim() }) });
+          if (result.queuedOffline) {
+            await discardMobileOutbox(String(result.localId), user.email);
+            return Alert.alert("Internet needed", "Reopening a day must be confirmed by the server. Try again when connected.");
+          }
+          setReopenReason("");
+          Alert.alert("Day reopened", "Recycling transactions can be recorded again.");
+          void load();
+        } catch (caught) { Alert.alert("Could not reopen the day", caught instanceof Error ? caught.message : "Please try again."); }
         finally { setSavingOperation(false); }
       })() },
     ]);
@@ -360,12 +440,13 @@ export function CompanyTabletWorkspace({
   );
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <StatusBar style="dark" />
       <AppHeader name={user.fullName} organization={roleLabel}
         right={<SyncStatus token={token} email={user.email} onSynced={() => void load()} />} />
       <ScrollView
-        contentContainerStyle={styles.page}
+        ref={scrollRef}
+        contentContainerStyle={[styles.page, { paddingBottom: navSpace }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={refresh} />
         }
@@ -474,38 +555,54 @@ export function CompanyTabletWorkspace({
                   <Text style={styles.sectionTitle}>Sort and grade material</Text>
                   <Text style={styles.sectionCopy}>Convert a purchased lot into recovered stock while recording rejects and processing cost.</Text>
                   <View style={styles.formArea}>
+                    <Text style={styles.inputLabel}>Date of this record</Text>
+                    <DateField value={entryDay} onChange={setEntryDate} blocked={closedDays} />
                     <Text style={styles.inputLabel}>Input material lot</Text>
                     <View style={styles.choices}>
                       {data.recycling.filter((lot) => Number(lot.available_kg ?? lot.quantity_kg ?? 0) > 0).map((lot, index) => {
                         const id = String(lot.id || index);
-                        return <Pressable key={id} onPress={() => setSorting((value) => ({ ...value, lotId: id }))} style={[styles.choice, sorting.lotId === id && styles.choiceActive]}><Text style={[styles.choiceText, sorting.lotId === id && styles.choiceTextActive]}>{text(lot.material_type || lot.materialType, "Material")} · {Number(lot.available_kg ?? lot.quantity_kg ?? 0).toLocaleString()} kg</Text></Pressable>;
+                        return <Pressable key={id} onPress={() => setSorting((value) => ({ ...value, lotId: id }))} accessibilityRole="radio" accessibilityState={{ checked: sorting.lotId === id }} style={[styles.choice, sorting.lotId === id && styles.choiceActive]}><Text style={[styles.choiceText, sorting.lotId === id && styles.choiceTextActive]}>{text(lot.material_type || lot.materialType, "Material")} · {Number(lot.available_kg ?? lot.quantity_kg ?? 0).toLocaleString()} kg</Text></Pressable>;
                       })}
                     </View>
                     <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
-                      <View style={styles.field}><Text style={styles.inputLabel}>Input kg</Text><TextInput value={sorting.inputKg} onChangeText={(value) => setSorting((current) => ({ ...current, inputKg: value }))} keyboardType="decimal-pad" style={styles.input} /></View>
-                      <View style={styles.field}><Text style={styles.inputLabel}>Recovered material</Text><TextInput value={sorting.outputMaterial} onChangeText={(value) => setSorting((current) => ({ ...current, outputMaterial: value }))} placeholder="Example: PET clear" style={styles.input} /></View>
+                      <View style={styles.field}><Text style={styles.inputLabel}>Input kg</Text><TextInput accessibilityLabel="Input kg" value={sorting.inputKg} onChangeText={(value) => setSorting((current) => ({ ...current, inputKg: value }))} keyboardType="decimal-pad" style={styles.input} /></View>
+                      <View style={styles.field}><Text style={styles.inputLabel}>Recovered material</Text><TextInput accessibilityLabel="Recovered material" value={sorting.outputMaterial} onChangeText={(value) => setSorting((current) => ({ ...current, outputMaterial: value }))} placeholder="Example: PET clear" style={styles.input} /></View>
                     </View>
                     <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
-                      <View style={styles.field}><Text style={styles.inputLabel}>Output kg</Text><TextInput value={sorting.outputKg} onChangeText={(value) => setSorting((current) => ({ ...current, outputKg: value }))} keyboardType="decimal-pad" style={styles.input} /></View>
-                      <View style={styles.field}><Text style={styles.inputLabel}>Rejected kg</Text><TextInput value={sorting.rejectedKg} onChangeText={(value) => setSorting((current) => ({ ...current, rejectedKg: value }))} keyboardType="decimal-pad" style={styles.input} /></View>
+                      <View style={styles.field}><Text style={styles.inputLabel}>Output kg</Text><TextInput accessibilityLabel="Output kg" value={sorting.outputKg} onChangeText={(value) => setSorting((current) => ({ ...current, outputKg: value }))} keyboardType="decimal-pad" style={styles.input} /></View>
+                      <View style={styles.field}><Text style={styles.inputLabel}>Rejected kg</Text><TextInput accessibilityLabel="Rejected kg" value={sorting.rejectedKg} onChangeText={(value) => setSorting((current) => ({ ...current, rejectedKg: value }))} keyboardType="decimal-pad" style={styles.input} /></View>
                     </View>
-                    <Text style={styles.inputLabel}>Processing cost (UGX)</Text><TextInput value={sorting.costUgx} onChangeText={(value) => setSorting((current) => ({ ...current, costUgx: value }))} keyboardType="number-pad" style={styles.input} />
-                    <Text style={styles.inputLabel}>Notes (optional)</Text><TextInput value={sorting.notes} onChangeText={(value) => setSorting((current) => ({ ...current, notes: value }))} style={styles.input} />
-                    <Pressable disabled={savingOperation || dayClosed} onPress={() => void saveSorting()} style={[styles.primaryButton, (savingOperation || dayClosed) && styles.disabled]}><Text style={styles.primaryButtonText}>{dayClosed ? "Day is closed" : savingOperation ? "Saving…" : "Record sorting"}</Text></Pressable>
+                    <Text style={styles.inputLabel}>Processing costs (UGX)</Text>
+                    <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
+                      <View style={styles.field}><Text style={styles.inputLabel}>Worker wages</Text><TextInput accessibilityLabel="Worker wages" value={sorting.wages} onChangeText={(value) => setSorting((current) => ({ ...current, wages: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
+                      <View style={styles.field}><Text style={styles.inputLabel}>Power and water</Text><TextInput accessibilityLabel="Power and water" value={sorting.utilities} onChangeText={(value) => setSorting((current) => ({ ...current, utilities: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
+                    </View>
+                    <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
+                      <View style={styles.field}><Text style={styles.inputLabel}>Transport</Text><TextInput accessibilityLabel="Transport" value={sorting.transport} onChangeText={(value) => setSorting((current) => ({ ...current, transport: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
+                      <View style={styles.field}><Text style={styles.inputLabel}>Bags and supplies</Text><TextInput accessibilityLabel="Bags and supplies" value={sorting.consumables} onChangeText={(value) => setSorting((current) => ({ ...current, consumables: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
+                    </View>
+                    <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
+                      <View style={styles.field}><Text style={styles.inputLabel}>Other costs</Text><TextInput accessibilityLabel="Other costs" value={sorting.other} onChangeText={(value) => setSorting((current) => ({ ...current, other: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
+                      <View style={styles.field}><Text style={styles.inputLabel}>Paid from manager float</Text><TextInput accessibilityLabel="Paid from manager float" value={sorting.float} onChangeText={(value) => setSorting((current) => ({ ...current, float: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
+                    </View>
+                    <Text style={styles.inputLabel}>Notes (optional)</Text><TextInput accessibilityLabel="Notes (optional)" value={sorting.notes} onChangeText={(value) => setSorting((current) => ({ ...current, notes: value }))} style={styles.input} />
+                    <Pressable disabled={savingOperation || entryClosed} onPress={() => void saveSorting()} style={[styles.primaryButton, (savingOperation || entryClosed) && styles.disabled]}><Text style={styles.primaryButtonText}>{entryClosed ? "This day is closed" : savingOperation ? "Saving…" : "Record sorting"}</Text></Pressable>
                   </View>
                 </View> : null}
                 {operationSection === "stock" ? <View style={[styles.section, styles.operationPanel]}>
                   <Text style={styles.sectionTitle}>Stock adjustment</Text>
                   <Text style={styles.sectionCopy}>Record verified loss, correction in, or correction out with a clear audit reason.</Text>
                   <View style={styles.formArea}>
+                    <Text style={styles.inputLabel}>Date of this record</Text>
+                    <DateField value={entryDay} onChange={setEntryDate} blocked={closedDays} />
                     <Text style={styles.inputLabel}>Material lot</Text>
-                    <View style={styles.choices}>{data.recycling.map((lot, index) => { const id = String(lot.id || index); return <Pressable key={id} onPress={() => setAdjustment((value) => ({ ...value, lotId: id }))} style={[styles.choice, adjustment.lotId === id && styles.choiceActive]}><Text style={[styles.choiceText, adjustment.lotId === id && styles.choiceTextActive]}>{text(lot.material_type || lot.materialType, "Material")}</Text></Pressable>; })}</View>
+                    <View style={styles.choices}>{data.recycling.map((lot, index) => { const id = String(lot.id || index); return <Pressable key={id} onPress={() => setAdjustment((value) => ({ ...value, lotId: id }))} accessibilityRole="radio" accessibilityState={{ checked: adjustment.lotId === id }} style={[styles.choice, adjustment.lotId === id && styles.choiceActive]}><Text style={[styles.choiceText, adjustment.lotId === id && styles.choiceTextActive]}>{text(lot.material_type || lot.materialType, "Material")}</Text></Pressable>; })}</View>
                     <Text style={styles.inputLabel}>Adjustment type</Text>
-                    <View style={styles.choices}>{[["loss", "Loss"], ["correction_in", "Correction in"], ["correction_out", "Correction out"]].map(([value, label]) => <Pressable key={value} onPress={() => setAdjustment((current) => ({ ...current, type: value }))} style={[styles.choice, adjustment.type === value && styles.choiceActive]}><Text style={[styles.choiceText, adjustment.type === value && styles.choiceTextActive]}>{label}</Text></Pressable>)}</View>
-                    <Text style={styles.inputLabel}>Quantity (kg)</Text><TextInput value={adjustment.quantityKg} onChangeText={(value) => setAdjustment((current) => ({ ...current, quantityKg: value }))} keyboardType="decimal-pad" style={styles.input} />
-                    <Text style={styles.inputLabel}>Reason</Text><TextInput value={adjustment.reason} onChangeText={(value) => setAdjustment((current) => ({ ...current, reason: value }))} placeholder="Required audit reason" style={styles.input} />
-                    <Text style={styles.inputLabel}>Notes (optional)</Text><TextInput value={adjustment.notes} onChangeText={(value) => setAdjustment((current) => ({ ...current, notes: value }))} style={styles.input} />
-                    <Pressable disabled={savingOperation || dayClosed} onPress={() => void saveAdjustment()} style={[styles.primaryButton, (savingOperation || dayClosed) && styles.disabled]}><Text style={styles.primaryButtonText}>{dayClosed ? "Day is closed" : savingOperation ? "Saving…" : "Save adjustment"}</Text></Pressable>
+                    <View style={styles.choices}>{[["loss", "Loss"], ["correction_in", "Correction in"], ["correction_out", "Correction out"]].map(([value, label]) => <Pressable key={value} onPress={() => setAdjustment((current) => ({ ...current, type: value }))} accessibilityRole="radio" accessibilityState={{ checked: adjustment.type === value }} style={[styles.choice, adjustment.type === value && styles.choiceActive]}><Text style={[styles.choiceText, adjustment.type === value && styles.choiceTextActive]}>{label}</Text></Pressable>)}</View>
+                    <Text style={styles.inputLabel}>Quantity (kg)</Text><TextInput accessibilityLabel="Quantity (kg)" value={adjustment.quantityKg} onChangeText={(value) => setAdjustment((current) => ({ ...current, quantityKg: value }))} keyboardType="decimal-pad" style={styles.input} />
+                    <Text style={styles.inputLabel}>Reason</Text><TextInput accessibilityLabel="Reason" value={adjustment.reason} onChangeText={(value) => setAdjustment((current) => ({ ...current, reason: value }))} placeholder="Required audit reason" style={styles.input} />
+                    <Text style={styles.inputLabel}>Notes (optional)</Text><TextInput accessibilityLabel="Notes (optional)" value={adjustment.notes} onChangeText={(value) => setAdjustment((current) => ({ ...current, notes: value }))} style={styles.input} />
+                    <Pressable disabled={savingOperation || entryClosed} onPress={() => void saveAdjustment()} style={[styles.primaryButton, (savingOperation || entryClosed) && styles.disabled]}><Text style={styles.primaryButtonText}>{entryClosed ? "This day is closed" : savingOperation ? "Saving…" : "Save adjustment"}</Text></Pressable>
                   </View>
                 </View> : null}
               </View>
@@ -515,15 +612,17 @@ export function CompanyTabletWorkspace({
                 <Text style={styles.sectionTitle}>Submit organization expense</Text>
                 <Text style={styles.sectionCopy}>Record a real field expense with its receipt or voucher. It enters the organization finance ledger as a draft and must be approved before payment affects cash.</Text>
                 <View style={styles.formArea}>
+                  <Text style={styles.inputLabel}>Date on the receipt</Text>
+                  <DateField value={entryDay} onChange={setEntryDate} blocked={closedDays} />
                   <Text style={styles.inputLabel}>Category</Text>
-                  <View style={styles.choices}>{[["fuel","Fuel"],["maintenance","Maintenance"],["equipment","Equipment"],["utilities","Utilities"],["disposal_fees","Disposal fees"],["office","Office"],["other","Other"]].map(([value,label]) => <Pressable key={value} onPress={() => setExpense((current) => ({ ...current, category: value }))} style={[styles.choice, expense.category === value && styles.choiceActive]}><Text style={[styles.choiceText, expense.category === value && styles.choiceTextActive]}>{label}</Text></Pressable>)}</View>
-                  <Text style={styles.inputLabel}>What was paid for?</Text><TextInput value={expense.description} onChangeText={(value) => setExpense((current) => ({ ...current, description: value }))} placeholder="Example: Baling machine repair" style={styles.input} />
+                  <View style={styles.choices}>{[["fuel","Fuel"],["maintenance","Maintenance"],["equipment","Equipment"],["utilities","Utilities"],["disposal_fees","Disposal fees"],["office","Office"],["other","Other"]].map(([value,label]) => <Pressable key={value} onPress={() => setExpense((current) => ({ ...current, category: value }))} accessibilityRole="radio" accessibilityState={{ checked: expense.category === value }} style={[styles.choice, expense.category === value && styles.choiceActive]}><Text style={[styles.choiceText, expense.category === value && styles.choiceTextActive]}>{label}</Text></Pressable>)}</View>
+                  <Text style={styles.inputLabel}>What was paid for?</Text><TextInput accessibilityLabel="What was paid for?" value={expense.description} onChangeText={(value) => setExpense((current) => ({ ...current, description: value }))} placeholder="Example: Baling machine repair" style={styles.input} />
                   <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
-                    <View style={styles.field}><Text style={styles.inputLabel}>Amount (UGX)</Text><TextInput value={expense.amountUgx} onChangeText={(value) => setExpense((current) => ({ ...current, amountUgx: value }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
+                    <View style={styles.field}><Text style={styles.inputLabel}>Amount (UGX)</Text><TextInput accessibilityLabel="Amount (UGX)" value={expense.amountUgx} onChangeText={(value) => setExpense((current) => ({ ...current, amountUgx: value }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
                     <View style={styles.field}><Text style={styles.inputLabel}>Receipt or voucher number</Text><ReferenceInput value={expense.reference} onChangeText={(value) => setExpense((current) => ({ ...current, reference: value }))} prefix="EXP" placeholder="Number on the receipt" /><Text style={styles.muted}>Copy the number printed on the shop receipt. No receipt? Tap New, write that number on a petty-cash voucher and keep it with the cash book.</Text></View>
                   </View>
-                  <Text style={styles.inputLabel}>Vendor (optional)</Text><TextInput value={expense.vendor} onChangeText={(value) => setExpense((current) => ({ ...current, vendor: value }))} placeholder="Supplier or service provider" style={styles.input} />
-                  <Pressable disabled={savingExpense || dayClosed} onPress={() => void saveExpense()} style={[styles.primaryButton, (savingExpense || dayClosed) && styles.disabled]}><Text style={styles.primaryButtonText}>{dayClosed ? "Day is closed" : savingExpense ? "Submitting…" : "Submit for approval"}</Text></Pressable>
+                  <Text style={styles.inputLabel}>Vendor (optional)</Text><TextInput accessibilityLabel="Vendor (optional)" value={expense.vendor} onChangeText={(value) => setExpense((current) => ({ ...current, vendor: value }))} placeholder="Supplier or service provider" style={styles.input} />
+                  <Pressable disabled={savingExpense || entryClosed} onPress={() => void saveExpense()} style={[styles.primaryButton, (savingExpense || entryClosed) && styles.disabled]}><Text style={styles.primaryButtonText}>{entryClosed ? "This day is closed" : savingExpense ? "Submitting…" : "Submit for approval"}</Text></Pressable>
                 </View>
                 <View style={styles.floatSummary}><Text style={styles.muted}>Awaiting approval</Text><Text style={styles.floatBalance}>{Number(data.expenseSummary.awaiting_approval || 0).toLocaleString()}</Text></View>
                 {data.expenses.slice(0, 5).map((item, index) => <View key={String(item.id || index)} style={styles.row}><View style={styles.rowCopy}><Text style={styles.rowTitle}>{text(item.description, "Organization expense")}</Text><Text style={styles.muted}>{text(item.expense_number, "Pending sync")} · {text(item.status, "draft").replaceAll("_", " ")}</Text></View><Text style={styles.status}>UGX {Number(item.amount_ugx || 0).toLocaleString()}</Text></View>)}
@@ -533,7 +632,13 @@ export function CompanyTabletWorkspace({
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Daily close · {operatingDate}</Text>
                 <Text style={styles.sectionCopy}>{dayClosed ? "This operating day is already closed." : "Confirm that purchases, sorting, stock, expenses and sales are complete before closing."}</Text>
-                {!dayClosed ? <View style={styles.formArea}><Text style={styles.inputLabel}>Closing note (optional)</Text><TextInput value={closeNotes} onChangeText={setCloseNotes} placeholder="Shift summary or handover note" style={styles.input} /><Pressable disabled={savingOperation} onPress={closeOperatingDay} style={[styles.closeButton, savingOperation && styles.disabled]}><Text style={styles.closeButtonText}>Close daily operations</Text></Pressable></View> : null}
+                {!dayClosed ? <View style={styles.formArea}><Text style={styles.inputLabel}>Closing note (optional)</Text><TextInput accessibilityLabel="Closing note (optional)" value={closeNotes} onChangeText={setCloseNotes} placeholder="Shift summary or handover note" style={styles.input} /><Pressable disabled={savingOperation} onPress={closeOperatingDay} style={[styles.closeButton, savingOperation && styles.disabled]}><Text style={styles.closeButtonText}>Close daily operations</Text></Pressable></View> : (
+                  <View style={styles.formArea}>
+                    <Text style={styles.inputLabel}>Reason for reopening</Text>
+                    <TextInput accessibilityLabel="Reason for reopening" value={reopenReason} onChangeText={setReopenReason} placeholder="e.g. A late supplier delivery must be recorded" style={styles.input} />
+                    <Pressable disabled={savingOperation} onPress={reopenOperatingDay} style={[styles.primaryButton, savingOperation && styles.disabled]}><Text style={styles.primaryButtonText}>Reopen this day</Text></Pressable>
+                  </View>
+                )}
               </View>
             ) : null}
             {user.roles.includes("recycling_field_manager") && operationSection === "finance" ? (
@@ -551,13 +656,16 @@ export function CompanyTabletWorkspace({
                   ].map(([label, value]) => <View key={String(label)} style={[styles.metric, tablet && styles.metricTablet]}><Text style={styles.metricLabel}>{String(label)}</Text><Text style={styles.metricValue}>UGX {Number(value || 0).toLocaleString()}</Text></View>)}
                 </View>
                 <View style={styles.formArea}>
+                  <Text style={styles.inputLabel}>Date of the hand-over</Text>
+                  <DateField value={entryDay} onChange={setEntryDate} blocked={closedDays} />
                   <Text style={styles.inputLabel}>Money movement</Text>
                   <View style={styles.choices}>
-                    <Pressable onPress={() => setFloatMovementType("given")} style={[styles.choice, floatMovementType === "given" && styles.choiceActive]}><Text style={[styles.choiceText, floatMovementType === "given" && styles.choiceTextActive]}>Office → manager float</Text></Pressable>
-                    <Pressable onPress={() => setFloatMovementType("returned")} style={[styles.choice, floatMovementType === "returned" && styles.choiceActive]}><Text style={[styles.choiceText, floatMovementType === "returned" && styles.choiceTextActive]}>Manager float → office</Text></Pressable>
+                    <Pressable onPress={() => setFloatMovementType("given")} accessibilityRole="radio" accessibilityState={{ checked: floatMovementType === "given" }} style={[styles.choice, floatMovementType === "given" && styles.choiceActive]}><Text style={[styles.choiceText, floatMovementType === "given" && styles.choiceTextActive]}>Office → manager float</Text></Pressable>
+                    <Pressable onPress={() => setFloatMovementType("returned")} accessibilityRole="radio" accessibilityState={{ checked: floatMovementType === "returned" }} style={[styles.choice, floatMovementType === "returned" && styles.choiceActive]}><Text style={[styles.choiceText, floatMovementType === "returned" && styles.choiceTextActive]}>Manager float → office</Text></Pressable>
                   </View>
                   <Text style={styles.inputLabel}>Amount (UGX)</Text>
                   <TextInput
+                    accessibilityLabel="Amount (UGX)"
                     value={floatAmount}
                     onChangeText={setFloatAmount}
                     keyboardType="number-pad"
@@ -569,6 +677,7 @@ export function CompanyTabletWorkspace({
                   <Text style={styles.muted}>Each hand-over of cash needs its own number. Write it on the voucher both people sign; the platform refuses a number that was already used.</Text>
                   <Text style={styles.inputLabel}>Purpose or handover details</Text>
                   <TextInput
+                    accessibilityLabel="Purpose or handover details"
                     value={floatNotes}
                     onChangeText={setFloatNotes}
                     placeholder={floatMovementType === "given" ? "Example: PET purchasing float" : "Example: Unused float returned"}
@@ -622,14 +731,14 @@ export function CompanyTabletWorkspace({
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#f5f7fa" },
+  safe: { flex: 1, backgroundColor: "#f4f7f5" },
   header: {
     minHeight: 86,
     paddingHorizontal: 24,
     paddingVertical: 14,
     backgroundColor: "#fff",
     borderBottomWidth: 1,
-    borderBottomColor: "#e3e8ef",
+    borderBottomColor: "#e0e7e3",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -644,13 +753,13 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   eyebrow: {
-    color: "#2952cc",
+    color: "#2f7d5a",
     fontWeight: "600",
     letterSpacing: 0.3,
     fontSize: 12,
   },
   headerTitle: {
-    color: "#0f172a",
+    color: "#13201a",
     fontWeight: "600",
     fontSize: 24,
     marginTop: 3,
@@ -659,7 +768,7 @@ const styles = StyleSheet.create({
   accountCard: {
     backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "#e3e8ef",
+    borderColor: "#e0e7e3",
     padding: 20,
     flexDirection: "row",
     alignItems: "center",
@@ -674,14 +783,14 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#151b2b",
+    backgroundColor: "#1b3a2c",
   },
   avatarText: { color: "#f0b35a", fontWeight: "700", fontSize: 22 },
   accountCopy: { flex: 1 },
-  accountName: { color: "#0f172a", fontSize: 24, fontWeight: "600" },
+  accountName: { color: "#13201a", fontSize: 24, fontWeight: "600" },
   rolePill: {
-    color: "#2952cc",
-    backgroundColor: "#eef2fd",
+    color: "#2f7d5a",
+    backgroundColor: "#e8f3ec",
     borderRadius: 999,
     paddingHorizontal: 11,
     paddingVertical: 6,
@@ -696,7 +805,7 @@ const styles = StyleSheet.create({
     minHeight: 72,
     backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "#e3e8ef",
+    borderColor: "#e0e7e3",
     padding: 16,
     marginBottom: 12,
     flexDirection: "row",
@@ -704,7 +813,7 @@ const styles = StyleSheet.create({
     gap: 14,
     borderRadius: 12,
   },
-  accountActionTitle: { color: "#0f172a", fontSize: 16, fontWeight: "600" },
+  accountActionTitle: { color: "#13201a", fontSize: 16, fontWeight: "600" },
   quickActions: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -718,12 +827,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#e3e8ef",
+    borderColor: "#e0e7e3",
     padding: 17,
     justifyContent: "center",
   },
   quickActionTitle: {
-    color: "#0f172a",
+    color: "#13201a",
     fontSize: 15,
     fontWeight: "700",
     marginBottom: 3,
@@ -744,7 +853,7 @@ const styles = StyleSheet.create({
     bottom: 10,
     minHeight: 70,
     borderRadius: 16,
-    backgroundColor: "#151b2b",
+    backgroundColor: "#1b3a2c",
     flexDirection: "row",
     padding: 6,
     shadowColor: "#0b1220",
@@ -761,34 +870,34 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   navItemActive: { backgroundColor: "#fff" },
-  navIcon: { color: "#aab5c8", fontSize: 17, fontWeight: "700" },
-  navText: { color: "#aab5c8", fontWeight: "600", fontSize: 10 },
-  navTextActive: { color: "#1e3a8a" },
+  navIcon: { color: "#aab8b0", fontSize: 17, fontWeight: "700" },
+  navText: { color: "#aab8b0", fontWeight: "600", fontSize: 10 },
+  navTextActive: { color: "#1d4d37" },
   intro: { marginVertical: 16 },
-  pageTitle: { color: "#0f172a", fontSize: 26, lineHeight: 32, fontWeight: "700" },
-  subtitle: { color: "#64748b", fontSize: 14, lineHeight: 20, marginTop: 4, maxWidth: 820 },
-  muted: { color: "#64748b", fontSize: 13, lineHeight: 19 },
+  pageTitle: { color: "#13201a", fontSize: 26, lineHeight: 32, fontWeight: "700" },
+  subtitle: { color: "#64736b", fontSize: 14, lineHeight: 20, marginTop: 4, maxWidth: 820 },
+  muted: { color: "#64736b", fontSize: 13, lineHeight: 19 },
   metrics: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, marginBottom: 12 },
   metricsTablet: { flexWrap: "nowrap" },
-  metric: { flexBasis: "46%", flexGrow: 1, backgroundColor: "#f1f4f8", borderRadius: 12, padding: 12 },
+  metric: { flexBasis: "46%", flexGrow: 1, backgroundColor: "#eef3f0", borderRadius: 12, padding: 12 },
   metricTablet: { flex: 1 },
-  metricLabel: { color: "#64748b", fontSize: 12, fontWeight: "500" },
-  metricValue: { color: "#0f172a", fontSize: 18, fontWeight: "700", marginTop: 4 },
-  sectionTitle: { color: "#0f172a", fontSize: 17, fontWeight: "600", paddingHorizontal: 16, paddingTop: 16 },
-  sectionCopy: { color: "#64748b", fontSize: 13, lineHeight: 19, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 },
-  section: { backgroundColor: "#fff", marginBottom: 16, borderRadius: 16, overflow: "hidden", shadowColor: "#0f172a", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
-  row: { paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: 1, borderTopColor: "#eef1f5", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
+  metricLabel: { color: "#64736b", fontSize: 12, fontWeight: "500" },
+  metricValue: { color: "#13201a", fontSize: 18, fontWeight: "700", marginTop: 4 },
+  sectionTitle: { color: "#13201a", fontSize: 17, fontWeight: "600", paddingHorizontal: 16, paddingTop: 16 },
+  sectionCopy: { color: "#64736b", fontSize: 13, lineHeight: 19, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 },
+  section: { backgroundColor: "#fff", marginBottom: 16, borderRadius: 16, overflow: "hidden", shadowColor: "#13201a", shadowOpacity: 0.05, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  row: { paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: 1, borderTopColor: "#edf1ee", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16 },
   rowCopy: { flex: 1 },
-  rowTitle: { color: "#0f172a", fontWeight: "600", fontSize: 15 },
-  status: { color: "#334155", fontWeight: "600", textTransform: "capitalize" },
+  rowTitle: { color: "#13201a", fontWeight: "600", fontSize: 15 },
+  status: { color: "#34433b", fontWeight: "600" },
   empty: {
     borderTopWidth: 1,
-    borderTopColor: "#e1e6ef",
+    borderTopColor: "#dfe6e2",
     padding: 20,
     marginTop: 16,
   },
   cardTitle: {
-    color: "#0f172a",
+    color: "#13201a",
     fontSize: 18,
     fontWeight: "600",
     marginBottom: 6,
@@ -801,9 +910,9 @@ const styles = StyleSheet.create({
   },
   noticeTitle: { color: "#734711", fontSize: 16, fontWeight: "600" },
   noticeText: { color: "#734711", fontSize: 14, lineHeight: 21, marginTop: 5 },
-  floatSummary: { marginHorizontal: 16, marginBottom: 12, padding: 16, backgroundColor: "#eef2fd", borderRadius: 12 },
+  floatSummary: { marginHorizontal: 16, marginBottom: 12, padding: 16, backgroundColor: "#e8f3ec", borderRadius: 12 },
   floatBalance: {
-    color: "#0f172a",
+    color: "#13201a",
     fontSize: 26,
     fontWeight: "600",
     marginTop: 4,
@@ -816,13 +925,13 @@ const styles = StyleSheet.create({
   fieldRowTablet: { flexDirection: "row" },
   field: { flex: 1 },
   choices: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
-  choice: { minHeight: 38, justifyContent: "center", backgroundColor: "#f1f4f8", paddingHorizontal: 14, borderRadius: 999 },
-  choiceActive: { backgroundColor: "#eef2fd" },
-  choiceText: { color: "#334155", fontWeight: "500", fontSize: 13 },
-  choiceTextActive: { color: "#1e3a8a", fontWeight: "600" },
-  inputLabel: { color: "#334155", fontWeight: "600", fontSize: 13, marginTop: 6 },
-  input: { minHeight: 50, borderWidth: 1, borderColor: "#f1f4f8", backgroundColor: "#f1f4f8", paddingHorizontal: 14, color: "#0f172a", fontSize: 15, borderRadius: 12 },
-  primaryButton: { minHeight: 52, alignItems: "center", justifyContent: "center", backgroundColor: "#2952cc", marginTop: 8, borderRadius: 12 },
+  choice: { minHeight: 38, justifyContent: "center", backgroundColor: "#eef3f0", paddingHorizontal: 14, borderRadius: 999 },
+  choiceActive: { backgroundColor: "#e8f3ec" },
+  choiceText: { color: "#34433b", fontWeight: "500", fontSize: 13 },
+  choiceTextActive: { color: "#1d4d37", fontWeight: "600" },
+  inputLabel: { color: "#34433b", fontWeight: "600", fontSize: 13, marginTop: 6 },
+  input: { minHeight: 50, borderWidth: 1, borderColor: "#eef3f0", backgroundColor: "#eef3f0", paddingHorizontal: 14, color: "#13201a", fontSize: 15, borderRadius: 12 },
+  primaryButton: { minHeight: 52, alignItems: "center", justifyContent: "center", backgroundColor: "#2f7d5a", marginTop: 8, borderRadius: 12 },
   primaryButtonText: { color: "#fff", fontWeight: "600" },
   closeButton: { minHeight: 52, alignItems: "center", justifyContent: "center", backgroundColor: "#b91c1c", marginTop: 8, borderRadius: 12 },
   closeButtonText: { color: "#fff", fontWeight: "600" },
@@ -840,23 +949,23 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#2952cc",
+    borderColor: "#2f7d5a",
     paddingHorizontal: 16,
     backgroundColor: "#fff",
   },
-  secondaryButtonText: { color: "#2952cc", fontWeight: "600" },
+  secondaryButtonText: { color: "#2f7d5a", fontWeight: "600" },
   textButton: {
     minHeight: 44,
     justifyContent: "center",
     paddingHorizontal: 10,
   },
-  textButtonText: { color: "#2952cc", fontWeight: "600" },
+  textButtonText: { color: "#2f7d5a", fontWeight: "600" },
   messageCard: {
     margin: 24,
     padding: 24,
     backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "#e3e8ef",
+    borderColor: "#e0e7e3",
   },
   webview: { flex: 1, backgroundColor: "#fff" },
   webLoading: {
@@ -865,6 +974,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 12,
-    backgroundColor: "#f5f7fa",
+    backgroundColor: "#f4f7f5",
   },
 });

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Alert, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { clearSession, getSavedAccount, updateDevicePin } from "../lib/auth-session";
 import { Button, Card, ListRow, SectionHeader } from "../ui/kit";
 import { color, radius, space, type } from "../ui/theme";
@@ -11,6 +12,7 @@ export function DeviceSecuritySettings({ onLogout }: { onLogout: () => Promise<v
   const [pin, setPin] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [saving, setSaving] = useState(false);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => { void getSavedAccount().then(setSaved).catch(() => undefined); }, []);
 
@@ -52,8 +54,8 @@ export function DeviceSecuritySettings({ onLogout }: { onLogout: () => Promise<v
       {saved?.saved ? <Pressable style={s.remove} onPress={removeSaved} hitSlop={8}><Text style={s.removeText}>Sign out and remove this account from the phone</Text></Pressable> : null}
     </View>
 
-    <Modal visible={pinOpen} transparent animationType="fade" onRequestClose={() => setPinOpen(false)}>
-      <View style={s.overlay}>
+    <Modal visible={pinOpen} transparent statusBarTranslucent navigationBarTranslucent animationType="fade" onRequestClose={() => setPinOpen(false)}>
+      <View style={[s.overlay, { paddingBottom: insets.bottom + space.md }]}>
         <Card style={s.modal}>
           <Text style={type.title}>Change device PIN</Text>
           <Text style={[type.small, { marginTop: -space.sm }]}>Unlocks this account on this phone only. Your password does not change.</Text>
@@ -72,7 +74,7 @@ export function DeviceSecuritySettings({ onLogout }: { onLogout: () => Promise<v
 const s = StyleSheet.create({
   remove: { minHeight: 44, alignItems: "center", justifyContent: "center" },
   removeText: { color: color.danger, fontWeight: "500", fontSize: 13 },
-  overlay: { flex: 1, backgroundColor: "rgba(15,23,42,0.5)", justifyContent: "flex-end", padding: space.md },
+  overlay: { flex: 1, backgroundColor: "rgba(19,32,26,0.5)", justifyContent: "flex-end", padding: space.md },
   modal: { width: "100%", maxWidth: 460, alignSelf: "center" },
   input: { minHeight: 54, borderRadius: radius.md, backgroundColor: color.fill, paddingHorizontal: 16, textAlign: "center", fontSize: 22, letterSpacing: 8, color: color.ink },
 });

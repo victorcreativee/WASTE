@@ -7,7 +7,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,6 +14,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   centralLogin,
   clearSession,
@@ -39,6 +39,7 @@ type SaveChoice = { user: MobileUser; accessToken: string; refreshToken: string 
 export function NativeMobileApp() {
   const { width } = useWindowDimensions();
   const tablet = width >= 720;
+  const insets = useSafeAreaInsets();
   const [starting, setStarting] = useState(true);
   const [saved, setSaved] = useState<SavedAccount | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -184,7 +185,7 @@ export function NativeMobileApp() {
 
   const showSaved = Boolean(saved?.saved && !useAnother);
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView style={s.safe} edges={["top", "bottom", "left", "right"]}>
       <StatusBar style="dark" />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -284,8 +285,8 @@ export function NativeMobileApp() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Modal visible={Boolean(pendingSave)} transparent animationType="fade" onRequestClose={() => void finishWithoutSaving()}>
-        <View style={s.overlay}>
+      <Modal visible={Boolean(pendingSave)} transparent statusBarTranslucent navigationBarTranslucent animationType="fade" onRequestClose={() => void finishWithoutSaving()}>
+        <View style={[s.overlay, { paddingBottom: insets.bottom + space.md }]}>
           <View style={[s.modal, tablet && s.modalTablet]}>
             {pinStep === "create" && !newPin ? (
               <>
@@ -339,11 +340,11 @@ const s = StyleSheet.create({
   brandMarkSmall: { width: 44, height: 44, borderRadius: radius.md, backgroundColor: color.brand, alignItems: "center", justifyContent: "center" },
   brandName: { ...type.heading, fontSize: 17 },
   brandPanel: { flex: 1, backgroundColor: color.brand, borderRadius: radius.lg, padding: 40, justifyContent: "space-between", minHeight: 560 },
-  brandMark: { width: 52, height: 52, borderRadius: radius.md, borderWidth: 1, borderColor: "#3a4a68", alignItems: "center", justifyContent: "center" },
+  brandMark: { width: 52, height: 52, borderRadius: radius.md, borderWidth: 1, borderColor: "#3d5c4c", alignItems: "center", justifyContent: "center" },
   brandLetters: { color: color.brandAccent, fontWeight: "700", fontSize: 16 },
   brandPanelTitle: { color: "#ffffff", fontSize: 28, lineHeight: 34, fontWeight: "700" },
-  brandPanelText: { color: "#b8c3d6", fontSize: 15, lineHeight: 23, maxWidth: 440 },
-  brandPanelFoot: { color: "#8b98b0", fontSize: 13 },
+  brandPanelText: { color: "#b7c4bc", fontSize: 15, lineHeight: 23, maxWidth: 440 },
+  brandPanelFoot: { color: "#8b9a92", fontSize: 13 },
   auth: { backgroundColor: color.surface, borderRadius: radius.lg, padding: space.xl, gap: space.lg, ...shadow.card },
   authTablet: { flex: 0.9, alignSelf: "center", padding: 36, maxWidth: 480 },
   lead: { marginTop: -space.sm },
@@ -356,7 +357,7 @@ const s = StyleSheet.create({
   linkDanger: { color: color.danger, fontWeight: "500", fontSize: 14 },
   center: { alignItems: "center" },
   note: { flexDirection: "row", alignItems: "center", gap: space.sm, backgroundColor: color.fill, borderRadius: radius.md, padding: space.md },
-  overlay: { flex: 1, backgroundColor: "rgba(15,23,42,0.5)", alignItems: "center", justifyContent: "flex-end", padding: space.md },
+  overlay: { flex: 1, backgroundColor: "rgba(19,32,26,0.5)", alignItems: "center", justifyContent: "flex-end", padding: space.md },
   modal: { width: "100%", maxWidth: 480, backgroundColor: color.surface, borderRadius: radius.lg, padding: space.xl, gap: space.md },
   modalTablet: { padding: 34, marginBottom: "20%" },
   modalIcon: { width: 48, height: 48, borderRadius: radius.pill, backgroundColor: color.actionSoft, alignItems: "center", justifyContent: "center" },

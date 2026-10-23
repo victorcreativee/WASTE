@@ -166,7 +166,7 @@ export function MobileProblemCenter({
       );
       setDescription("");
       setShowForm(false);
-      if (!result.queuedOffline) await load();
+      if (!result.queuedOffline) void load();
       Alert.alert(
         result.queuedOffline ? "Problem saved offline" : "Problem reported",
         result.queuedOffline
@@ -201,7 +201,7 @@ export function MobileProblemCenter({
           problem.id === id ? { ...problem, status } : problem,
         ),
       );
-      if (!result.queuedOffline) await load();
+      if (!result.queuedOffline) void load();
     } catch (c) {
       setError(c instanceof Error ? c.message : "Could not update the issue");
     } finally {
@@ -293,7 +293,7 @@ export function MobileProblemCenter({
             onChangeText={setDescription}
             multiline
             placeholder="Explain what happened and what support is needed"
-            placeholderTextColor="#8491a5"
+            placeholderTextColor="#85948c"
             style={s.input}
           />
           <Pressable
@@ -357,7 +357,7 @@ const s = StyleSheet.create({
   wrap: {
     marginTop: 30,
     borderTopWidth: 1,
-    borderTopColor: "#cbd5e1",
+    borderTopColor: "#cdd6d1",
     paddingTop: 20,
   },
   heading: {
@@ -366,8 +366,8 @@ const s = StyleSheet.create({
     alignItems: "center",
     marginBottom: 14,
   },
-  title: { fontSize: 20, fontWeight: "600", color: "#0f172a" },
-  sub: { fontSize: 13, lineHeight: 18, color: "#64748b", marginTop: 3 },
+  title: { fontSize: 20, fontWeight: "600", color: "#13201a" },
+  sub: { fontSize: 13, lineHeight: 18, color: "#64736b", marginTop: 3 },
   error: {
     backgroundColor: "#fff1f2",
     borderLeftWidth: 3,
@@ -378,11 +378,11 @@ const s = StyleSheet.create({
   },
   outline: {
     borderWidth: 1,
-    borderColor: "#2952cc",
+    borderColor: "#2f7d5a",
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  outlineText: { color: "#2952cc", fontSize: 12, fontWeight: "600" },
+  outlineText: { color: "#2f7d5a", fontSize: 12, fontWeight: "600" },
   problemButton: {
     backgroundColor: "#fff7df",
     borderLeftWidth: 4,
@@ -394,32 +394,32 @@ const s = StyleSheet.create({
   form: {
     backgroundColor: "white",
     borderWidth: 1,
-    borderColor: "#e3e8ef",
+    borderColor: "#e0e7e3",
     padding: 15,
     marginBottom: 14,
   },
-  label: { fontSize: 12, fontWeight: "600", color: "#334155", marginBottom: 7 },
+  label: { fontSize: 12, fontWeight: "600", color: "#34433b", marginBottom: 7 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginBottom: 13 },
   chip: {
     borderWidth: 1,
-    borderColor: "#cbd5e1",
+    borderColor: "#cdd6d1",
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  chipActive: { backgroundColor: "#eef2fd", borderColor: "#2952cc" },
-  chipText: { fontSize: 11, fontWeight: "700", color: "#475569" },
-  chipTextActive: { color: "#24498f" },
+  chipActive: { backgroundColor: "#e8f3ec", borderColor: "#2f7d5a" },
+  chipText: { fontSize: 11, fontWeight: "700", color: "#4a5a51" },
+  chipTextActive: { color: "#1d4d37" },
   input: {
     minHeight: 90,
     textAlignVertical: "top",
     borderWidth: 1,
-    borderColor: "#cbd5e1",
+    borderColor: "#cdd6d1",
     padding: 12,
     fontSize: 14,
-    color: "#0f172a",
+    color: "#13201a",
   },
   primary: {
-    backgroundColor: "#2952cc",
+    backgroundColor: "#2f7d5a",
     minHeight: 48,
     alignItems: "center",
     justifyContent: "center",
@@ -429,7 +429,7 @@ const s = StyleSheet.create({
   card: {
     backgroundColor: "white",
     borderWidth: 1,
-    borderColor: "#e3e8ef",
+    borderColor: "#e0e7e3",
     padding: 14,
     marginBottom: 10,
   },
@@ -438,16 +438,16 @@ const s = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  category: { fontSize: 14, fontWeight: "600", color: "#0f172a" },
+  category: { fontSize: 14, fontWeight: "600", color: "#13201a" },
   status: {
     fontSize: 10,
     fontWeight: "600",
-    color: "#2952cc",
+    color: "#2f7d5a",
     textTransform: "uppercase",
   },
   open: { color: "#b45309" },
-  description: { fontSize: 14, lineHeight: 20, color: "#334155", marginTop: 9 },
-  meta: { fontSize: 11, lineHeight: 17, color: "#64748b", marginTop: 8 },
+  description: { fontSize: 14, lineHeight: 20, color: "#34433b", marginTop: 9 },
+  meta: { fontSize: 11, lineHeight: 17, color: "#64736b", marginTop: 8 },
   actions: {
     flexDirection: "row",
     gap: 8,
@@ -460,5 +460,5 @@ const s = StyleSheet.create({
     paddingVertical: 11,
   },
   resolveText: { color: "white", fontSize: 12, fontWeight: "600" },
-  empty: { paddingVertical: 18, textAlign: "center", color: "#64748b" },
+  empty: { paddingVertical: 18, textAlign: "center", color: "#64736b" },
 });

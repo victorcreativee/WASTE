@@ -2,6 +2,7 @@ import NetInfo from "@react-native-community/netinfo";
 import * as Crypto from "expo-crypto";
 import * as SQLite from "expo-sqlite";
 import { refreshAccessToken } from "./auth-session";
+import { localDay } from "./dates";
 
 type Method = "POST" | "PUT" | "PATCH";
 type QueueRow = {
@@ -41,7 +42,7 @@ export type MobileOutboxItem = {
 
 const dbPromise = SQLite.openDatabaseAsync("kwms-mobile.db");
 let ready: Promise<void> | null = null;
-let activeSync: Promise<void> | null = null;
+let activeSync: Promise<number> | null = null;
 let state: SyncState = {
   online: true,
   pending: 0,
@@ -122,6 +123,20 @@ async function projectPendingRecyclingChanges(
       continue;
     }
 
+    const supplierPaymentMatch = row.endpoint.match(/^\/api\/waste\/recycling\/lots\/([^/]+)\/paid$/);
+    if (row.method === "PATCH" && supplierPaymentMatch) {
+      const lot = data.lots.find((item: any) => item.id === supplierPaymentMatch[1]);
+      if (lot && !lot.local_payment_ids?.includes(row.id)) {
+        const balanceBefore = Number(lot.balance_ugx ?? lot.total_cost_ugx ?? 0);
+        const amount = Number(payload.amountUgx || 0);
+        lot.balance_ugx = String(Math.max(0, balanceBefore - amount));
+        lot.paid_ugx = String(Number(lot.paid_ugx || 0) + amount);
+        lot.purchase_payment_status = amount >= balanceBefore ? "paid" : "partially_paid";
+        lot.local_payment_ids = [...(lot.local_payment_ids || []), row.id];
+      }
+      continue;
+    }
+
     if (row.method !== "POST") continue;
 
     if (row.endpoint === "/api/waste/recycling/lots") {
@@ -136,7 +151,7 @@ async function projectPendingRecyclingChanges(
         available_quantity_kg: String(payload.quantityKg || 0),
         unit_purchase_price_ugx: String(payload.unitPurchasePriceUgx || 0),
         collected_on:
-          payload.collectedOn || new Date().toISOString().slice(0, 10),
+          payload.collectedOn || localDay(),
         quality: payload.quality || "mixed",
         purchase_payment_status: payload.purchasePaymentStatus || "paid",
         notes: payload.notes || "",
@@ -152,7 +167,7 @@ async function projectPendingRecyclingChanges(
         buyer_name: payload.buyerName || "Offline buyer",
         quantity_kg: String(payload.quantityKg || 0),
         unit_sale_price_ugx: String(payload.unitSalePriceUgx || 0),
-        sold_on: payload.soldOn || new Date().toISOString().slice(0, 10),
+        sold_on: payload.soldOn || localDay(),
         payment_status: payload.paymentStatus || "pending",
         notes: payload.notes || "",
         local_sync_status: "pending",
@@ -177,7 +192,7 @@ async function projectPendingRecyclingChanges(
         transaction_type: payload.transactionType || "given",
         amount_ugx: String(payload.amountUgx || 0),
         transaction_date:
-          payload.transactionDate || new Date().toISOString().slice(0, 10),
+          payload.transactionDate || localDay(),
         reference: payload.reference || null,
         notes: payload.notes || "",
         local_sync_status: "pending",
@@ -319,6 +334,44 @@ export async function initializeMobileStorage(ownerEmail?: string) {
   if(ownerEmail){const saved=await db.getFirstAsync<{last_synced_at:string|null;last_error:string|null}>("SELECT last_synced_at,last_error FROM mobile_sync_state WHERE owner_email=?",ownerEmail.toLowerCase());publish({lastSyncedAt:saved?.last_synced_at||undefined,lastError:saved?.last_error||undefined});}
 }
 
+const API_BASE = (process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+// A field phone on a weak signal can hang for a minute before the OS gives up. Reads fall back to the saved copy after
+// this long and writes go to the outbox, so staff are never left waiting on a spinner.
+const READ_TIMEOUT_MS = 12_000;
+const WRITE_TIMEOUT_MS = 20_000;
+
+async function fetchWithin(url: string, init: RequestInit, ms: number) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if ((error as Error).name === "AbortError") throw Object.assign(new Error("The connection is too slow right now"), { httpStatus: 504 });
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readCache(db: SQLite.SQLiteDatabase, ownerEmail: string, path: string) {
+  const cached = await db.getFirstAsync<{ payload: string }>(
+    "SELECT payload FROM api_cache WHERE cache_key=?",
+    `${ownerEmail.toLowerCase()}:${path}`,
+  );
+  if (!cached) return null;
+  const recyclingProjected = await projectPendingRecyclingChanges(ownerEmail, path, safeJson(cached.payload));
+  return projectPendingExpenseChanges(ownerEmail, path, recyclingProjected);
+}
+
+/** The last saved server response for a GET, with this phone's unsynchronized work applied. Null when never loaded. */
+export async function readCachedResponse<T>(path: string, ownerEmail: string): Promise<T | null> {
+  try {
+    return (await readCache(await database(), ownerEmail, path)) as T | null;
+  } catch {
+    return null;
+  }
+}
+
 export async function mobileRequest<T>(
   path: string,
   token: string,
@@ -326,22 +379,28 @@ export async function mobileRequest<T>(
   init: RequestInit = {},
 ): Promise<MobileApiResult<T>> {
   const method = String(init.method || "GET").toUpperCase();
+  const mutation = ["POST", "PUT", "PATCH"].includes(method);
   const db = await database();
   const cacheKey = `${ownerEmail.toLowerCase()}:${path}`;
+  // Writes carry the key the outbox would use, so a request that reached the server but timed out on the way back is
+  // recognised as the same work when the outbox replays it.
+  const operationId = mutation ? uuid() : "";
   try {
     const request = (accessToken: string) =>
-      fetch(
-        `${(process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:3000").replace(/\/$/, "")}${path}`,
+      fetchWithin(
+        `${API_BASE}${path}`,
         {
           ...init,
           cache: method === "GET" ? "no-store" : init.cache,
           headers: {
             "Content-Type": "application/json",
             ...(method === "GET" ? { "Cache-Control": "no-cache" } : {}),
+            ...(mutation ? { "Idempotency-Key": operationId, "X-KWMS-Offline": "1" } : {}),
             Authorization: `Bearer ${accessToken}`,
             ...(init.headers || {}),
           },
         },
+        mutation ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS,
       );
     let response = await request(token);
     if (response.status === 401) {
@@ -366,25 +425,20 @@ export async function mobileRequest<T>(
     return body as MobileApiResult<T>;
   } catch (error) {
     if (method === "GET" && offlineFailure(error)) {
-      const cached = await db.getFirstAsync<{ payload: string }>(
-        "SELECT payload FROM api_cache WHERE cache_key=?",
-        cacheKey,
-      );
+      const cached = await readCache(db, ownerEmail, path);
       if (cached) {
         publish({ online: false });
-        const cachedPayload = safeJson(cached.payload);
-        const recyclingProjected = await projectPendingRecyclingChanges(ownerEmail, path, cachedPayload);
-        return (await projectPendingExpenseChanges(ownerEmail, path, recyclingProjected)) as MobileApiResult<T>;
+        return cached as MobileApiResult<T>;
       }
     }
-    if (["POST", "PUT", "PATCH"].includes(method) && offlineFailure(error)) {
-      const id=uuid(),now=new Date().toISOString(),payload=String(init.body||"{}");
+    if (mutation && offlineFailure(error)) {
+      const now=new Date().toISOString(),payload=String(init.body||"{}");
       const dedupeKey=await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256,JSON.stringify([ownerEmail.toLowerCase(),method,path,payload]));
       const duplicate=await db.getFirstAsync<{id:string}>("SELECT id FROM mobile_outbox WHERE owner_email=? AND dedupe_key=? AND status IN ('pending','syncing','failed') ORDER BY created_at DESC LIMIT 1",ownerEmail.toLowerCase(),dedupeKey);
       if(duplicate){publish({online:false});await refreshCounts(ownerEmail);return{queuedOffline:true,localId:duplicate.id}as MobileApiResult<T>}
       await db.runAsync(
         "INSERT INTO mobile_outbox(id,owner_email,method,endpoint,payload,created_at,updated_at,dedupe_key) VALUES(?,?,?,?,?,?,?,?)",
-        id,
+        operationId,
         ownerEmail.toLowerCase(),
         method,
         path,
@@ -395,13 +449,14 @@ export async function mobileRequest<T>(
       );
       publish({ online: false });
       await refreshCounts(ownerEmail);
-      return { queuedOffline: true, localId: id } as MobileApiResult<T>;
+      return { queuedOffline: true, localId: operationId } as MobileApiResult<T>;
     }
     throw error;
   }
 }
 
-export async function syncMobileOutbox(token: string, ownerEmail: string) {
+/** Sends this phone's waiting work in order. Resolves with how many records reached the server. */
+export async function syncMobileOutbox(token: string, ownerEmail: string): Promise<number> {
   if (activeSync) return activeSync;
   activeSync = performSync(token, ownerEmail).finally(() => {
     activeSync = null;
@@ -415,6 +470,7 @@ async function performSync(token: string, ownerEmail: string) {
   try {
     let activeToken = token;
     let disconnected=false;
+    let sent=0;
     const rows = await db.getAllAsync<QueueRow>(
       "SELECT id,owner_email,method,endpoint,payload,attempts FROM mobile_outbox WHERE owner_email=? AND status IN ('pending','failed') AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at",
       ownerEmail.toLowerCase(),
@@ -428,8 +484,8 @@ async function performSync(token: string, ownerEmail: string) {
       );
       try {
         const send = (accessToken: string) =>
-          fetch(
-            `${(process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:3000").replace(/\/$/, "")}${row.endpoint}`,
+          fetchWithin(
+            `${API_BASE}${row.endpoint}`,
             {
               method: row.method,
               headers: {
@@ -440,6 +496,7 @@ async function performSync(token: string, ownerEmail: string) {
               },
               body: row.payload,
             },
+            WRITE_TIMEOUT_MS,
           );
         let response = await send(activeToken);
         if (response.status === 401) {
@@ -450,6 +507,9 @@ async function performSync(token: string, ownerEmail: string) {
           }
         }
         const body = await response.json().catch(() => ({}));
+        // The server is still finishing the first attempt of this same work: try again later instead of flagging it.
+        if (response.status === 409 && /already synchronizing/i.test(String(body.message || "")))
+          throw Object.assign(new Error(body.message), { httpStatus: 503 });
         if (response.status === 409) {
           await db.runAsync(
             "UPDATE mobile_outbox SET status='conflict',last_error=?,updated_at=? WHERE id=?",
@@ -470,6 +530,7 @@ async function performSync(token: string, ownerEmail: string) {
           new Date().toISOString(),
           row.id,
         );
+        sent++;
       } catch (error) {
         const httpStatus = (error as { httpStatus?: number }).httpStatus;
         if (
@@ -513,6 +574,7 @@ async function performSync(token: string, ownerEmail: string) {
     await db.runAsync("INSERT INTO mobile_sync_state(owner_email,last_synced_at,last_error,updated_at) VALUES(?,?,NULL,?) ON CONFLICT(owner_email) DO UPDATE SET last_synced_at=excluded.last_synced_at,last_error=NULL,updated_at=excluded.updated_at",ownerEmail.toLowerCase(),now,now);
     publish({ online: true, lastSyncedAt: now, lastError: undefined });
     await refreshCounts(ownerEmail);
+    return sent;
   } catch(error) {
     const message=error instanceof Error?error.message:"Synchronization failed",now=new Date().toISOString();
     await db.runAsync("INSERT INTO mobile_sync_state(owner_email,last_synced_at,last_error,updated_at) VALUES(?,NULL,?,?) ON CONFLICT(owner_email) DO UPDATE SET last_error=excluded.last_error,updated_at=excluded.updated_at",ownerEmail.toLowerCase(),message,now);
@@ -523,19 +585,36 @@ async function performSync(token: string, ownerEmail: string) {
   }
 }
 
+/**
+ * Sends waiting work whenever the phone comes back online (and once when watching starts online).
+ * onSynced runs only when something actually reached the server, so screens are not reloaded for nothing.
+ */
 export function watchConnectivity(
   token: string,
   ownerEmail: string,
   onSynced?: () => void,
 ) {
-  return NetInfo.addEventListener((info) => {
+  let wasOnline: boolean | undefined;
+  const send = () =>
+    void syncMobileOutbox(token, ownerEmail)
+      .then((sent) => { if (sent > 0) onSynced?.(); })
+      .catch(() => undefined);
+  // Waiting work is retried on its backoff schedule. This does not trust the online flag: a weak signal can fail a
+  // request while the phone still reports a connection, and no network event would follow to clear it.
+  const retry = setInterval(() => {
+    if (state.pending > 0 && !state.syncing) send();
+  }, 60_000);
+  const unsubscribe = NetInfo.addEventListener((info) => {
     const online = Boolean(
       info.isConnected && info.isInternetReachable !== false,
     );
     publish({ online });
-    if (online)
-      void syncMobileOutbox(token, ownerEmail)
-        .then(() => onSynced?.())
-        .catch(() => undefined);
+    const reconnected = online && wasOnline !== true;
+    wasOnline = online;
+    if (reconnected) send();
   });
+  return () => {
+    clearInterval(retry);
+    unsubscribe();
+  };
 }

@@ -1,21 +1,22 @@
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { SyncStatus } from "./SyncStatus";
-import { mobileRequest } from "../lib/mobile-api";
+import { mobileRequest, readCachedResponse } from "../lib/mobile-api";
 import { AccountWorkspace } from "./AccountWorkspace";
-import { RoleBottomNavigation, RoleNavigationItem } from "./RoleBottomNavigation";
-import { AppHeader, Banner, Button, Card, Chips, EmptyState, Field, Input, ListRow, MoneyInput, QuickActions, ReferenceInput, SectionHeader, Segmented, SummaryCard, page } from "../ui/kit";
+import { useBottomNavigationSpace, RoleBottomNavigation, RoleNavigationItem } from "./RoleBottomNavigation";
+import { AppHeader, Banner, Button, Card, Chips, DateField, EmptyState, Field, Input, ListRow, MoneyInput, QuickActions, ReferenceInput, SectionHeader, Segmented, SummaryCard, page } from "../ui/kit";
 import { color, radius, space, type, ugx } from "../ui/theme";
+import { formatDay, localDay } from "../lib/dates";
 
 type User = { fullName: string; email: string; roles: string[] };
 type Lot = {
@@ -61,6 +62,7 @@ type Workspace = {
     saleValueUgx?: number;
     outstandingUgx?: number;
   };
+  dailyClosures?: { operating_date: string; status: string }[];
 };
 type Screen = "today" | "sell" | "history" | "account";
 
@@ -78,13 +80,17 @@ export function RecyclingSalesWorkspace({
   onLogout,
   onOpenOperations,
   onOpenPurchasing,
+  active = true,
 }: {
   token: string;
   user: User;
   onLogout: () => Promise<void>;
   onOpenOperations?: (target?: "dashboard" | "operations") => void;
   onOpenPurchasing?: () => void;
+  active?: boolean;
 }) {
+  const navSpace = useBottomNavigationSpace();
+  const scrollRef = useRef<ScrollView>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null),
     [screen, setScreen] = useState<Screen>("today"),
     [loading, setLoading] = useState(true),
@@ -98,6 +104,7 @@ export function RecyclingSalesWorkspace({
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
   const [savingPayment, setSavingPayment] = useState(false);
+  const [savingSale, setSavingSale] = useState(false);
   const [lotId, setLotId] = useState(""),
     [partnerId, setPartnerId] = useState(""),
     [buyerName, setBuyerName] = useState(""),
@@ -105,7 +112,20 @@ export function RecyclingSalesWorkspace({
     [quantity, setQuantity] = useState(""),
     [unitPrice, setUnitPrice] = useState(""),
     [transport, setTransport] = useState("0"),
+    [saleDate, setSaleDate] = useState(""),
+    [saleCosts, setSaleCosts] = useState({ wages: "", food: "", other: "" }),
+    [showSaleCosts, setShowSaleCosts] = useState(false),
+    [paymentDate, setPaymentDate] = useState(localDay()),
     [notes, setNotes] = useState("");
+  // A new screen starts at the top rather than at the previous screen's scroll position.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [screen]);
+  // Messages appear at the top of the screen, so bring them into view when a save fails further down.
+  useEffect(() => {
+    if (error) scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, [error]);
+
   const load = useCallback(async () => {
     try {
       setError("");
@@ -124,21 +144,46 @@ export function RecyclingSalesWorkspace({
     }
   }, [token, user.email]);
   useEffect(() => {
-    // Initial cache hydration is intentionally started when this workspace mounts.
+    // Show the saved copy straight away, then replace it with the server's answer.
+    let cancelled = false;
+    void readCachedResponse<{ data: Workspace }>("/api/waste/recycling", user.email).then((cached) => {
+      if (cancelled || !cached?.data) return;
+      setWorkspace((current) => current ?? cached.data);
+      setLoading(false);
+    });
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
-  }, [load]);
+    return () => { cancelled = true; };
+  }, [load, user.email]);
+
+  // Coming back to this screen refreshes quietly in the background; the last figures stay visible meanwhile.
+  const wasActive = useRef(active);
+  useEffect(() => {
+    if (active && !wasActive.current) void load();
+    wasActive.current = active;
+  }, [active, load]);
   const stock = useMemo(
       () => workspace?.lots.filter((x) => Number(x.available_kg) > 0) || [],
       [workspace],
     ),
     selectedLot = stock.find((x) => x.id === lotId),
     total = Number(quantity || 0) * Number(unitPrice || 0);
+  const closedDays = [
+    ...(workspace?.dailyClosures || []).filter((item) => item.status === "closed").map((item) => localDay(item.operating_date)),
+    ...(workspace?.operations.isClosed ? [workspace.operations.operatingDate] : []),
+  ];
+  // The form follows the business day until someone picks another date.
+  const saleDay = saleDate || workspace?.operations.operatingDate || localDay();
+  const saleCostTotal = Number(transport || 0) + Number(saleCosts.wages || 0) + Number(saleCosts.food || 0) + Number(saleCosts.other || 0);
   const todaySales =
     workspace?.sales.filter(
       (x) =>
-        String(x.sold_on).slice(0, 10) === workspace.operations.operatingDate,
+        localDay(x.sold_on) === workspace.operations.operatingDate,
     ) || [];
+  // Sales staff get a personal summary from the server; managers see the company's figures from the sales themselves.
+  const todayValue = todaySales.reduce((sum, x) => sum + Number(x.total_ugx || 0), 0);
+  const todayKg = todaySales.reduce((sum, x) => sum + Number(x.quantity_kg || 0), 0);
+  const owedToUs = (workspace?.sales || []).filter((x) => x.status !== "paid").reduce((sum, x) => sum + Number(x.balance_ugx ?? x.total_ugx ?? 0), 0);
   const filteredSales = useMemo(() => {
     const query = historyQuery.trim().toLowerCase();
     if (!query) return workspace?.sales || [];
@@ -167,7 +212,7 @@ export function RecyclingSalesWorkspace({
       });
       const localPartner: Partner = { id: result.localId || `local-${Date.now()}`, name, partner_type: "buyer", active: true, contact_person: partnerForm.contactPerson.trim() || null, phone: partnerForm.phone.trim() || null, email: partnerForm.email.trim().toLowerCase() || null };
       if (result.queuedOffline) setWorkspace((current) => current ? { ...current, partners: [localPartner, ...current.partners] } : current);
-      else await load();
+      else void load();
       // Until the queued partner receives its server ID, sales use the entered
       // buyer name instead of creating an invalid local foreign key.
       setPartnerId("");
@@ -188,10 +233,10 @@ export function RecyclingSalesWorkspace({
       setError("");
       const result = await request<{ queuedOffline?: boolean }>(`/api/waste/recycling/sales/${sale.id}/paid`, token, user.email, {
         method: "PATCH",
-        body: JSON.stringify({ amountUgx: amount, paymentReceivedOn: new Date().toISOString().slice(0, 10), paymentReference: paymentReference.trim() }),
+        body: JSON.stringify({ amountUgx: amount, paymentReceivedOn: paymentDate, paymentReference: paymentReference.trim() }),
       });
       if (result.queuedOffline) setWorkspace((current) => current ? { ...current, sales: current.sales.map((item) => item.id === sale.id ? { ...item, balance_ugx: String(Math.max(0, Number(item.balance_ugx) - amount)), payment_state: amount >= Number(item.balance_ugx) ? "paid" : "partial" } : item) } : current);
-      else await load();
+      else void load();
       setPaymentSaleId(""); setPaymentAmount(""); setPaymentReference("");
       Alert.alert(result.queuedOffline ? "Payment saved offline" : "Payment recorded", result.queuedOffline ? "The receipt information will synchronize automatically." : "The customer balance and sales income have been updated.");
     } catch (cause) {
@@ -208,12 +253,16 @@ export function RecyclingSalesWorkspace({
       return setError(
         "Choose stock and a buyer, then enter a valid weight and price.",
       );
+    if (saleDay > localDay())
+      return setError("The sale date cannot be in the future.");
+    if (closedDays.includes(saleDay))
+      return setError(`${formatDay(saleDay)} is closed. Choose another date or ask a manager to reopen it.`);
     if (selectedLot && Number(quantity) > Number(selectedLot.available_kg))
       return setError(
         `Only ${Number(selectedLot.available_kg).toLocaleString()} kg is available in this stock lot.`,
       );
     try {
-      setLoading(true);
+      setSavingSale(true);
       setError("");
       const partner = workspace?.partners.find((x) => x.id === partnerId);
       const result = await request<{
@@ -230,11 +279,11 @@ export function RecyclingSalesWorkspace({
           invoiceNumber: invoice.trim() || undefined,
           quantityKg: Number(quantity),
           unitPriceUgx: Number(unitPrice),
-          soldOn: workspace?.operations.operatingDate,
-          workerWagesUgx: 0,
-          foodUgx: 0,
+          soldOn: saleDay,
+          workerWagesUgx: Number(saleCosts.wages || 0),
+          foodUgx: Number(saleCosts.food || 0),
           transportUgx: Number(transport || 0),
-          otherExpenseUgx: 0,
+          otherExpenseUgx: Number(saleCosts.other || 0),
           notes: notes.trim() || undefined,
         }),
       });
@@ -251,7 +300,7 @@ export function RecyclingSalesWorkspace({
           balance_ugx: String(total),
           status: "pending_sync",
           payment_state: "unpaid",
-          sold_on: workspace.operations.operatingDate,
+          sold_on: saleDay,
         };
         setWorkspace((current) =>
           current
@@ -268,14 +317,14 @@ export function RecyclingSalesWorkspace({
                     : x,
                 ),
                 sales: [localSale, ...current.sales],
-                myActivity: {
+                // Only roles with a personal summary from the server get it updated here.
+                myActivity: current.myActivity && saleDay === current.operations.operatingDate ? {
                   ...current.myActivity,
-                  sales: (current.myActivity?.sales || 0) + 1,
-                  soldKg: (current.myActivity?.soldKg || 0) + Number(quantity),
-                  saleValueUgx: (current.myActivity?.saleValueUgx || 0) + total,
-                  outstandingUgx:
-                    (current.myActivity?.outstandingUgx || 0) + total,
-                },
+                  sales: (current.myActivity.sales || 0) + 1,
+                  soldKg: (current.myActivity.soldKg || 0) + Number(quantity),
+                  saleValueUgx: (current.myActivity.saleValueUgx || 0) + total,
+                  outstandingUgx: (current.myActivity.outstandingUgx || 0) + total,
+                } : current.myActivity,
               }
             : current,
         );
@@ -288,7 +337,10 @@ export function RecyclingSalesWorkspace({
       setUnitPrice("");
       setTransport("0");
       setNotes("");
-      if (!result.queuedOffline) await load();
+      setSaleDate("");
+      setSaleCosts({ wages: "", food: "", other: "" });
+      setShowSaleCosts(false);
+      if (!result.queuedOffline) void load();
       setScreen("today");
       Alert.alert(
         result.queuedOffline ? "Sale saved offline" : "Industrial sale saved",
@@ -299,7 +351,7 @@ export function RecyclingSalesWorkspace({
     } catch (c) {
       setError(c instanceof Error ? c.message : "Could not save the sale");
     } finally {
-      setLoading(false);
+      setSavingSale(false);
     }
   }
   if (loading && !workspace)
@@ -328,13 +380,14 @@ export function RecyclingSalesWorkspace({
   const savedBuyers = (workspace?.partners || []).filter((x) => x.active && !x.local_sync_status && ["buyer", "both"].includes(x.partner_type));
   const stockKg = stock.reduce((sum, x) => sum + Number(x.available_kg || 0), 0);
   return (
-    <SafeAreaView style={page.safe}>
+    <SafeAreaView style={page.safe} edges={["top", "left", "right"]}>
       <StatusBar style="dark" />
       <AppHeader name={user.fullName} organization={workspace?.organization.name || "Industrial sales"}
         right={<SyncStatus token={token} email={user.email} onSynced={() => void load()} />} />
       <ScrollView
+        ref={scrollRef}
         style={{ flex: 1 }}
-        contentContainerStyle={page.content}
+        contentContainerStyle={[page.content, { paddingBottom: navSpace }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
         keyboardShouldPersistTaps="handled"
       >
@@ -346,22 +399,23 @@ export function RecyclingSalesWorkspace({
         ) : null}
         {screen === "today" && (
           <>
-            {closed ? <Banner tone="warning" title="Day closed" text="Management has closed today. New sales are unavailable until the day is reopened." /> : null}
-            <SummaryCard label="Sold today" value={ugx(workspace?.myActivity?.saleValueUgx ?? 0)}
+            {closed ? <Banner tone="warning" title="Day closed" text="Management has closed today. Sales for today are locked until a manager reopens the day; an earlier open day can still be chosen." /> : null}
+            <SummaryCard label="Sold today" value={ugx(workspace?.myActivity?.saleValueUgx ?? todayValue)}
               stats={[
                 { label: "Sales", value: workspace?.myActivity?.sales ?? todaySales.length },
-                { label: "Kg sold", value: Number(workspace?.myActivity?.soldKg ?? 0).toLocaleString("en-GB") },
-                { label: "Owed to us", value: Number(workspace?.myActivity?.outstandingUgx ?? 0).toLocaleString("en-GB") },
+                { label: "Kg sold", value: Number(workspace?.myActivity?.soldKg ?? todayKg).toLocaleString("en-GB") },
+                { label: "Owed to us", value: Number(workspace?.myActivity?.outstandingUgx ?? owedToUs).toLocaleString("en-GB") },
               ]} />
             <QuickActions items={[
-              { icon: "add-circle-outline", label: "New sale", onPress: () => setScreen("sell"), disabled: closed || !stock.length },
+              { icon: "add-circle-outline", label: "New sale", onPress: () => setScreen("sell"), disabled: !stock.length },
               { icon: "cash-outline", label: "Record payment", onPress: () => setScreen("history"), tone: "success" },
               { icon: "time-outline", label: "Sales history", onPress: () => setScreen("history"), tone: "neutral" },
             ]} />
             <SectionHeader title={`Stock to sell · ${stockKg.toLocaleString("en-GB")} kg`} />
             {stock.slice(0, 8).map((x) => (
               <ListRow key={x.id} icon="cube-outline" iconTone="action" title={x.material_type} subtitle={`${x.source_name} · ${x.quality}`}
-                value={`${Number(x.available_kg).toLocaleString("en-GB")} kg`} />
+                value={`${Number(x.available_kg).toLocaleString("en-GB")} kg`} chevron
+                onPress={() => { setLotId(x.id); setScreen("sell"); }} />
             ))}
             {!stock.length && <EmptyState icon="cube-outline" title="No stock to sell" text="Stock appears here once purchases are received or sorted." />}
           </>
@@ -372,7 +426,11 @@ export function RecyclingSalesWorkspace({
               <Text style={page.title}>New sale</Text>
               <Text style={[type.small, { marginTop: 4 }]}>Pick the stock, the buyer, then the weight and price.</Text>
             </View>
-            {closed ? <Banner tone="warning" text="Today is closed. Sales cannot be recorded until management reopens the day." /> : null}
+            <Card>
+              <Text style={type.heading}>Sale date</Text>
+              <DateField value={saleDay} onChange={setSaleDate} blocked={closedDays} />
+              {closedDays.includes(saleDay) ? <Banner tone="warning" text={`${formatDay(saleDay)} is closed. Choose another date or ask a manager to reopen it.`} /> : null}
+            </Card>
             <Card>
               <Text style={type.heading}>Stock</Text>
               {stock.length ? <Chips value={lotId} onChange={setLotId}
@@ -409,7 +467,17 @@ export function RecyclingSalesWorkspace({
               <Field label="Invoice or delivery note number" hint="The number on the invoice or delivery note you give the buyer, if any.">
                 <ReferenceInput value={invoice} onChangeText={setInvoice} prefix="INV" placeholder="Optional" />
               </Field>
-              <Field label="Transport cost (UGX)"><MoneyInput value={transport === "0" ? "" : transport} onChangeText={(value) => setTransport(value || "0")} /></Field>
+            </Card>
+            <Card>
+              <Text style={type.heading}>Costs of this sale</Text>
+              <Field label="Transport (UGX)"><MoneyInput value={transport === "0" ? "" : transport} onChangeText={(value) => setTransport(value || "0")} /></Field>
+              {showSaleCosts ? <>
+                <View style={page.columns}>
+                  <Field label="Loading wages" style={page.column}><MoneyInput value={saleCosts.wages} onChangeText={(wages) => setSaleCosts((current) => ({ ...current, wages }))} /></Field>
+                  <Field label="Food" style={page.column}><MoneyInput value={saleCosts.food} onChangeText={(food) => setSaleCosts((current) => ({ ...current, food }))} /></Field>
+                </View>
+                <Field label="Other costs"><MoneyInput value={saleCosts.other} onChangeText={(other) => setSaleCosts((current) => ({ ...current, other }))} /></Field>
+              </> : <Button variant="ghost" icon="add-outline" title="Add wages, food or other costs" onPress={() => setShowSaleCosts(true)} />}
               <Field label="Delivery note (optional)"><Input value={notes} onChangeText={setNotes} multiline placeholder="Truck, driver, anything the office should know" /></Field>
             </Card>
             <Card style={{ backgroundColor: color.actionSoft }}>
@@ -420,7 +488,8 @@ export function RecyclingSalesWorkspace({
                 </View>
                 {Number(quantity) > 0 && Number(unitPrice) > 0 ? <Text style={type.caption}>{Number(quantity).toLocaleString("en-GB")} kg × {ugx(unitPrice)}</Text> : null}
               </View>
-              <Button title={loading ? "Saving…" : "Save sale"} icon="checkmark-circle-outline" loading={loading} disabled={closed} onPress={saveSale} />
+              <Text style={type.small}>{saleCostTotal > 0 ? `Costs ${ugx(saleCostTotal)} · ` : ""}{formatDay(saleDay)}</Text>
+              <Button title={savingSale ? "Saving…" : "Save sale"} icon="checkmark-circle-outline" loading={savingSale} disabled={closedDays.includes(saleDay)} onPress={saveSale} />
             </Card>
           </>
         )}
@@ -444,16 +513,15 @@ export function RecyclingSalesWorkspace({
                       <Card>
                         <Text style={type.heading}>Payment from {x.buyer_name}</Text>
                         <Field label="Amount received" hint={`Up to ${ugx(due)} is outstanding.`}><MoneyInput value={paymentAmount} onChangeText={setPaymentAmount} /></Field>
+                        <Field label="Date received"><DateField value={paymentDate} onChange={setPaymentDate} min={localDay(x.sold_on)} /></Field>
                         <Field label="Payment reference" hint="The mobile-money transaction ID, bank reference or receipt number for this payment. It must not have been used before.">
                           <ReferenceInput value={paymentReference} onChangeText={setPaymentReference} prefix="RCV" placeholder="e.g. MoMo ID or bank ref" />
                         </Field>
-                        <View style={page.columns}>
-                          <Button title="Cancel" variant="secondary" style={page.column} onPress={() => { setPaymentSaleId(""); setPaymentAmount(""); setPaymentReference(""); }} />
-                          <Button title={savingPayment ? "Saving…" : "Record payment"} loading={savingPayment} style={page.column} onPress={() => void recordPayment(x)} />
-                        </View>
+                        <Button title={savingPayment ? "Saving…" : "Record payment"} icon="checkmark-circle-outline" loading={savingPayment} onPress={() => void recordPayment(x)} />
+                        <Button title="Cancel" variant="ghost" onPress={() => { setPaymentSaleId(""); setPaymentAmount(""); setPaymentReference(""); }} />
                       </Card>
                     ) : (
-                      <Button variant="ghost" icon="cash-outline" title="Record payment" onPress={() => { setPaymentSaleId(x.id); setPaymentAmount(String(due)); setPaymentReference(""); }} />
+                      <Button variant="ghost" icon="cash-outline" title="Record payment" onPress={() => { setPaymentSaleId(x.id); setPaymentAmount(String(due)); setPaymentReference(""); setPaymentDate(localDay()); }} />
                     )
                   ) : null}
                 </View>
