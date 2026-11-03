@@ -2,7 +2,7 @@ import { dbPool } from "../config/database";
 
 type ServicePlanInput = {
   name: string; description?: string; customerType?: string;
-  billingFrequency: string; feeUgx: number; collectionsPerPeriod: number; responseHours: number;
+  billingFrequency: string; feeUgx?: number; collectionsPerPeriod: number; responseHours: number; tariffBandId?: string | null;
 };
 type PaymentInput = {
   invoiceId: string; amountUgx: number; provider: string; payerPhone?: string;
@@ -13,17 +13,17 @@ type OrganizationPaymentInput = {
 
 export async function createServicePlan(organizationId: string, input: ServicePlanInput) {
   const result = await dbPool.query(
-    `INSERT INTO service_plans (organization_id,name,description,customer_type,billing_frequency,fee_ugx,collections_per_period,response_hours)
-     VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-    [organizationId,input.name,input.description??null,input.customerType??null,input.billingFrequency,input.feeUgx,input.collectionsPerPeriod,input.responseHours]
+    `INSERT INTO service_plans (organization_id,name,description,customer_type,billing_frequency,fee_ugx,collections_per_period,response_hours,tariff_band_id)
+     VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+    [organizationId,input.name,input.description??null,input.customerType??null,input.billingFrequency,input.feeUgx??0,input.collectionsPerPeriod,input.responseHours,input.tariffBandId??null]
   ); return result.rows[0];
 }
 export async function findServicePlans(organizationId: string | null, userId: string | null) {
   const result = await dbPool.query(
-    `SELECT sp.*, o.name AS organization_name,
+    `SELECT sp.*, o.name AS organization_name, tb.name AS tariff_band_name, tb.code AS tariff_band_code,
        (SELECT COUNT(*)::int FROM customer_contracts cc WHERE cc.plan_id=sp.id) AS contract_count,
        (SELECT COUNT(*)::int FROM customer_subscriptions cs WHERE cs.plan_id=sp.id AND cs.status IN ('active','pending','suspended')) AS subscription_count
-     FROM service_plans sp JOIN organizations o ON o.id=sp.organization_id
+     FROM service_plans sp JOIN organizations o ON o.id=sp.organization_id LEFT JOIN kcca_tariff_bands tb ON tb.id=sp.tariff_band_id
      WHERE ($1::uuid IS NULL OR sp.organization_id=$1::uuid)
        AND ($1::uuid IS NOT NULL OR sp.is_active=true)
        AND ($2::uuid IS NULL OR EXISTS (SELECT 1 FROM customer_profiles cp
@@ -36,11 +36,11 @@ export async function findServicePlans(organizationId: string | null, userId: st
 export async function updateServicePlan(organizationId:string,planId:string,input:ServicePlanInput){
   const result=await dbPool.query(
     `UPDATE service_plans sp SET name=$3,description=$4,customer_type=$5,billing_frequency=$6,
-       fee_ugx=$7,collections_per_period=$8,response_hours=$9,updated_at=CURRENT_TIMESTAMP
+       fee_ugx=$7,collections_per_period=$8,response_hours=$9,tariff_band_id=$10,updated_at=CURRENT_TIMESTAMP
      WHERE sp.id=$1::uuid AND sp.organization_id=$2::uuid
        AND NOT EXISTS(SELECT 1 FROM customer_contracts cc WHERE cc.plan_id=sp.id)
        AND NOT EXISTS(SELECT 1 FROM customer_subscriptions cs WHERE cs.plan_id=sp.id)
-     RETURNING *`,[planId,organizationId,input.name,input.description??null,input.customerType??null,input.billingFrequency,input.feeUgx,input.collectionsPerPeriod,input.responseHours]);
+     RETURNING *`,[planId,organizationId,input.name,input.description??null,input.customerType??null,input.billingFrequency,input.feeUgx??0,input.collectionsPerPeriod,input.responseHours,input.tariffBandId??null]);
   return result.rows[0]??null;
 }
 export async function updateServicePlanStatus(organizationId:string,planId:string,isActive:boolean){

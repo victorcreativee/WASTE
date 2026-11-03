@@ -42,6 +42,9 @@ export async function requireAuth(
     if (!(await sessionIsActive(decoded.sid, decoded.userId))) {
       return res.status(401).json({ success: false, message: "This session has ended. Sign in again." });
     }
+    const account=await findUserById(decoded.userId);
+    if(!account||account.status!=="active")return res.status(401).json({success:false,message:"User account is unavailable"});
+    if(account.email_verification_required&&!account.email_verified_at)return res.status(403).json({success:false,message:"Verify your email before continuing.",code:"EMAIL_VERIFICATION_REQUIRED"});
 
     req.user = decoded;
     next();

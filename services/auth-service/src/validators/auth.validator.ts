@@ -31,7 +31,7 @@ export const createOrganizationUserSchema = z.object({
   email: z.string().email(),
   phone: z.string().trim().max(50).optional(),
   password: z.string().min(8).max(128),
-  role: z.enum(["supervisor", "driver", "recycling_collector", "recycling_sales", "recycling_field_manager"]),
+  role: z.enum(["supervisor", "driver", "recycling_collector", "recycling_sales", "recycling_field_manager", "company_owner", "company_investor"]),
   licenseNumber: z.string().trim().max(100).optional(),
 });
 

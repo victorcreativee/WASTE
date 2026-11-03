@@ -20,7 +20,7 @@ export async function register(req: Request, res: Response) {
 
     return res.status(201).json({
       success: true,
-      message: "User registered successfully",
+      message: result.verificationEmailSent ? "Account created. Check your email to verify it before signing in." : "Account created, but the verification email could not be delivered. Ask the System Admin to check email delivery settings, then request a new email.",
       data: result,
     });
   } catch (error) {
@@ -40,7 +40,7 @@ return res.status((error as any).statusCode||401).json({success:false,message:er
 
 export async function registerApplicant(req:Request,res:Response){
   const result=await registerOrganizationApplicant(organizationApplicantRegisterSchema.parse(req.body),sessionMeta(req));
-  return res.status(201).json({success:true,message:"Onboarding account created",data:result});
+  return res.status(201).json({success:true,message:result.verificationEmailSent?"Onboarding account created. Check your email to verify it before signing in.":"Onboarding account created, but the verification email could not be delivered. Request a new email after delivery is configured.",data:result});
 }
 
 export async function login(req: Request, res: Response) {

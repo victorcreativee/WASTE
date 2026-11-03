@@ -12,6 +12,7 @@ type QueueRow = {
   endpoint: string;
   payload: string;
   attempts: number;
+  created_at: string;
 };
 type PendingProjectionRow = Pick<
   QueueRow,
@@ -102,9 +103,25 @@ async function projectPendingRecyclingChanges(
   data.lots = Array.isArray(data.lots) ? data.lots : [];
   data.sales = Array.isArray(data.sales) ? data.sales : [];
   data.partners = Array.isArray(data.partners) ? data.partners : [];
-  data.floatMovements = Array.isArray(data.floatMovements)
-    ? data.floatMovements
+  data.sortingBatches = Array.isArray(data.sortingBatches) ? data.sortingBatches : [];
+  // The recycling API calls this collection `floatTransactions`. Older mobile
+  // builds used `floatMovements`, which made queued movements disappear and
+  // left the displayed balance stale until the next successful server refresh.
+  data.floatTransactions = Array.isArray(data.floatTransactions)
+    ? data.floatTransactions
     : [];
+  data.summary = asRecord(data.summary) || {};
+  const adjustFloat = (amount: number, type: "given" | "spent" | "returned") => {
+    const currentFloat = Number(data.summary.floatBalanceUgx || 0);
+    const currentCash = Number(data.summary.cashPositionUgx || 0);
+    const delta = type === "given" ? amount : -amount;
+    data.summary.floatBalanceUgx = currentFloat + delta;
+    // Issuing and returning float only move cash between office and field.
+    // Spending is the only float movement that reduces total company cash.
+    if (type === "spent") data.summary.cashPositionUgx = currentCash - amount;
+    data.summary.officeCashUgx = Number(data.summary.cashPositionUgx || currentCash)
+      - Number(data.summary.floatBalanceUgx || 0);
+  };
 
   for (const row of rows) {
     const payload = asRecord(safeJson(row.payload));
@@ -137,6 +154,41 @@ async function projectPendingRecyclingChanges(
       continue;
     }
 
+    const lotEditMatch = row.endpoint.match(/^\/api\/waste\/recycling\/lots\/([^/]+)$/);
+    if (row.method === "PATCH" && lotEditMatch) {
+      const lot = data.lots.find((item: any) => item.id === lotEditMatch[1]);
+      if (lot) {
+        if (payload.materialType !== undefined)
+          lot.material_type = payload.materialType;
+        if (payload.sourceName !== undefined)
+          lot.source_name = payload.sourceName;
+        if (payload.deliveredByUserId !== undefined)
+          lot.delivered_by_user_id = payload.deliveredByUserId || null;
+        if (payload.deliveryReference !== undefined)
+          lot.purchase_group_reference = payload.deliveryReference || null;
+        if (payload.quantityKg !== undefined) {
+          const previousQuantity = Number(lot.quantity_kg || 0);
+          const previousAvailable = Number(
+            lot.available_quantity_kg ?? lot.available_kg ?? previousQuantity,
+          );
+          const usedQuantity = Math.max(0, previousQuantity - previousAvailable);
+          lot.quantity_kg = String(payload.quantityKg);
+          lot.available_quantity_kg = String(
+            Math.max(0, Number(payload.quantityKg) - usedQuantity),
+          );
+        }
+        if (payload.unitPurchasePriceUgx !== undefined)
+          lot.unit_purchase_price_ugx = String(payload.unitPurchasePriceUgx);
+        if (payload.quality !== undefined) lot.quality = payload.quality;
+        if (payload.collectedOn !== undefined)
+          lot.collected_on = payload.collectedOn;
+        if (payload.notes !== undefined) lot.notes = payload.notes;
+        lot.local_sync_status = "pending";
+        lot.local_edit_id = row.id;
+      }
+      continue;
+    }
+
     if (row.method !== "POST") continue;
 
     if (row.endpoint === "/api/waste/recycling/lots") {
@@ -156,6 +208,50 @@ async function projectPendingRecyclingChanges(
         purchase_payment_status: payload.purchasePaymentStatus || "paid",
         notes: payload.notes || "",
       });
+      if (payload.purchasePaymentStatus === "paid" && Number(payload.managerFloatUsedUgx || 0) > 0)
+        adjustFloat(Number(payload.managerFloatUsedUgx), "spent");
+    }
+
+    if (row.endpoint === "/api/waste/recycling/purchase-batches") {
+      const lines = Array.isArray(payload.lines) ? payload.lines : [];
+      lines.forEach((line: any, index: number) => {
+        const id = `${row.id}-${index + 1}`;
+        if (data.lots.some((lot: any) => lot.id === id)) return;
+        data.lots.unshift({
+          id,
+          origin: "purchase",
+          status: "pending_sync",
+          material_type: line.materialType || "Material",
+          source_name: payload.sourceName || "Offline supplier",
+          quantity_kg: String(line.quantityKg || 0),
+          available_kg: String(line.quantityKg || 0),
+          unit_purchase_price_ugx: String(line.unitPurchasePriceUgx || 0),
+          collected_on: payload.collectedOn || localDay(),
+          quality: line.quality || "mixed",
+          purchase_payment_status: payload.purchasePaymentStatus || "paid",
+          purchase_group_reference: payload.deliveryReference || row.id,
+          notes: payload.notes || "",
+        });
+      });
+      if (payload.purchasePaymentStatus === "paid" && Number(payload.managerFloatUsedUgx || 0) > 0)
+        adjustFloat(Number(payload.managerFloatUsedUgx), "spent");
+    }
+
+    if (row.endpoint === "/api/waste/recycling/sorting") {
+      if (data.sortingBatches.some((batch: any) => batch.id === row.id)) continue;
+      // The server takes the sorted weight plus the waste, whatever input weight was sent.
+      let remaining = Number(payload.outputKg || 0) + Number(payload.rejectedKg || 0);
+      const candidates = data.lots.filter((lot: any) => Number(lot.available_kg || 0) > 0 && (payload.inputMode === "material_total" ? String(lot.material_type).toLowerCase() === String(payload.inputMaterialType).toLowerCase() : lot.id === payload.inputLotId));
+      for (const lot of candidates) {
+        const used = Math.min(remaining, Number(lot.available_kg || 0));
+        lot.available_kg = String(Math.max(0, Number(lot.available_kg || 0) - used));
+        remaining -= used;
+        if (remaining <= 0) break;
+      }
+      data.lots.unshift({ id: `${row.id}-output`, origin: "sorting_output", status: "pending_sync", material_type: payload.outputMaterialType || "Processed material", source_name: `Sorted from ${payload.inputMaterialType || candidates[0]?.material_type || "material"}`, quantity_kg: String(payload.outputKg || 0), available_kg: String(payload.outputKg || 0), unit_purchase_price_ugx: "0", collected_on: payload.processedOn || localDay(), quality: "sorted", local_sync_status: "pending" });
+      data.sortingBatches.unshift({ id: row.id, status: "pending_sync", processed_on: payload.processedOn || localDay(), input_material_type: payload.inputMaterialType || candidates[0]?.material_type || "Material", input_kg: String(Number(payload.outputKg || 0) + Number(payload.rejectedKg || 0)), output_material: payload.outputMaterialType || "Processed material", output_kg: String(payload.outputKg || 0), rejected_kg: String(payload.rejectedKg || 0), processing_cost_ugx: String(Number(payload.workerWagesUgx || 0)+Number(payload.utilitiesUgx || 0)+Number(payload.transportUgx || 0)+Number(payload.consumablesUgx || 0)+Number(payload.otherExpenseUgx || 0)) });
+      if (Number(payload.managerFloatUsedUgx || 0) > 0)
+        adjustFloat(Number(payload.managerFloatUsedUgx), "spent");
     }
 
     if (row.endpoint === "/api/waste/recycling/sales") {
@@ -166,30 +262,37 @@ async function projectPendingRecyclingChanges(
         material_type: payload.materialType || "Material",
         buyer_name: payload.buyerName || "Offline buyer",
         quantity_kg: String(payload.quantityKg || 0),
-        unit_sale_price_ugx: String(payload.unitSalePriceUgx || 0),
+        delivered_kg: String(payload.deliveredKg || payload.quantityKg || 0),
+        unit_price_ugx: String(payload.unitPriceUgx || 0),
+        total_ugx: String(Math.round(Number(payload.quantityKg || 0) * Number(payload.unitPriceUgx || 0))),
         sold_on: payload.soldOn || localDay(),
-        payment_status: payload.paymentStatus || "pending",
+        status: payload.paymentReceived === "now" ? "paid" : "recorded",
         notes: payload.notes || "",
         local_sync_status: "pending",
       });
-      const soldLot = data.lots.find((lot: any) => lot.id === payload.lotId);
-      if (soldLot)
-        soldLot.available_quantity_kg = String(
-          Math.max(
-            0,
-            Number(soldLot.available_quantity_kg || soldLot.quantity_kg || 0) -
-              Number(payload.quantityKg || 0),
-          ),
-        );
+      // The delivered weight leaves stock: one lot, or the oldest lots of the material first.
+      let remainingKg = Number(payload.deliveredKg || payload.quantityKg || 0);
+      const soldLots = data.lots
+        .filter((lot: any) => Number(lot.available_kg || 0) > 0 && (payload.lotId ? lot.id === payload.lotId : String(lot.material_type).toLowerCase() === String(payload.materialType).toLowerCase()))
+        .sort((a: any, b: any) => String(a.collected_on).localeCompare(String(b.collected_on)));
+      for (const lot of soldLots) {
+        const used = Math.min(remainingKg, Number(lot.available_kg || 0));
+        lot.available_kg = String(Number(lot.available_kg || 0) - used);
+        remainingKg -= used;
+        if (remainingKg <= 0) break;
+      }
+      if (Number(payload.managerFloatUsedUgx || 0) > 0)
+        adjustFloat(Number(payload.managerFloatUsedUgx), "spent");
     }
 
     if (row.endpoint === "/api/waste/recycling/manager-float") {
-      if (data.floatMovements.some((movement: any) => movement.id === row.id))
+      if (data.floatTransactions.some((movement: any) => movement.id === row.id))
         continue;
-      data.floatMovements.unshift({
+      const transactionType = (payload.transactionType || "given") as "given" | "spent" | "returned";
+      data.floatTransactions.unshift({
         id: row.id,
         employee_user_id: payload.employeeUserId || null,
-        transaction_type: payload.transactionType || "given",
+        transaction_type: transactionType,
         amount_ugx: String(payload.amountUgx || 0),
         transaction_date:
           payload.transactionDate || localDay(),
@@ -197,6 +300,7 @@ async function projectPendingRecyclingChanges(
         notes: payload.notes || "",
         local_sync_status: "pending",
       });
+      adjustFloat(Number(payload.amountUgx || 0), transactionType);
     }
 
     if (row.endpoint === "/api/waste/recycling/partners") {
@@ -231,7 +335,7 @@ async function projectPendingExpenseChanges(ownerEmail: string, path: string, ca
   if (!envelope || !finance) return cachedPayload;
   const db = await database();
   const rows = await db.getAllAsync<PendingProjectionRow>(
-    "SELECT id,method,endpoint,payload FROM mobile_outbox WHERE owner_email=? AND endpoint='/api/waste/finance/expenses' AND status IN ('pending','syncing','failed') ORDER BY created_at",
+    "SELECT id,method,endpoint,payload FROM mobile_outbox WHERE owner_email=? AND endpoint IN('/api/waste/finance/expenses','/api/waste/finance/expenses/daily-batch') AND status IN ('pending','syncing','failed') ORDER BY created_at",
     ownerEmail.toLowerCase(),
   );
   if (!rows.length) return cachedPayload;
@@ -242,7 +346,8 @@ async function projectPendingExpenseChanges(ownerEmail: string, path: string, ca
     if (row.method !== "POST" || data.expenses.some((item: any) => item.id === row.id)) continue;
     const payload = asRecord(safeJson(row.payload));
     if (!payload) continue;
-    data.expenses.unshift({ id: row.id, expense_number: "Pending sync", category: payload.category, description: payload.description, vendor: payload.vendor || null, amount_ugx: String(payload.amountUgx || 0), expense_date: payload.expenseDate, reference: payload.reference, status: "pending_sync", local_sync_status: "pending" });
+    const lines=Array.isArray(payload.lines)?payload.lines:[payload];
+    lines.forEach((line:any,index:number)=>data.expenses.unshift({ id: `${row.id}-${index}`, expense_number: "Pending sync", category: line.category, description: line.description, vendor: line.vendor || null, amount_ugx: String(line.amountUgx || 0), expense_date: payload.expenseDate, reference: payload.reference, status: "pending_sync", local_sync_status: "pending" }));
   }
   projected.data = data;
   return projected;
@@ -339,6 +444,10 @@ const API_BASE = (process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:3000
 // this long and writes go to the outbox, so staff are never left waiting on a spinner.
 const READ_TIMEOUT_MS = 12_000;
 const WRITE_TIMEOUT_MS = 20_000;
+// Closing/reopening a business day is a control action, not an ordinary field
+// transaction. It must see the server's latest ledger and can never sit in an
+// offline outbox behind records from this or another device.
+const onlineOnlyMutation = (path: string) => /\/api\/waste\/recycling\/daily-closures(?:\/[^/]+\/reopen)?$/.test(path);
 
 async function fetchWithin(url: string, init: RequestInit, ms: number) {
   const controller = new AbortController();
@@ -385,6 +494,7 @@ export async function mobileRequest<T>(
   // Writes carry the key the outbox would use, so a request that reached the server but timed out on the way back is
   // recognised as the same work when the outbox replays it.
   const operationId = mutation ? uuid() : "";
+  const operationCreatedAt = mutation ? new Date().toISOString() : "";
   try {
     const request = (accessToken: string) =>
       fetchWithin(
@@ -395,7 +505,7 @@ export async function mobileRequest<T>(
           headers: {
             "Content-Type": "application/json",
             ...(method === "GET" ? { "Cache-Control": "no-cache" } : {}),
-            ...(mutation ? { "Idempotency-Key": operationId, "X-KWMS-Offline": "1" } : {}),
+            ...(mutation ? { "Idempotency-Key": operationId, "X-KWMS-Offline": "1", "X-KWMS-Operation-Created-At": operationCreatedAt } : {}),
             Authorization: `Bearer ${accessToken}`,
             ...(init.headers || {}),
           },
@@ -432,6 +542,10 @@ export async function mobileRequest<T>(
       }
     }
     if (mutation && offlineFailure(error)) {
+      if (onlineOnlyMutation(path)) {
+        publish({ online: false });
+        throw new Error("Internet is required to close or reopen a business day. Synchronize every device, then try again.");
+      }
       const now=new Date().toISOString(),payload=String(init.body||"{}");
       const dedupeKey=await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256,JSON.stringify([ownerEmail.toLowerCase(),method,path,payload]));
       const duplicate=await db.getFirstAsync<{id:string}>("SELECT id FROM mobile_outbox WHERE owner_email=? AND dedupe_key=? AND status IN ('pending','syncing','failed') ORDER BY created_at DESC LIMIT 1",ownerEmail.toLowerCase(),dedupeKey);
@@ -472,7 +586,7 @@ async function performSync(token: string, ownerEmail: string) {
     let disconnected=false;
     let sent=0;
     const rows = await db.getAllAsync<QueueRow>(
-      "SELECT id,owner_email,method,endpoint,payload,attempts FROM mobile_outbox WHERE owner_email=? AND status IN ('pending','failed') AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at",
+      "SELECT id,owner_email,method,endpoint,payload,attempts,created_at FROM mobile_outbox WHERE owner_email=? AND status IN ('pending','failed') AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at",
       ownerEmail.toLowerCase(),
       new Date().toISOString(),
     );
@@ -493,6 +607,7 @@ async function performSync(token: string, ownerEmail: string) {
                 Authorization: `Bearer ${accessToken}`,
                 "Idempotency-Key": row.id,
                 "X-KWMS-Offline": "1",
+                "X-KWMS-Operation-Created-At": row.created_at,
               },
               body: row.payload,
             },

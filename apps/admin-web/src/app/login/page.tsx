@@ -50,7 +50,7 @@ export default function LoginPage() {
       sessionStorage.setItem("refreshToken",saved.tokens.refreshToken);
       sessionStorage.setItem("currentUser",JSON.stringify({...saved.session.user,roles:saved.session.roles}));
       const roles=saved.session.roles;
-      window.location.href=roles.includes("weighbridge_operator")?"/dashboard/weighbridge/operations":roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":roles.includes("driver")?"/dashboard/driver-mobile":roles.includes("citizen")?"/dashboard/citizen-issues":roles.includes("organization_applicant")?"/onboarding":roles.includes("company_admin")?"/dashboard/company":"/dashboard";
+      window.location.href=roles.some(role=>["company_owner","company_investor"].includes(role))?"/dashboard/recycling-reports":roles.includes("weighbridge_operator")?"/dashboard/weighbridge/operations":roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":roles.includes("driver")?"/dashboard/driver-mobile":roles.includes("citizen")?"/dashboard/citizen-issues":roles.includes("organization_applicant")?"/onboarding":roles.includes("company_admin")?"/dashboard/company":"/dashboard";
     }).catch(()=>undefined);
     const savedBridge=window.kwmsDesktop as typeof window.kwmsDesktop&{getSavedAccount?:()=>Promise<{saved:boolean;email:string;fullName?:string;biometricAvailable:boolean;pinConfigured:boolean}>};
     setDevicePinSupported(Boolean(savedBridge?.getSavedAccount));
@@ -61,7 +61,7 @@ export default function LoginPage() {
     sessionStorage.setItem("accessToken","offline-local-session");
     sessionStorage.removeItem("refreshToken");
     sessionStorage.setItem("currentUser",JSON.stringify({...session.user,roles:session.roles,offline:true}));
-    window.location.href=session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":session.roles.includes("company_admin")?"/dashboard/company":"/dashboard";
+    window.location.href=session.roles.some(role=>["company_owner","company_investor"].includes(role))?"/dashboard/recycling-reports":session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":session.roles.includes("company_admin")?"/dashboard/company":"/dashboard";
   }
 
   async function unlockSaved(biometric:boolean){
@@ -99,7 +99,7 @@ export default function LoginPage() {
             const mobileOrgType=mobileRoles.some(role=>["company_admin","supervisor"].includes(role))?await organizationTypeOfSession():"";
             const isRecyclingCompany=mobileOrgType==="recycling_company"&&mobileRoles.includes("company_admin");
             if(mobileOrgType==="processing_plant"){window.location.href="/dashboard/factory";return;}
-            window.location.href=mobileRoles.includes("weighbridge_operator")?"/dashboard/weighbridge/operations":mobileRoles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))||isRecyclingCompany?"/dashboard/recycling":mobileRoles.includes("driver")?"/dashboard/driver-mobile":mobileRoles.includes("citizen")?"/dashboard/citizen-issues":mobileRoles.includes("organization_applicant")?"/onboarding":mobileRoles.includes("company_admin")?"/dashboard/company":"/dashboard";
+            window.location.href=mobileRoles.some(role=>["company_owner","company_investor"].includes(role))?"/dashboard/recycling-reports":mobileRoles.includes("weighbridge_operator")?"/dashboard/weighbridge/operations":mobileRoles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))||isRecyclingCompany?"/dashboard/recycling":mobileRoles.includes("driver")?"/dashboard/driver-mobile":mobileRoles.includes("citizen")?"/dashboard/citizen-issues":mobileRoles.includes("organization_applicant")?"/onboarding":mobileRoles.includes("company_admin")?"/dashboard/company":"/dashboard";
           }
           return;
         }catch(desktopError){
@@ -109,7 +109,7 @@ export default function LoginPage() {
           sessionStorage.setItem("accessToken","offline-local-session");
           sessionStorage.removeItem("refreshToken");
           sessionStorage.setItem("currentUser",JSON.stringify({...session.user,roles:session.roles,offline:true}));
-          window.location.href=session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":session.roles.includes("company_admin")?"/dashboard/company":"/dashboard";
+          window.location.href=session.roles.some(role=>["company_owner","company_investor"].includes(role))?"/dashboard/recycling-reports":session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":session.roles.includes("company_admin")?"/dashboard/company":"/dashboard";
           return;
         }
       }
@@ -141,10 +141,13 @@ export default function LoginPage() {
       const isRecyclingCollector = response.data.roles.some((role) => role.name === "recycling_collector");
       const isRecyclingWorker = response.data.roles.some((role) => role.name === "recycling_sales");
       const isSupervisor = response.data.roles.some((role) => role.name === "supervisor");
+      const isReadOnlyStakeholder = response.data.roles.some((role) => ["company_owner", "company_investor"].includes(role.name));
       const organizationType = isCompany || isSupervisor ? await organizationTypeOfSession() : "";
       const isRecyclingCompany = isCompany && organizationType === "recycling_company";
       const destination = organizationType === "processing_plant"
         ? "/dashboard/factory"
+        : isReadOnlyStakeholder
+        ? "/dashboard/recycling-reports"
         : isWeighbridgeWorker
         ? "/dashboard/weighbridge/operations"
         : isRecyclingCollector || isRecyclingWorker
@@ -167,7 +170,7 @@ export default function LoginPage() {
           sessionStorage.setItem("accessToken","offline-local-session");
           sessionStorage.removeItem("refreshToken");
           sessionStorage.setItem("currentUser",JSON.stringify({...session.user,roles:session.roles,offline:true}));
-          window.location.href=session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":"/dashboard";
+          window.location.href=session.roles.some(role=>["company_owner","company_investor"].includes(role))?"/dashboard/recycling-reports":session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":"/dashboard";
           return;
         }catch(offlineError){setError(offlineError instanceof Error?offlineError.message:"Offline sign-in failed");}
       }else setError(message);
@@ -194,7 +197,7 @@ export default function LoginPage() {
             {setupRequired&&<div className="mt-6 rounded-[var(--ui-radius)] border border-amber-200 bg-amber-50 px-4 py-3"><p className="text-sm font-semibold text-amber-900">First-time setup required</p><p className="mt-0.5 text-sm text-amber-800">Create the first System Admin before anyone signs in.</p><Link href="/setup/system-admin" className="mt-2 inline-block text-sm font-semibold text-amber-900 underline">Start secure setup</Link></div>}
 
             {signedOut&&!error&&<div role="status" className="feedback feedback-success mt-6"><div>You have signed out.</div></div>}
-            {error && <div role="alert" className="feedback feedback-error mt-6"><div>{error}</div></div>}
+            {error && <div role="alert" className="feedback feedback-error mt-6"><div>{error}{/verify your email/i.test(error)&&<Link href={`/verify-email?email=${encodeURIComponent(email.trim().toLowerCase())}`} className="mt-2 block font-semibold underline">Open email verification</Link>}</div></div>}
 
             <div className="mt-8 space-y-5">
               {savedAccount?.saved&&<div className="rounded-[var(--ui-radius)] border border-slate-200 bg-slate-50 p-4">

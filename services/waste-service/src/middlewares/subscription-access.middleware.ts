@@ -11,7 +11,7 @@ const ALWAYS_ALLOWED = ["/subscription", "/regulatory", "/compliance", "/penalti
 export async function subscriptionAccess(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   try {
     if (["GET", "HEAD", "OPTIONS"].includes(req.method) || !req.auth?.organizationId) return next();
-    if (!req.auth.roles.some(role => ["company_admin", "supervisor", "driver", "recycling_collector", "recycling_sales", "recycling_field_manager"].includes(role))) return next();
+    if (!req.auth.roles.some(role => ["company_admin", "company_owner", "company_investor", "supervisor", "driver", "recycling_collector", "recycling_sales", "recycling_field_manager"].includes(role))) return next();
     if (ALWAYS_ALLOWED.some(prefix => req.path.startsWith(prefix))) return next();
     const status = await statusOf(req.auth.organizationId);
     if (status === null || FULL_ACCESS.includes(status)) return next();

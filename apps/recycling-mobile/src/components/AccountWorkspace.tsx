@@ -10,7 +10,7 @@ type AccountUser = { fullName: string; email: string; roles: string[] };
 
 const ROLE_LABEL: Record<string, string> = {
   recycling_collector: "Field buyer", recycling_sales: "Industrial sales", recycling_field_manager: "Field manager",
-  company_admin: "Company administrator", supervisor: "Supervisor", driver: "Driver", kcca_admin: "KCCA officer",
+  company_admin: "Company administrator", company_owner: "Company owner (read only)", company_investor: "Investor / guest (read only)", supervisor: "Supervisor", driver: "Driver", kcca_admin: "KCCA officer",
   system_admin: "Platform administrator", weighbridge_operator: "Weighbridge operator",
 };
 

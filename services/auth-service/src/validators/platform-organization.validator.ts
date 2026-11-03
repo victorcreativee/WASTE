@@ -19,3 +19,12 @@ export const resetOrganizationSchema = z.object({
 });
 
 export type ResetOrganizationInput = z.infer<typeof resetOrganizationSchema>;
+
+export const deleteOrganizationBusinessDaySchema = z.object({
+  operatingDate: z.iso.date(),
+  confirmationName: z.string().trim().min(2).max(150),
+  reason: z.string().trim().min(10).max(500),
+  includeLinkedFinancialRecords: z.boolean().optional().default(false),
+}).strict();
+
+export type DeleteOrganizationBusinessDayInput = z.infer<typeof deleteOrganizationBusinessDaySchema>;

@@ -25,7 +25,11 @@ type Plan = {
   contract_count: number;
   subscription_count: number;
   organization_name: string;
+  tariff_band_id: string | null;
+  tariff_band_name: string | null;
 };
+type TariffBand = { id: string; code: string; name: string; customer_type: string; current_fee_ugx: string | null; current_from: string | null; next_fee_ugx: string | null; next_from: string | null };
+const PERIOD_MONTHS: Record<string, number> = { monthly: 1, quarterly: 3, annual: 12, on_demand: 1 };
 type Subscription = {
   id: string;
   customer_name: string;
@@ -80,6 +84,7 @@ type Expense = {
   read_only?: boolean;
   source_type?: string;
 };
+type DailyExpenseDraft={id:string;category:string;description:string;vendor:string;amountUgx:string};
 type Expenses = {
   summary: {
     paid_this_month: string;
@@ -143,6 +148,7 @@ export default function BillingPage() {
   );
   const isCustomer = roleSnapshot.includes("citizen"),
     isCompanyAdmin = roleSnapshot.includes("company_admin"),
+    canCreateExpense = !roleSnapshot.includes("company_owner") && !roleSnapshot.includes("company_investor"),
     hasOrganizationContext =
       isCompanyAdmin || roleSnapshot.includes("supervisor");
   const [plans, setPlans] = useState<Plan[]>([]),
@@ -182,8 +188,14 @@ export default function BillingPage() {
     feeUgx: "",
     collectionsPerPeriod: "4",
     responseHours: "24",
+    tariffBandId: "",
   });
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [tariffBands, setTariffBands] = useState<TariffBand[]>([]);
+  useEffect(() => {
+    apiRequest<{ data: TariffBand[] }>("/api/waste/tariffs").then((r) => setTariffBands(r.data.filter((b) => b.current_fee_ugx !== null))).catch(() => setTariffBands([]));
+  }, []);
+  const chosenBand = tariffBands.find((b) => b.id === planForm.tariffBandId);
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [recordingInvoice, setRecordingInvoice] = useState<Invoice | null>(
     null,
@@ -260,6 +272,7 @@ export default function BillingPage() {
   /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
   useEffect(() => {
     if (roleSnapshot === "hydrating" || roleSnapshot === "unknown") return;
+    if(window.location.hash==="#expenses")setFinanceTab("expenses");
     void load()
       .catch((e: unknown) =>
         setError(
@@ -280,6 +293,7 @@ export default function BillingPage() {
       feeUgx: "",
       collectionsPerPeriod: "4",
       responseHours: "24",
+      tariffBandId: "",
     });
   }
   function openCreatePlan() {
@@ -296,6 +310,7 @@ export default function BillingPage() {
       feeUgx: plan.fee_ugx,
       collectionsPerPeriod: String(plan.collections_per_period),
       responseHours: String(plan.response_hours),
+      tariffBandId: plan.tariff_band_id || "",
     });
     setShowPlanModal(true);
   }
@@ -308,8 +323,9 @@ export default function BillingPage() {
       const body = JSON.stringify({
         ...planForm,
         description: planForm.description || undefined,
-        customerType: planForm.customerType || undefined,
-        feeUgx: Number(planForm.feeUgx),
+        customerType: planForm.tariffBandId ? undefined : planForm.customerType || undefined,
+        feeUgx: planForm.tariffBandId ? undefined : Number(planForm.feeUgx),
+        tariffBandId: planForm.tariffBandId || null,
         collectionsPerPeriod: Number(planForm.collectionsPerPeriod),
         responseHours: Number(planForm.responseHours),
       });
@@ -503,6 +519,13 @@ export default function BillingPage() {
       setSaving(false);
     }
   }
+  async function createDailyExpenses(input:{expenseDate:string;reference?:string;lines:Array<{category:string;description:string;vendor?:string;amountUgx:number}>}) {
+    try {
+      setSaving(true);setError("");setMessage("");
+      const result=await apiRequest<Response<{expenses:Expense[]}>>("/api/waste/finance/expenses/daily-batch",{method:"POST",body:JSON.stringify(input)});
+      setMessage(result.message);await load();return true;
+    } catch(e){setError(e instanceof Error?e.message:"Failed to record daily expenses");return false;} finally{setSaving(false);}
+  }
   async function changeExpense(id: string, status: string) {
     try {
       setSaving(true);
@@ -599,12 +622,12 @@ export default function BillingPage() {
           <Modal
             open={balanceOpen}
             title="Opening cash balance"
-            description="This is the starting cash and bank balance, not a top-up. Once receipts or payments are recorded, it is locked to preserve financial history."
+            description="This is the starting cash and bank balance, not a top-up. Once money, costs, or accountable float are recorded, it is locked to preserve financial history."
             onClose={() => setBalanceOpen(false)}
           >
             <form onSubmit={saveOpeningBalance}>
               {error && <p role="alert" className="mb-4 border-l-2 border-red-600 pl-3 text-sm text-red-800">{error}</p>}
-              {position.opening_balance_locked && <p className="mb-4 border-l-2 border-slate-400 pl-3 text-sm text-slate-600">Locked: money has already been recorded. Do not replace the opening balance to add funds or hide a deficit. A reviewed accounting adjustment is required.</p>}
+              {position.opening_balance_locked && <p className="mb-4 border-l-2 border-slate-400 pl-3 text-sm text-slate-600">Locked: financial activity or accountable float has already been recorded. Do not replace the opening balance to add funds or hide a deficit. A reviewed accounting adjustment is required.</p>}
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="text-sm font-bold">
                   Opening balance (UGX)
@@ -830,7 +853,34 @@ export default function BillingPage() {
                               className="mt-1 w-full border p-3"
                             />
                           </label>
-                          <label className="text-sm font-bold">
+                          <label className="text-sm font-bold sm:col-span-2">
+                            Price
+                            <select
+                              value={planForm.tariffBandId}
+                              onChange={(e) =>
+                                setPlanForm({
+                                  ...planForm,
+                                  tariffBandId: e.target.value,
+                                })
+                              }
+                              className="mt-1 w-full border p-3"
+                            >
+                              <option value="">Our own price</option>
+                              {tariffBands.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                  KCCA tariff: {b.name} ({money(b.current_fee_ugx || "0")} a month)
+                                </option>
+                              ))}
+                            </select>
+                            <span className="mt-1 block text-xs font-normal text-slate-500">
+                              {chosenBand
+                                ? `KCCA sets this price. When KCCA publishes a new rate, bills follow it automatically${chosenBand.next_from ? ` (next: ${money(chosenBand.next_fee_ugx || "0")} a month from ${new Date(`${chosenBand.next_from}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })})` : ""}.`
+                                : tariffBands.length
+                                  ? "Use a KCCA tariff band for households KCCA's tariff covers; use your own price for negotiated contracts."
+                                  : "KCCA has not published tariff bands yet."}
+                            </span>
+                          </label>
+                          {!chosenBand && <label className="text-sm font-bold">
                             Customer type
                             <select
                               value={planForm.customerType}
@@ -850,7 +900,7 @@ export default function BillingPage() {
                               </option>
                               <option value="industrial">Industrial</option>
                             </select>
-                          </label>
+                          </label>}
                           <label className="text-sm font-bold">
                             Billing frequency
                             <select
@@ -869,7 +919,13 @@ export default function BillingPage() {
                               <option value="on_demand">On demand</option>
                             </select>
                           </label>
-                          <label className="text-sm font-bold">
+                          {chosenBand ? <div className="text-sm font-bold">
+                            Fee per billing period
+                            <p className="mt-1 border bg-slate-50 p-3 font-normal">
+                              {money(String(Number(chosenBand.current_fee_ugx) * (PERIOD_MONTHS[planForm.billingFrequency] || 1)))}
+                              <span className="text-slate-500"> · {label(chosenBand.customer_type)} · set by KCCA</span>
+                            </p>
+                          </div> : <label className="text-sm font-bold">
                             Fee per billing period (UGX)
                             <input
                               required
@@ -884,7 +940,7 @@ export default function BillingPage() {
                               }
                               className="mt-1 w-full border p-3"
                             />
-                          </label>
+                          </label>}
                           <label className="text-sm font-bold">
                             Collections per billing period
                             <input
@@ -1016,6 +1072,11 @@ export default function BillingPage() {
                                       <p className="table-secondary capitalize">
                                         Per {label(p.billing_frequency)} period
                                       </p>
+                                      {p.tariff_band_name && (
+                                        <p className="table-secondary">
+                                          KCCA tariff: {p.tariff_band_name}
+                                        </p>
+                                      )}
                                     </td>
                                     <td>
                                       {p.collections_per_period} collections
@@ -1574,11 +1635,14 @@ export default function BillingPage() {
             {!isCustomer && financeTab === "expenses" && (
               <ExpenseWorkspace
                 data={expenses}
+                isRecycling={isRecycling}
+                canCreate={canCreateExpense}
                 canApprove={isCompanyAdmin}
                 saving={saving}
                 cashBalance={Number(position.cash_position_ugx)}
                 availableToCommit={Number(position.available_to_commit_ugx)}
                 onCreate={createExpense}
+                onCreateDaily={createDailyExpenses}
                 onStatus={changeExpense}
               />
             )}
@@ -1648,24 +1712,33 @@ function FinanceRow({ label: rowLabel, value }: { label: string; value: string |
 
 function ExpenseWorkspace({
   data,
+  isRecycling,
+  canCreate,
   canApprove,
   saving,
   cashBalance,
   availableToCommit,
   onCreate,
+  onCreateDaily,
   onStatus,
 }: {
   data: Expenses;
+  isRecycling:boolean;
+  canCreate:boolean;
   canApprove: boolean;
   saving: boolean;
   cashBalance: number;
   availableToCommit: number;
   onCreate: (e: FormEvent<HTMLFormElement>) => Promise<boolean>;
+  onCreateDaily:(input:{expenseDate:string;reference?:string;lines:Array<{category:string;description:string;vendor?:string;amountUgx:number}>})=>Promise<boolean>;
   onStatus: (id: string, status: string) => void;
 }) {
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState(""),
     [status, setStatus] = useState("all");
+  const [expenseDate,setExpenseDate]=useState(()=>new Date().toISOString().slice(0,10));
+  const [batchReference,setBatchReference]=useState("");
+  const [dailyLines,setDailyLines]=useState<DailyExpenseDraft[]>([{id:"1",category:"food",description:"",vendor:"",amountUgx:""}]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return data.expenses.filter(
@@ -1681,6 +1754,8 @@ function ExpenseWorkspace({
   async function submit(e: FormEvent<HTMLFormElement>) {
     if (await onCreate(e)) setOpen(false);
   }
+  function updateLine(id:string,key:keyof Omit<DailyExpenseDraft,"id">,value:string){setDailyLines(current=>current.map(line=>line.id===id?{...line,[key]:value}:line))}
+  async function submitDaily(e:FormEvent<HTMLFormElement>){e.preventDefault();const saved=await onCreateDaily({expenseDate,reference:batchReference||undefined,lines:dailyLines.map(line=>({category:line.category,description:line.description.trim(),vendor:line.vendor.trim()||undefined,amountUgx:Number(line.amountUgx)}))});if(saved){setOpen(false);setBatchReference("");setDailyLines([{id:crypto.randomUUID(),category:"food",description:"",vendor:"",amountUgx:""}]);}}
   return (
     <div className="py-8">
       <section className="grid border-y border-slate-300 md:grid-cols-3">
@@ -1699,11 +1774,16 @@ function ExpenseWorkspace({
       </section>
       <Modal
         open={open}
-        title="Record an expense"
-        description="Submit a verified operating cost for approval before payment."
+        title={isRecycling?"Record the day’s operating expenses":"Record an expense"}
+        description={isRecycling?"Add all general costs for one business day and save once. Purchase, driver and supplier costs remain on their purchase transaction.":"Submit a verified operating cost for approval before payment."}
         onClose={() => setOpen(false)}
       >
-        <form onSubmit={submit}>
+        {isRecycling?<form onSubmit={submitDaily} className="space-y-4">
+          <div className="grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2"><label className="text-sm font-bold">Business date<input type="date" required value={expenseDate} onChange={event=>setExpenseDate(event.target.value)} className="mt-1 w-full border bg-white p-3"/></label><label className="text-sm font-bold">Daily voucher / batch reference<input maxLength={120} value={batchReference} onChange={event=>setBatchReference(event.target.value)} placeholder="Optional; generated automatically" className="mt-1 w-full border bg-white p-3"/></label></div>
+          <div className="space-y-3">{dailyLines.map((line,index)=><section key={line.id} className="rounded-lg border border-slate-200 p-3"><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold">Expense {index+1}</h3>{dailyLines.length>1&&<button type="button" onClick={()=>setDailyLines(current=>current.filter(item=>item.id!==line.id))} className="text-xs font-semibold text-red-700">Remove</button>}</div><div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-bold">Expense type<select required value={line.category} onChange={event=>updateLine(line.id,"category",event.target.value)} className="mt-1 w-full border p-3"><option value="food">Food</option><option value="transport">Worker transport</option><option value="worker_credit">Worker credit / advance</option><option value="daily_wages">Daily worker wages</option><option value="fuel">Fuel</option><option value="maintenance">Maintenance</option><option value="utilities">Utilities</option><option value="office">Office</option><option value="other">Other daily expense</option></select></label><label className="text-sm font-bold">Amount (UGX)<input type="number" min="1" step="1" required value={line.amountUgx} onChange={event=>updateLine(line.id,"amountUgx",event.target.value)} className="mt-1 w-full border p-3"/></label><label className="text-sm font-bold sm:col-span-2">What was paid for?<input required minLength={3} maxLength={240} value={line.description} onChange={event=>updateLine(line.id,"description",event.target.value)} className="mt-1 w-full border p-3"/></label><label className="text-sm font-bold sm:col-span-2">Person, worker or provider<input required maxLength={160} value={line.vendor} onChange={event=>updateLine(line.id,"vendor",event.target.value)} placeholder="Who received the money?" className="mt-1 w-full border p-3"/></label></div></section>)}</div>
+          <button type="button" onClick={()=>setDailyLines(current=>[...current,{id:crypto.randomUUID(),category:"food",description:"",vendor:"",amountUgx:""}])} className="w-full border border-dashed border-[var(--color-action)] px-4 py-3 text-sm font-semibold text-[var(--color-action)]">+ Add another expense</button>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4"><p className="text-sm"><strong>{dailyLines.length}</strong> entries · <strong>{money(dailyLines.reduce((sum,line)=>sum+Number(line.amountUgx||0),0))}</strong></p><div className="flex gap-3"><button type="button" onClick={()=>setOpen(false)} className="border px-4 py-2.5">Cancel</button><button disabled={saving} className="bg-[var(--color-action)] px-5 py-2.5 text-white disabled:opacity-50">{saving?"Saving the day…":"Save all as paid"}</button></div></div>
+        </form>:<form onSubmit={submit}>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="text-sm font-bold sm:col-span-2">
               Description
@@ -1725,6 +1805,10 @@ function ExpenseWorkspace({
                 <option value="utilities">Utilities</option>
                 <option value="disposal_fees">Disposal fees</option>
                 <option value="office">Office</option>
+                <option value="food">Food</option>
+                <option value="transport">Worker transport</option>
+                <option value="worker_credit">Worker credit / advance</option>
+                <option value="daily_wages">Daily worker wages</option>
                 <option value="other">Other</option>
               </select>
             </label>
@@ -1765,22 +1849,22 @@ function ExpenseWorkspace({
               {saving ? "Submitting..." : "Submit for approval"}
             </button>
           </div>
-        </form>
+        </form>}
       </Modal>
       <section className="mt-8">
         <div className="flex items-end justify-between gap-4 pb-3">
           <div>
             <h2 className="text-xl font-semibold">Expense register</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Chronological operating costs and approval trail.
+              {isRecycling?"The single ledger for daily operating costs and automatic purchase-related costs.":"Chronological operating costs and approval trail."}
             </p>
           </div>
-          <button
+          {canCreate&&<button
             onClick={() => setOpen(true)}
             className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white"
           >
-            Record expense
-          </button>
+            {isRecycling?"Record daily expenses":"Record expense"}
+          </button>}
         </div>
         <div className="table-toolbar">
           <input

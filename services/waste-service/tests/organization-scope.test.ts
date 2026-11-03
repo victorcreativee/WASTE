@@ -7,7 +7,7 @@ import { Response } from "express";
 const request = (role: string, organizationId: string | null) =>
   ({ auth: { userId: "test", organizationId, roles: [role] } } as AuthenticatedRequest);
 
-for (const role of ["company_admin", "supervisor", "driver", "iot_operator"]) {
+for (const role of ["company_admin", "company_owner", "company_investor", "supervisor", "driver", "iot_operator"]) {
   test(`unlinked ${role} fails closed even when role is permitted`, () => {
     let status = 200, next = false;
     const response = { status(code: number) { status = code; return this; }, json() { return this; } } as unknown as Response;
@@ -16,7 +16,7 @@ for (const role of ["company_admin", "supervisor", "driver", "iot_operator"]) {
     assert.equal(next, false);
   });
 }
-for (const role of ["company_admin", "supervisor"]) {
+for (const role of ["company_admin", "company_owner", "company_investor", "supervisor"]) {
   test(`${role} private scope is always its own tenant`, () => {
     assert.equal(requireOrganizationScope(request(role, "tenant-a")), "tenant-a");
     assert.throws(() => requireOrganizationScope(request(role, null)), { statusCode: 403 });

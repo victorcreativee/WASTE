@@ -5,7 +5,7 @@ import { assertProductionConfig, startServer } from "./runtime";
 import { startPermitLifecycleScheduler } from "./services/permit-lifecycle.scheduler";
 import { startNotificationScheduler } from "./services/notification.scheduler";
 
-assertProductionConfig(env.serviceName, { DATABASE_URL: env.databaseUrl }, { JWT_ACCESS_SECRET: env.jwtAccessSecret });
+assertProductionConfig(env.serviceName, { DATABASE_URL: env.databaseUrl }, { JWT_ACCESS_SECRET: env.jwtAccessSecret, RECEIPT_SIGNING_KEY: process.env.RECEIPT_SIGNING_KEY, PAYMENT_CREDENTIALS_KEY: process.env.PAYMENT_CREDENTIALS_KEY });
 startServer(app, { port: env.port, serviceName: env.serviceName, resources: [dbPool] });
 if (process.env.PERMIT_LIFECYCLE_SCHEDULER !== "off") startPermitLifecycleScheduler();
 if (process.env.NOTIFICATION_WORKER !== "off") startNotificationScheduler();

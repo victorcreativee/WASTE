@@ -15,6 +15,8 @@
     "migrate:weighbridge-operator": "node scripts/migrate-weighbridge-operator.cjs --apply",
     "migrate:recycling-roles:check": "node scripts/migrate-recycling-operational-roles.cjs",
     "migrate:recycling-roles": "node scripts/migrate-recycling-operational-roles.cjs --apply",
+    "migrate:organization-reset-guard:check": "node scripts/migrate-organization-reset-guard.cjs",
+    "migrate:organization-reset-guard": "node scripts/migrate-organization-reset-guard.cjs --apply",
     "start": "node dist/server.js",
     "test": "node --test -r ts-node/register tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
@@ -24,15 +26,17 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@types/nodemailer": "^7.0.12",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
-    "express": "^5.2.1",
+    "express": "^5.3.0",
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.1",
+    "nodemailer": "^10.3.1",
     "pg": "^8.21.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",

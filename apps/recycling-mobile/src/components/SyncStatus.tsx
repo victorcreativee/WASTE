@@ -22,7 +22,7 @@ function describe(item: MobileOutboxItem) {
   if (/\/recycling\/lots\/[^/]+\/paid$/.test(path)) return { title: "Supplier payment", icon: "wallet-outline" as const };
   if (/\/recycling\/sales\/[^/]+\/paid$/.test(path)) return { title: "Sale payment received", icon: "cash-outline" as const };
   if (path.endsWith("/recycling/manager-float")) return { title: "Field money movement", icon: "wallet-outline" as const };
-  if (path.endsWith("/finance/expenses")) return { title: "Expense", icon: "receipt-outline" as const };
+  if (path.includes("/finance/expenses")) return { title: "Expense", icon: "receipt-outline" as const };
   if (path.endsWith("/recycling/sorting")) return { title: "Sorting batch", icon: "funnel-outline" as const };
   if (path.endsWith("/recycling/stock-adjustments")) return { title: "Stock adjustment", icon: "swap-vertical-outline" as const };
   if (path.endsWith("/recycling/daily-closures")) return { title: "Daily close", icon: "lock-closed-outline" as const };

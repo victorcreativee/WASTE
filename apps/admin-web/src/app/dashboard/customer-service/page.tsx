@@ -237,6 +237,7 @@ const REMINDER_OPTIONS=[
   ["collection_tomorrow","Collection tomorrow","The evening before each collection day on the household's route."],
   ["bill_issued","New bill","When a bill is created for the household."],
   ["bill_due","Bill due soon","Three days before an unpaid bill is due."],
+  ["bill_overdue","Bill overdue","When an unpaid bill is 1, 14 and 30 days late. Not sent while the household keeps to a payment plan."],
   ["payment_received","Payment received","When you confirm a household's payment, with the receipt number."],
   ["missed_collection","Missed collection","When a stop is marked not collected, and again when it is given a new date."],
   ["request_resolved","Request resolved","When you resolve a household's missed-pickup or extra-pickup request."],

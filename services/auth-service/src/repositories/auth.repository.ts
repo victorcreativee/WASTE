@@ -10,6 +10,8 @@ export type UserRecord = {
   password_hash: string;
   status: string;
   created_at: Date;
+  email_verified_at: Date | null;
+  email_verification_required: boolean;
 };
 
 export async function findUserByEmail(
@@ -25,7 +27,9 @@ export async function findUserByEmail(
       phone,
       password_hash,
       status,
-      created_at
+      created_at,
+      email_verified_at,
+      email_verification_required
     FROM users
     WHERE email = $1
     LIMIT 1
@@ -61,7 +65,9 @@ export async function createUser(data: {
       phone,
       password_hash,
       status,
-      created_at
+      created_at,
+      email_verified_at,
+      email_verification_required
     `,
     [
       data.organizationId ?? null,
@@ -83,7 +89,7 @@ export async function createOrganizationApplicant(data:OrganizationApplicantRegi
     if(exists.rowCount)throw Object.assign(new Error("Email is already registered"),{statusCode:409});
     const registration=await client.query("SELECT 1 FROM organization_applicant_profiles WHERE lower(registration_number)=lower($1)",[data.registrationNumber]);
     if(registration.rowCount)throw Object.assign(new Error("This company registration number already has an onboarding account"),{statusCode:409});
-    const user=await client.query(`INSERT INTO users(organization_id,full_name,email,phone,password_hash,status) VALUES(NULL,$1,lower($2),$3,$4,'active') RETURNING id,organization_id,full_name,email,phone,password_hash,status,created_at`,[data.fullName,data.email,data.phone,passwordHash]);
+    const user=await client.query(`INSERT INTO users(organization_id,full_name,email,phone,password_hash,status) VALUES(NULL,$1,lower($2),$3,$4,'active') RETURNING id,organization_id,full_name,email,phone,password_hash,status,created_at,email_verified_at,email_verification_required`,[data.fullName,data.email,data.phone,passwordHash]);
     const role=await client.query("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='organization_applicant' RETURNING user_id",[user.rows[0].id]);
     if(!role.rowCount)throw Object.assign(new Error("Applicant registration is not configured"),{statusCode:503});
     await client.query("INSERT INTO organization_applicant_profiles(user_id,company_name,registration_number,company_type) VALUES($1,$2,$3,$4)",[user.rows[0].id,data.companyName,data.registrationNumber,data.companyType]);
@@ -113,7 +119,9 @@ export async function findUserById(userId: string): Promise<UserRecord | null> {
         phone,
         password_hash,
         status,
-        created_at
+        created_at,
+        email_verified_at,
+        email_verification_required
       FROM users
       WHERE id = $1
       LIMIT 1

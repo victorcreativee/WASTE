@@ -7,6 +7,8 @@ import {
   cashMovementSchema,
   dailyCloseSchema,
   dailyReopenSchema,
+  loanRepaymentSchema,
+  loanSchema,
   lotSchema,
   lotUpdateSchema,
   managerFloatSchema,
@@ -14,11 +16,13 @@ import {
   materialCatalogStateSchema,
   partnerSchema,
   partnerStateSchema,
+  purchaseBatchSchema,
   paymentDueDateSchema,
   paymentFollowUpSchema,
   salePaymentSchema,
   saleSchema,
   saleUpdateSchema,
+  sortingReversalSchema,
   sortingSchema,
   stockAdjustmentSchema,
 } from "../validators/recycling.validator";
@@ -193,6 +197,7 @@ export async function postLot(r: Request, s: Response) {
     .status(201)
     .json({ success: true, message: "Recovered material recorded", data: lot });
 }
+export async function postPurchaseBatch(r:Request,s:Response){const organizationId=org(r),input=purchaseBatchSchema.parse(r.body),materialCost=input.lines.reduce((sum,line)=>sum+line.quantityKg*line.unitPurchasePriceUgx,0),total=Math.round(materialCost+input.workerWagesUgx+input.foodUgx+input.transportUgx+input.driverFeeUgx+input.otherExpenseUgx);input.managerFloatUsedUgx=paysFromFloat(r)&&input.purchasePaymentStatus==='paid'?total:0;await repo.assertPurchaseFunding(organizationId,{...input,quantityKg:1,unitPurchasePriceUgx:materialCost});const result=await repo.createPurchaseBatch(organizationId,identity(r).userId,input);return s.status(201).json({success:true,message:`Delivery recorded as ${input.lines.length} material stock ${input.lines.length===1?'lot':'lots'}`,data:result});}
 export async function postSale(r: Request, s: Response) {
   const organizationId = org(r),
     input = saleSchema.parse(r.body),
@@ -212,7 +217,12 @@ export async function postSale(r: Request, s: Response) {
         message: "Industrial sales staff may record industry sales only",
       });
   const saleCosts = input.workerWagesUgx + input.foodUgx + input.transportUgx + input.otherExpenseUgx;
-  if (paysFromFloat(r)) input.managerFloatUsedUgx = saleCosts;
+  // A buyer who pays on the spot pays the sale's costs too: they come out of the money received, which reaches office
+  // cash net of them, so neither the float nor office cash has to cover them first.
+  if (input.paymentReceived === "now") {
+    input.managerFloatUsedUgx = 0;
+    await repo.assertCashFunding(organizationId, saleCosts - Math.round(input.quantityKg * input.unitPriceUgx), "Sale expenses above the sale value");
+  } else if (paysFromFloat(r)) input.managerFloatUsedUgx = saleCosts;
   else await repo.assertCashFunding(organizationId, saleCosts, "Sale expenses");
   const result = await repo.createSale(
     organizationId,
@@ -254,31 +264,15 @@ export async function postManagerFloat(r: Request, s: Response) {
 }
 export async function postCashMovement(r:Request,s:Response){const input=cashMovementSchema.parse(r.body);return s.status(201).json({success:true,message:"Cash movement posted",data:await repo.createCashMovement(org(r),identity(r).userId,input)});}
 export async function postSorting(r: Request, s: Response) {
-  const organizationId = org(r),
-    input = sortingSchema.parse(r.body);
+  const input = sortingSchema.parse(r.body);
   if (paysFromFloat(r))
     input.managerFloatUsedUgx = input.workerWagesUgx + input.utilitiesUgx + input.transportUgx + input.consumablesUgx + input.otherExpenseUgx;
-  const result = await repo.createSortingBatch(
-    organizationId,
-    identity(r).userId,
-    input,
-  );
-  return result
-    ? s
-        .status(201)
-        .json({
-          success: true,
-          message: "Sorting and grading recorded",
-          data: result,
-        })
-    : s
-        .status(409)
-        .json({
-          success: false,
-          message:
-            "The input material lot is missing or does not have enough available quantity",
-        });
+  const data = await repo.createSortingEntry(org(r), identity(r).userId, input);
+  return s.status(201).json({ success: true, message: "Sorting and grading recorded", data });
 }
+export async function postLoan(r:Request,s:Response){const input=loanSchema.parse(r.body);return s.status(201).json({success:true,message:`Loan from ${input.lenderName} recorded: UGX ${input.amountUgx.toLocaleString()} added to office cash`,data:await repo.createLoan(org(r),identity(r).userId,input)});}
+export async function postLoanRepayment(r:Request,s:Response){const input=loanRepaymentSchema.parse(r.body);const result=await repo.repayLoan(org(r),identity(r).userId,z.guid().parse(r.params.id),input);return result?s.status(201).json({success:true,message:result.outstandingUgx>0?`Repayment recorded. UGX ${result.outstandingUgx.toLocaleString()} is still owed.`:'Repayment recorded. The loan is fully repaid.',data:result}):s.status(404).json({success:false,message:'Loan not found'});}
+export async function postSortingReversal(r:Request,s:Response){const {reason}=sortingReversalSchema.parse(r.body);const result=await repo.reverseSortingEntry(org(r),identity(r).userId,z.guid().parse(r.params.entryId),reason);return result?s.json({success:true,message:`Sorting reversed: ${result.restoredKg.toLocaleString()} kg returned to ${result.inputMaterial??'the input material'}`,data:result}):s.status(404).json({success:false,message:'Sorting entry not found'});}
 export async function postStockAdjustment(r: Request, s: Response) {
   const result = await repo.createStockAdjustment(
     org(r),

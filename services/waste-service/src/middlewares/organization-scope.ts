@@ -1,10 +1,14 @@
 import { AuthenticatedRequest } from "./auth.middleware";
 
-/** Private organization data never has a platform-wide/null scope. */
+/**
+ * Private organization data never has a platform-wide/null scope. This only establishes whose data a request is about;
+ * what the user may do with it is decided by each route's role or permission guard. The company owner holds read
+ * permissions only, so it can reach its company's data here without being able to change it.
+ */
 export function requireOrganizationScope(req: AuthenticatedRequest): string {
   const auth = req.auth;
   if (!auth) throw Object.assign(new Error("Authentication is required"), { statusCode: 401 });
-  if (!auth.roles.some(role => ["company_admin", "supervisor", "recycling_collector", "recycling_sales", "recycling_field_manager"].includes(role)) || !auth.organizationId) {
+  if (!auth.roles.some(role => ["company_admin", "company_owner", "company_investor", "supervisor", "recycling_collector", "recycling_sales", "recycling_field_manager"].includes(role)) || !auth.organizationId) {
     throw Object.assign(new Error("An authorized organization context is required"), { statusCode: 403 });
   }
   return auth.organizationId;

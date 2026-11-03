@@ -43,9 +43,13 @@ test("recycling permissions are catalogued and tenant restricted", () => {
 
 test("every recycling route is guarded by an organization permission", () => {
   assert.doesNotMatch(routes, /const manage=requireRoles/);
-  assert.equal((routes.match(/permission\('recycling\./g) || []).length, 17);
+  assert.equal((routes.match(/permission\('recycling\./g) || []).length, 21);
+  assert.match(routes, /'\/recycling\/loans',permission\('recycling\.finance\.manage'\)/);
+  assert.match(routes, /loans\/:id\/repayments',permission\('recycling\.finance\.manage'\)/);
+  assert.match(routes, /sorting\/:entryId\/reverse',permission\('recycling\.transaction\.edit'\)/);
+  assert.match(routes, /purchase-batches',permission\('recycling\.purchase\.create'\)/);
   assert.match(routes, /cash-movements',permission\('recycling\.finance\.manage'\)/);
-  assert.equal((routes.match(/permission\('recycling\.transaction\.edit'\)/g) || []).length, 2);
+  assert.equal((routes.match(/permission\('recycling\.transaction\.edit'\)/g) || []).length, 3);
   assert.match(routes, /requireAnyOrganizationPermission\('recycling\.local_sale\.create','recycling\.industrial_sale\.manage'\)/);
   assert.match(routes, /requireAnyOrganizationPermission\('recycling\.finance\.manage','recycling\.field_float\.manage'\)/);
   assert.equal((routes.match(/requireAnyOrganizationPermission\('recycling\.finance\.manage','recycling\.purchase_payment\.manage'\)/g) || []).length, 2);

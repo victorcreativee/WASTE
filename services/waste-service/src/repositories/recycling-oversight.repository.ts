@@ -12,7 +12,7 @@ const CATEGORY = `COALESCE((SELECT c.category FROM recycling_material_catalog c
   WHERE c.organization_id=l.organization_id AND lower(c.name)=lower(l.material_type) LIMIT 1),'other')`;
 
 export async function today() {
-  return (await dbPool.query("SELECT CURRENT_DATE::text AS today")).rows[0].today as string;
+  return (await dbPool.query("SELECT (now() AT TIME ZONE 'Africa/Kampala')::date::text AS today")).rows[0].today as string;
 }
 
 async function recyclerRows(period: Period, organizationId: string | null) {
@@ -33,7 +33,7 @@ async function recyclerRows(period: Period, organizationId: string | null) {
        COALESCE((SELECT SUM(rejected_kg) FROM recycling_sorting_batches WHERE organization_id=o.id AND processed_on BETWEEN $1 AND $2),0) AS residue_kg,
        COALESCE((SELECT SUM(available_kg) FROM recycling_material_lots WHERE organization_id=o.id AND status IN('available','partially_sold')),0) AS stock_kg,
        COALESCE((SELECT SUM(available_kg) FROM recycling_material_lots WHERE organization_id=o.id AND status IN('available','partially_sold')
-         AND collected_on<CURRENT_DATE-$4::int),0) AS aged_stock_kg,
+         AND collected_on<(now() AT TIME ZONE 'Africa/Kampala')::date-$4::int),0) AS aged_stock_kg,
        (SELECT MAX(day)::text FROM activity a WHERE a.organization_id=o.id AND a.day<=$2) AS last_activity,
        (SELECT COUNT(DISTINCT day)::int FROM activity a WHERE a.organization_id=o.id AND a.day BETWEEN $1 AND $2) AS active_days,
        (SELECT COUNT(*)::int FROM recycling_daily_closures dc WHERE dc.organization_id=o.id AND dc.status='closed' AND dc.operating_date BETWEEN $1 AND $2
@@ -164,7 +164,7 @@ export async function recyclerDetail(organizationId: string, period: Period) {
        WHERE organization_id=$1::uuid ORDER BY operating_date DESC LIMIT 14`, [organizationId]),
     dbPool.query(
       `SELECT material_type,SUM(available_kg) AS kg,MIN(collected_on)::text AS oldest FROM recycling_material_lots
-       WHERE organization_id=$1::uuid AND status IN('available','partially_sold') AND collected_on<CURRENT_DATE-$2::int
+       WHERE organization_id=$1::uuid AND status IN('available','partially_sold') AND collected_on<(now() AT TIME ZONE 'Africa/Kampala')::date-$2::int
        GROUP BY material_type ORDER BY 2 DESC LIMIT 10`, [organizationId, OVERSIGHT_THRESHOLDS.agedStockDays]),
   ]);
   if (!rows[0]) return null;

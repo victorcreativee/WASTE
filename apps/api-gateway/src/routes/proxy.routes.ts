@@ -35,5 +35,7 @@ function serviceProxy(prefix: string, target: string, service: string) {
 router.use("/auth", serviceProxy("/auth", env.authServiceUrl, "auth-service"));
 router.use("/organizations", serviceProxy("/organizations", env.organizationServiceUrl, "organization-service"));
 router.use("/waste", serviceProxy("/waste", env.wasteServiceUrl, "waste-service"));
+// The open API (migration 116) is served by waste-service.
+router.use("/v1", serviceProxy("/v1", env.wasteServiceUrl, "waste-service"));
 
 export default router;

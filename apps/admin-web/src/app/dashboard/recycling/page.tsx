@@ -10,6 +10,7 @@ import {
   Status,
 } from "@/components/ui/System";
 import { apiRequest } from "@/lib/api";
+import { Pager, usePagination } from "@/components/ui/Pagination";
 type Lot = {
   id: string;
   material_type: string;
@@ -39,9 +40,15 @@ type Lot = {
   paid_ugx: string;
   balance_ugx: string;
   recorded_by_name: string | null;
+  delivered_by_user_id: string | null;
+  delivered_by_name: string | null;
+  purchase_group_reference: string | null;
 };
+type DeliveryStaff = { id: string; full_name: string; roles: string[] };
+type PurchaseLine = { id: string; materialType: string; allowNewMaterial: boolean; quantityKg: number; unitPurchasePriceUgx: number; quality: string };
 type Sale = {
   id: string;
+  delivered_kg: string | null;
   material_type: string;
   buyer_name: string;
   industry: string;
@@ -100,10 +107,14 @@ type FloatTx = {
   running_balance_ugx: string;
   reference: string | null;
   notes: string | null;
+  recorded_by_name: string | null;
+  created_at: string;
 };
+type Loan={id:string;lender_name:string;amount_ugx:string;received_on:string;due_on:string|null;reference:string;notes:string|null;repaid_ugx:string;outstanding_ugx:string;last_repaid_on:string|null;recorded_by_name:string|null};
 type CashMovement={id:string;movement_date:string;direction:"in"|"out";category:string;amount_ugx:string;reference:string;counterparty:string|null;notes:string;recorded_by_name:string};
 type SortingBatch = {
   id: string;
+  entry_id: string;
   processed_on: string;
   input_material_type: string;
   input_kg: string;
@@ -113,6 +124,17 @@ type SortingBatch = {
   processing_cost_ugx: string;
   worker_wages_ugx:string;utilities_ugx:string;transport_ugx:string;consumables_ugx:string;other_expense_ugx:string;manager_float_used_ugx:string;
 };
+// A sorting entry from a material total is stored as one row per input lot; it is shown and reversed as one entry.
+type SortingEntry = { id: string; processed_on: string; input_material_type: string; output_material: string; input_kg: number; output_kg: number; rejected_kg: number; processing_cost_ugx: number };
+function sortingEntries(rows: SortingBatch[]): SortingEntry[] {
+  const entries = new Map<string, SortingEntry>();
+  for (const row of rows) {
+    const entry = entries.get(row.entry_id) ?? { id: row.entry_id, processed_on: row.processed_on, input_material_type: row.input_material_type, output_material: row.output_material, input_kg: 0, output_kg: 0, rejected_kg: 0, processing_cost_ugx: 0 };
+    entry.input_kg += Number(row.input_kg); entry.output_kg += Number(row.output_kg); entry.rejected_kg += Number(row.rejected_kg); entry.processing_cost_ugx += Number(row.processing_cost_ugx);
+    entries.set(row.entry_id, entry);
+  }
+  return [...entries.values()];
+}
 type StockAdjustment = {
   id: string;
   adjustment_date: string;
@@ -160,6 +182,7 @@ type Summary = {
   floatBalanceUgx: number;
   officeCashUgx:number;
   openingBalanceUgx: number;
+  loansOutstandingUgx?: number;
   openingBalanceConfigured: boolean;
   cashPositionUgx: number;
   committedFundsUgx: number;
@@ -209,6 +232,14 @@ type DailyClosure = {
   closed_by_name: string;
   reopened_at: string | null;
   reopen_reason: string | null;
+  history?: Array<{
+    id: string;
+    action: "closed" | "reopened";
+    reason: string | null;
+    createdAt: string;
+    actorUserId: string;
+    actorName: string;
+  }>;
 };
 type TransactionEdit = {
   id: string;
@@ -229,9 +260,11 @@ type Data = {
   sales: Sale[];
   floatTransactions: FloatTx[];
   cashMovements:CashMovement[];
+  loans?:Loan[];
   sortingBatches: SortingBatch[];
   stockAdjustments: StockAdjustment[];
   partners: Partner[];
+  deliveryStaff: DeliveryStaff[];
   salePayments: PaymentRecord[];
   purchasePayments: PaymentRecord[];
   materials: MaterialCatalogItem[];
@@ -245,6 +278,7 @@ type Data = {
 };
 type FormKind =
   | ""
+  | "loan"
   | "purchase"
   | "sorting"
   | "adjustment"
@@ -263,7 +297,7 @@ type FormKind =
   | "material"
   | "dailyClose"
   | "dailyReopen";
-const today = () => new Date().toISOString().slice(0, 10),
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; },
   field = "mt-1 w-full border border-slate-300 px-3 py-2.5 font-normal",
   money = (n: string | number) => `UGX ${Number(n).toLocaleString()}`;
 const auditLabels: Record<string, string> = {
@@ -317,9 +351,16 @@ export default function RecyclingPage() {
     [selectedPurchaseId, setSelectedPurchaseId] = useState(""),
     [editingSaleId, setEditingSaleId] = useState(""),
     [editingPurchaseId, setEditingPurchaseId] = useState(""),
+    [purchaseLines, setPurchaseLines] = useState<PurchaseLine[]>([]),
     [editingPartnerId, setEditingPartnerId] = useState(""),
     [selectedPartnerId, setSelectedPartnerId] = useState(""),
     [stockQuery, setStockQuery] = useState(""),
+    [stockOrigin, setStockOrigin] = useState("all"),
+    [stockPage, setStockPage] = useState(1),
+    [expandedMaterial, setExpandedMaterial] = useState(""),
+    [sortingInputMode, setSortingInputMode] = useState<"material_total" | "lot">("material_total"),
+    [reversingEntry, setReversingEntry] = useState<SortingEntry | null>(null),
+    [repayingLoan, setRepayingLoan] = useState<Loan | null>(null),
     [salesQuery, setSalesQuery] = useState(""),
     [salesStatus, setSalesStatus] = useState("all"),
     [activityDate, setActivityDate] = useState(""),
@@ -380,42 +421,85 @@ export default function RecyclingPage() {
   }
   const values = (f: FormData, names: readonly string[]) =>
     Object.fromEntries(names.map((name) => [name, Number(f.get(name) || 0)]));
+  function purchaseLineFrom(f: FormData): PurchaseLine | null {
+    const customMaterial = String(f.get("customMaterialType") || "").trim();
+    const materialType = customMaterial || String(f.get("materialType") || "").trim();
+    const quantityKg = Number(f.get("quantityKg") || 0);
+    const unitPurchasePriceUgx = Number(f.get("unitPurchasePriceUgx") || 0);
+    if (!materialType || quantityKg <= 0 || unitPurchasePriceUgx < 0) return null;
+    return { id: crypto.randomUUID(), materialType, allowNewMaterial: Boolean(customMaterial), quantityKg, unitPurchasePriceUgx, quality: String(f.get("quality") || "mixed") };
+  }
+  function addPurchaseLine(formElement: HTMLFormElement | null) {
+    if (!formElement) return;
+    const line = purchaseLineFrom(new FormData(formElement));
+    if (!line) {
+      setError("Choose a material and enter its valid weight and price before adding another item.");
+      return;
+    }
+    setPurchaseLines((current) => [...current, line]);
+    for (const name of ["materialType", "customMaterialType", "quantityKg", "unitPurchasePriceUgx"]) {
+      const control = formElement.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null;
+      if (control) control.value = "";
+    }
+    const quality = formElement.elements.namedItem("quality") as HTMLSelectElement | null;
+    if (quality) quality.value = "mixed";
+    setError("");
+  }
   const selectedActivity = data?.dailyActivity?.find((item) => item.date === activityDate) ?? { date: activityDate, purchases: 0, purchasedKg: 0, sales: 0, soldKg: 0, saleValueUgx: 0, purchaseIds: [], saleIds: [] };
   const visiblePurchaseLots = data?.lots.filter((item) => item.origin === "purchase" && (!collectorMode || selectedActivity.purchaseIds.includes(item.id))) ?? [];
   const visibleSales = data?.sales.filter((item) => !limitedWorkerMode || selectedActivity.saleIds.includes(item.id)) ?? [];
-  const filteredStock = (data?.lots ?? []).filter((item) =>
-      Number(item.available_kg) > 0 &&
-      `${item.material_type} ${item.source_name} ${item.quality}`.toLowerCase().includes(stockQuery.trim().toLowerCase()),
-    ),
+  const saleMaterials = [...(data?.lots ?? []).reduce((map, item) => {
+      const key = item.material_type.trim().toLowerCase(), current = map.get(key) ?? { material: item.material_type, availableKg: 0 };
+      current.availableKg += Number(item.available_kg);
+      return map.set(key, current);
+    }, new Map<string, { material: string; availableKg: number }>()).values()].filter((x) => x.availableKg > 0 || x.material === editingSale?.material_type);
+  const stockGroups = [...(data?.lots ?? []).reduce((map, item) => {
+      if (Number(item.available_kg) <= 0 || (stockOrigin !== "all" && item.origin !== stockOrigin)) return map;
+      const key=item.material_type.trim().toLowerCase(),current=map.get(key)??{material:item.material_type,availableKg:0,originalKg:0,valueUgx:0,lots:[] as Lot[]};
+      current.availableKg+=Number(item.available_kg);current.originalKg+=Number(item.quantity_kg);current.valueUgx+=Number(item.available_kg)*Number(item.unit_purchase_price_ugx);current.lots.push(item);map.set(key,current);return map;
+    },new Map<string,{material:string;availableKg:number;originalKg:number;valueUgx:number;lots:Lot[]}>()).values()],
+    filteredStock = stockGroups.filter((item) => `${item.material} ${item.lots.map((lot)=>`${lot.source_name} ${lot.quality}`).join(" ")}`.toLowerCase().includes(stockQuery.trim().toLowerCase())),
+    stockPageSize = 8,
+    stockPageCount = Math.max(1, Math.ceil(filteredStock.length / stockPageSize)),
+    safeStockPage = Math.min(stockPage, stockPageCount),
+    pagedStock = filteredStock.slice((safeStockPage - 1) * stockPageSize, safeStockPage * stockPageSize),
     filteredSales = visibleSales.filter((item) => {
       const matchesQuery = `${item.material_type} ${item.buyer_name} ${item.invoice_number ?? ""}`.toLowerCase().includes(salesQuery.trim().toLowerCase());
       const matchesStatus = salesStatus === "all" || item.payment_state === salesStatus;
       return matchesQuery && matchesStatus;
     });
+  // Every transaction list is paged; the sorting list shows one row per entry.
+  const purchasesPage = usePagination(visiblePurchaseLots),
+    salesPage = usePagination(filteredSales),
+    sortingPage = usePagination(sortingEntries(data?.sortingBatches ?? [])),
+    adjustmentsPage = usePagination(data?.stockAdjustments ?? []),
+    partnersPage = usePagination(data?.partners ?? []),
+    loansPage = usePagination(data?.loans ?? []),
+    cashPage = usePagination(data?.cashMovements ?? []),
+    floatPage = usePagination(data?.floatTransactions ?? []),
+    editsPage = usePagination(data?.transactionEdits ?? []),
+    openLoans = (data?.loans ?? []).filter((loan) => Number(loan.outstanding_ugx) > 0);
   async function submitPurchase(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const el = e.currentTarget,
       f = new FormData(el);
-    const customMaterial = String(f.get("customMaterialType") || "").trim();
-    const materialType = customMaterial || String(f.get("materialType") || "").trim();
-    if (!materialType) {
-      setError("Choose a material from the list or enter another material name.");
-      return;
-    }
+    const currentLine = purchaseLineFrom(f);
+    const lines = editingPurchaseId ? (currentLine ? [currentLine] : []) : [...purchaseLines, ...(currentLine ? [currentLine] : [])];
+    if (!lines.length) { setError("Add at least one complete material line to this delivery."); return; }
+    if (!editingPurchaseId && String(f.get("deliveryReference") || "").trim().length < 2) { setError("Enter a delivery reference so all material lines remain linked."); return; }
     try {
       setSaving(true);
       setError("");
-      await apiRequest(editingPurchaseId ? `/api/waste/recycling/lots/${editingPurchaseId}` : "/api/waste/recycling/lots", {
+      await apiRequest(editingPurchaseId ? `/api/waste/recycling/lots/${editingPurchaseId}` : "/api/waste/recycling/purchase-batches", {
         method: editingPurchaseId ? "PATCH" : "POST",
         body: JSON.stringify({
-          materialType,
-          allowNewMaterial: Boolean(customMaterial),
+          ...(editingPurchaseId ? { materialType: lines[0].materialType, allowNewMaterial: lines[0].allowNewMaterial } : { lines: lines.map(({ id: _id, ...line }) => line) }),
           supplierPartnerId: f.get("supplierPartnerId") || undefined,
           sourceName: f.get("sourceName"),
-          quantityKg: Number(f.get("quantityKg")),
-          unitPurchasePriceUgx: Number(f.get("unitPurchasePriceUgx")),
+          ...(editingPurchaseId ? { quantityKg: lines[0].quantityKg, unitPurchasePriceUgx: lines[0].unitPurchasePriceUgx, quality: lines[0].quality } : {}),
+          deliveredByUserId: f.get("deliveredByUserId") || undefined,
+          deliveryReference: f.get("deliveryReference") || undefined,
           collectedOn: f.get("collectedOn"),
-          quality: f.get("quality"),
           ...(editingPurchaseId ? {} : {purchasePaymentStatus: f.get("purchasePaymentStatus"),purchasePaymentReference:f.get("purchasePaymentReference") || undefined}),
           ...values(f, [
             "workerWagesUgx",
@@ -429,9 +513,10 @@ export default function RecyclingPage() {
         }),
       });
       el.reset();
+      setPurchaseLines([]);
       setEditingPurchaseId("");
       setForm("");
-      setNotice(editingPurchaseId ? "Purchase transaction updated and stock reconciled." : "Material purchase and costs recorded.");
+      setNotice(editingPurchaseId ? "Purchase transaction updated and stock reconciled." : `Delivery recorded as ${lines.length} separate material stock ${lines.length === 1 ? "lot" : "lots"}.`);
       await load();
     } catch (x) {
       setError(x instanceof Error ? x.message : "Could not record purchase");
@@ -449,7 +534,9 @@ export default function RecyclingPage() {
       await apiRequest(editingSaleId ? `/api/waste/recycling/sales/${editingSaleId}` : "/api/waste/recycling/sales", {
         method: editingSaleId ? "PATCH" : "POST",
         body: JSON.stringify({
-          lotId: f.get("lotId"),
+          materialType: f.get("materialType"),
+          deliveredKg: Number(f.get("deliveredKg")),
+          ...(editingSaleId ? {} : { paymentReceived: f.get("paymentReceived") || "later", paymentReference: f.get("paymentReference") || undefined }),
           buyerPartnerId: f.get("buyerPartnerId") || undefined,
           buyerOrganizationId: f.get("buyerOrganizationId") || undefined,
           buyerName: f.get("buyerName") || undefined,
@@ -508,6 +595,40 @@ export default function RecyclingPage() {
       setSaving(false);
     }
   }
+  async function submitLoan(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const el = e.currentTarget, f = new FormData(el);
+    try {
+      setSaving(true);
+      setError("");
+      const result = await apiRequest<{ message: string }>("/api/waste/recycling/loans", { method: "POST", body: JSON.stringify({ lenderName: f.get("lenderName"), amountUgx: Number(f.get("amountUgx")), receivedOn: f.get("receivedOn"), dueOn: f.get("dueOn") || undefined, reference: f.get("reference"), notes: f.get("notes") || undefined }) });
+      el.reset();
+      setForm("");
+      setNotice(result.message);
+      await load();
+    } catch (x) {
+      setError(x instanceof Error ? x.message : "Could not record the loan");
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function submitRepayment(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!repayingLoan) return;
+    const f = new FormData(e.currentTarget);
+    try {
+      setSaving(true);
+      setError("");
+      const result = await apiRequest<{ message: string }>(`/api/waste/recycling/loans/${repayingLoan.id}/repayments`, { method: "POST", body: JSON.stringify({ amountUgx: Number(f.get("amountUgx")), paidOn: f.get("paidOn"), reference: f.get("reference"), notes: f.get("notes") || undefined }) });
+      setRepayingLoan(null);
+      setNotice(result.message);
+      await load();
+    } catch (x) {
+      setError(x instanceof Error ? x.message : "Could not record the repayment");
+    } finally {
+      setSaving(false);
+    }
+  }
   async function submitCash(e:React.FormEvent<HTMLFormElement>){e.preventDefault();const el=e.currentTarget,f=new FormData(el);try{setSaving(true);setError("");await apiRequest("/api/waste/recycling/cash-movements",{method:"POST",body:JSON.stringify({movementDate:f.get("movementDate"),direction:f.get("direction"),category:f.get("category"),amountUgx:Number(f.get("amountUgx")),reference:f.get("reference"),counterparty:f.get("counterparty")||undefined,notes:f.get("notes")})});el.reset();setForm("");setNotice("Cash movement posted. The audit record is permanent.");await load()}catch(x){setError(x instanceof Error?x.message:"Could not post cash movement")}finally{setSaving(false)}}
   async function submitSorting(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -525,9 +646,9 @@ export default function RecyclingPage() {
       await apiRequest("/api/waste/recycling/sorting", {
         method: "POST",
         body: JSON.stringify({
-          inputLotId: f.get("inputLotId"),
+          inputMode: sortingInputMode,
+          ...(sortingInputMode === "lot" ? { inputLotId: f.get("inputLotId") } : { inputMaterialType: f.get("inputMaterialType") }),
           processedOn: f.get("processedOn"),
-          inputKg: Number(f.get("inputKg")),
           outputMaterialType,
           allowNewMaterial: Boolean(customMaterial),
           outputKg: Number(f.get("outputKg")),
@@ -544,10 +665,26 @@ export default function RecyclingPage() {
       el.reset();
       setForm("");
       setTab("sorting");
-      setNotice("Sorting recorded and saleable graded stock created.");
+      setNotice("Sorting recorded. The rest of the material stays in stock.");
       await load();
     } catch (x) {
       setError(x instanceof Error ? x.message : "Could not record sorting");
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function submitReversal(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!reversingEntry) return;
+    try {
+      setSaving(true);
+      setError("");
+      const result = await apiRequest<{ message: string }>(`/api/waste/recycling/sorting/${reversingEntry.id}/reverse`, { method: "POST", body: JSON.stringify({ reason: new FormData(e.currentTarget).get("reason") }) });
+      setReversingEntry(null);
+      setNotice(result.message);
+      await load();
+    } catch (x) {
+      setError(x instanceof Error ? x.message : "Could not reverse the sorting");
     } finally {
       setSaving(false);
     }
@@ -774,7 +911,13 @@ export default function RecyclingPage() {
     const el = e.currentTarget, f = new FormData(el);
     try {
       setSaving(true); setError("");
-      await apiRequest("/api/waste/recycling/daily-closures", { method: "POST", body: JSON.stringify({ operatingDate: data?.operations.operatingDate, notes: f.get("notes") || undefined }) });
+      await apiRequest("/api/waste/recycling/daily-closures", { method: "POST", body: JSON.stringify({
+        operatingDate: data?.operations.operatingDate,
+        countedOfficeCashUgx: Number(f.get("countedOfficeCashUgx")),
+        countedManagerFloatUgx: Number(f.get("countedManagerFloatUgx")),
+        allDevicesSynced: f.get("allDevicesSynced") === "on",
+        notes: f.get("notes") || undefined,
+      }) });
       el.reset(); setForm(""); setNotice("Business day closed. Its operational totals are now fixed."); await load();
     } catch (x) { setError(x instanceof Error ? x.message : "Could not close business day"); }
     finally { setSaving(false); }
@@ -1046,7 +1189,7 @@ export default function RecyclingPage() {
                   )}
                 </div>
               </div>
-              {data.operations.isClosed && <div className="mt-4 border-l-2 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-900">Transactions dated {new Date(`${data.operations.operatingDate}T00:00:00`).toLocaleDateString("en-GB")} are locked. The recorded daily summary will not change unless an operations manager or company administrator reopens the day.</div>}
+              {data.operations.isClosed && <div className="mt-4 border-l-2 border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-900"><strong className="block">Transactions dated {new Date(`${data.operations.operatingDate}T00:00:00`).toLocaleDateString("en-GB")} are locked.</strong><span className="mt-1 block">Closed by {data.operations.currentClosure?.closed_by_name || "an authorized manager"}{data.operations.currentClosure?.closed_at ? ` at ${new Date(data.operations.currentClosure.closed_at).toLocaleString("en-GB",{dateStyle:"medium",timeStyle:"short"})}` : ""}. The recorded summary will not change unless an authorized manager reopens the day.</span></div>}
               <div className="mt-5 grid gap-px bg-slate-200 md:grid-cols-4">
                 {[
                   {
@@ -1419,7 +1562,7 @@ export default function RecyclingPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {data.partners.map((partner) => (
+                      {partnersPage.paged.map((partner) => (
                         <tr key={partner.id}>
                           <td>
                             <p className="table-primary">{partner.name}</p>
@@ -1477,7 +1620,7 @@ export default function RecyclingPage() {
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </table><Pager of={partnersPage}/>
                 </div>
               ) : (
                 <EmptyState
@@ -1499,7 +1642,7 @@ export default function RecyclingPage() {
                   <div className="border-l-2 border-[var(--color-action)] bg-blue-50 p-4 text-sm text-slate-700">
                     Every purchase and sale correction is kept here. Original and corrected values remain visible for accountability; closed operating days must be reopened before a correction.
                   </div>
-                  {(data.transactionEdits ?? []).map((edit) => {
+                  {editsPage.paged.map((edit) => {
                     const changes = auditChanges(edit);
                     return (
                       <article key={edit.id} className="border border-slate-200 bg-white p-4 sm:p-5">
@@ -1525,6 +1668,7 @@ export default function RecyclingPage() {
                       </article>
                     );
                   })}
+                  <Pager of={editsPage}/>
                 </div>
               ) : (
                 <EmptyState
@@ -1549,7 +1693,7 @@ export default function RecyclingPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {visiblePurchaseLots.map((x) => (
+                      {purchasesPage.paged.map((x) => (
                           <tr key={x.id}>
                             <td>
                               <p className="table-primary">
@@ -1596,7 +1740,7 @@ export default function RecyclingPage() {
                           </tr>
                         ))}
                     </tbody>
-                  </table>
+                  </table><Pager of={purchasesPage}/>
                 </div>
               ) : (
                 <EmptyState
@@ -1611,16 +1755,17 @@ export default function RecyclingPage() {
                     <thead>
                       <tr>
                         <th>Date</th>
-                        <th>Input material</th>
-                        <th>Input</th>
-                        <th>Output grade</th>
-                        <th>Saleable</th>
-                        <th>Rejected</th>
+                        <th>Sorted from</th>
+                        <th>Taken</th>
+                        <th>Sorted into</th>
+                        <th>Sorted out</th>
+                        <th>Waste</th>
                         <th>Processing cost</th>
+                        {companyAdminMode && <th />}
                       </tr>
                     </thead>
                     <tbody>
-                      {data.sortingBatches.map((x) => (
+                      {sortingPage.paged.map((x) => (
                         <tr key={x.id}>
                           <td>
                             {new Date(x.processed_on).toLocaleDateString(
@@ -1635,15 +1780,16 @@ export default function RecyclingPage() {
                           </td>
                           <td>{Number(x.rejected_kg).toLocaleString()} kg</td>
                           <td>{money(x.processing_cost_ugx)}</td>
+                          {companyAdminMode && <td className="text-right"><button onClick={() => setReversingEntry(x)} className="border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700">Reverse</button></td>}
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </table><Pager of={sortingPage}/>
                 </div>
               ) : (
                 <EmptyState
                   title="No sorting records"
-                  description="Convert purchased mixed material into a saleable grade. Each record creates graded stock and removes its input weight from the source lot."
+                  description="Sort a material into a saleable grade. Each record takes the sorted weight and the waste from the material; the rest stays there to sort later."
                 />
               ))}
             {tab === "stock" && (
@@ -1656,7 +1802,12 @@ export default function RecyclingPage() {
                       <p className="mt-1 text-sm text-slate-500">Live quantities after receiving, processing, sales and corrections.</p>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
-                      <input aria-label="Search material stock" value={stockQuery} onChange={(event) => setStockQuery(event.target.value)} placeholder="Search material, source or quality" className="min-w-64 border border-slate-300 px-3 py-2 text-sm" />
+                      <input aria-label="Search material stock" value={stockQuery} onChange={(event) => { setStockQuery(event.target.value); setStockPage(1); }} placeholder="Search material, supplier or quality" className="min-w-64 border border-slate-300 px-3 py-2 text-sm" />
+                      <select aria-label="Filter material lots by source" value={stockOrigin} onChange={(event) => { setStockOrigin(event.target.value); setStockPage(1); }} className="border border-slate-300 bg-white px-3 py-2 text-sm">
+                        <option value="all">All stock</option>
+                        <option value="purchase">Purchased</option>
+                        <option value="sorting_output">Processed</option>
+                      </select>
                       <button disabled={!data.lots.length} onClick={() => openForm("adjustment")} className="bg-[var(--color-action)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">Adjust stock</button>
                     </div>
                   </div>
@@ -1670,35 +1821,52 @@ export default function RecyclingPage() {
                   <table>
                     <thead>
                       <tr>
-                        <th>Material</th>
-                        <th>Source</th>
-                        <th>Original quantity</th>
-                        <th>Available</th>
+                        <th>Material lot</th>
+                        <th>Received from</th>
+                        <th>Stock remaining</th>
+                        <th>Unit cost</th>
                         <th>Quality</th>
                         <th>Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredStock.map((x) => (
-                          <tr key={x.id}>
-                            <td className="table-primary">{x.material_type}</td>
+                      {pagedStock.flatMap((x) => {
+                        const remaining = x.originalKg > 0 ? Math.max(0, Math.min(100, (x.availableKg / x.originalKg) * 100)) : 0;
+                        const expanded=expandedMaterial===x.material;
+                        const rows=[(
+                          <tr key={x.material} className="cursor-pointer" onClick={()=>setExpandedMaterial(expanded?"":x.material)}>
                             <td>
-                              {x.origin === "sorting_output"
-                                ? "Sorting output"
-                                : "Purchased"}
+                              <p className="table-primary">{x.material}</p>
+                              <p className="table-secondary">{x.lots.length} active lot{x.lots.length===1?"":"s"} · Click for movement history</p>
                             </td>
-                            <td>{Number(x.quantity_kg).toLocaleString()} kg</td>
-                            <td className="font-semibold">
-                              {Number(x.available_kg).toLocaleString()} kg
+                            <td><p>{new Set(x.lots.map((lot)=>lot.source_name)).size} source{new Set(x.lots.map((lot)=>lot.source_name)).size===1?"":"s"}</p><p className="table-secondary">Purchased and processed stock combined</p></td>
+                            <td className="min-w-48">
+                              <div className="flex items-baseline justify-between gap-3"><span className="font-semibold">{x.availableKg.toLocaleString()} kg</span><span className="table-secondary">of {x.originalKg.toLocaleString()} kg</span></div>
+                              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-[var(--color-action)]" style={{ width: `${remaining}%` }} /></div>
                             </td>
-                            <td className="capitalize">{x.quality}</td>
-                            <td>
-                              <Status value={x.status} />
-                            </td>
+                            <td>{money(x.valueUgx)}<p className="table-secondary">estimated remaining value</p></td>
+                            <td>{[...new Set(x.lots.map((lot)=>lot.quality))].join(", ")}</td>
+                            <td><button type="button" className="font-semibold text-[var(--color-action)]">{expanded?"Hide details":"View details"}</button></td>
                           </tr>
-                        ))}
+                        )];
+                        if(expanded)rows.push(<tr key={`${x.material}-details`}><td colSpan={6} className="!p-0"><div className="bg-slate-50 p-4"><h3 className="font-semibold">{x.material} movement history</h3><p className="mt-1 text-xs text-slate-500">Purchases, processing, sales and stock corrections that created the current balance.</p><div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                          {x.lots.map((lot)=><div key={lot.id} className="border border-slate-200 bg-white p-3 text-sm"><div className="flex justify-between gap-3"><p className="font-semibold">{lot.origin==="sorting_output"?"Processing output":"Purchase received"}</p><span className="font-semibold text-[var(--color-action)]">+{Number(lot.quantity_kg).toLocaleString()} kg</span></div><p className="mt-1 text-xs text-slate-500">{new Date(lot.collected_on).toLocaleDateString("en-GB")} · {lot.source_name}</p><p className="mt-2">Remaining {Number(lot.available_kg).toLocaleString()} kg</p></div>)}
+                          {(data?.sortingBatches??[]).filter((row)=>row.input_material_type===x.material).map((row)=><div key={`sort-${row.id}`} className="border border-slate-200 bg-white p-3 text-sm"><div className="flex justify-between gap-3"><p className="font-semibold">Sent to processing</p><span className="font-semibold text-amber-700">−{Number(row.input_kg).toLocaleString()} kg</span></div><p className="mt-1 text-xs text-slate-500">{new Date(row.processed_on).toLocaleDateString("en-GB")} · output {row.output_material}</p></div>)}
+                          {(data?.sales??[]).filter((row)=>row.material_type===x.material).map((row)=><div key={`sale-${row.id}`} className="border border-slate-200 bg-white p-3 text-sm"><div className="flex justify-between gap-3"><p className="font-semibold">Sold to {row.buyer_name}</p><span className="font-semibold text-red-700">−{Number(row.quantity_kg).toLocaleString()} kg</span></div><p className="mt-1 text-xs text-slate-500">{new Date(row.sold_on).toLocaleDateString("en-GB")} · {money(row.total_ugx)}</p></div>)}
+                          {(data?.stockAdjustments??[]).filter((row)=>row.material_type===x.material).map((row)=><div key={`adjust-${row.id}`} className="border border-slate-200 bg-white p-3 text-sm"><div className="flex justify-between gap-3"><p className="font-semibold">Stock correction</p><span className={`font-semibold ${row.adjustment_type==="correction_in"?"text-green-700":"text-red-700"}`}>{row.adjustment_type==="correction_in"?"+":"−"}{Number(row.quantity_kg).toLocaleString()} kg</span></div><p className="mt-1 text-xs text-slate-500">{new Date(row.adjustment_date).toLocaleDateString("en-GB")} · {row.reason}</p></div>)}
+                        </div></div></td></tr>);
+                        return rows;
+                      })}
                     </tbody>
                   </table>
+                      <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+                        <p>Showing {(safeStockPage - 1) * stockPageSize + 1}–{Math.min(safeStockPage * stockPageSize, filteredStock.length)} of {filteredStock.length} active lots</p>
+                        <div className="flex items-center gap-2">
+                          <button className="border border-slate-300 px-3 py-1.5 font-semibold disabled:opacity-40" disabled={safeStockPage <= 1} onClick={() => setStockPage((page) => Math.max(1, page - 1))}>Previous</button>
+                          <span>Page {safeStockPage} of {stockPageCount}</span>
+                          <button className="border border-slate-300 px-3 py-1.5 font-semibold disabled:opacity-40" disabled={safeStockPage >= stockPageCount} onClick={() => setStockPage((page) => Math.min(stockPageCount, page + 1))}>Next</button>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <EmptyState
@@ -1728,7 +1896,7 @@ export default function RecyclingPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {data.stockAdjustments.slice(0, 8).map((x) => (
+                          {adjustmentsPage.paged.map((x) => (
                             <tr key={x.id}>
                               <td>{new Date(x.adjustment_date).toLocaleDateString("en-GB")}</td>
                               <td><p className="table-primary">{x.material_type}</p><p className="table-secondary">{x.source_name}</p></td>
@@ -1740,7 +1908,7 @@ export default function RecyclingPage() {
                             </tr>
                           ))}
                         </tbody>
-                      </table>
+                      </table><Pager of={adjustmentsPage}/>
                     </div>
                   ) : (
                     <EmptyState title="No stock adjustments" description="No inventory corrections have been recorded. Normal purchases, sorting, and sales do not appear here." />
@@ -1778,7 +1946,7 @@ export default function RecyclingPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredSales.map((x) => (
+                      {salesPage.paged.map((x) => (
                         <tr key={x.id}>
                           <td>
                             <p className="table-primary">
@@ -1805,7 +1973,7 @@ export default function RecyclingPage() {
                               </p>
                             )}
                           </td>
-                          <td>{Number(x.quantity_kg).toLocaleString()} kg</td>
+                          <td>{Number(x.quantity_kg).toLocaleString()} kg{Number(x.delivered_kg ?? x.quantity_kg) > Number(x.quantity_kg) && <p className="table-secondary">{Number(x.delivered_kg).toLocaleString()} kg delivered · {(Number(x.delivered_kg) - Number(x.quantity_kg)).toLocaleString()} kg refused</p>}</td>
                           <td><p className="font-semibold">{money(x.total_ugx)}</p><p className="table-secondary">Net {money(x.net_income_ugx)} · Expenses {money(x.expenses_ugx)}</p><p className="table-secondary">Paid {money(x.paid_ugx)} · Balance {money(x.balance_ugx)}</p></td>
                           <td>
                             <div className="flex items-center gap-2">
@@ -1825,7 +1993,7 @@ export default function RecyclingPage() {
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </table><Pager of={salesPage}/>
                 </div>
               ) : (
                 <EmptyState title={salesQuery || salesStatus !== "all" ? "No matching sales" : "No industrial sales"} description={salesQuery || salesStatus !== "all" ? "Clear the search or payment filter to see other sales." : "Record a sale from available graded material stock, including its buyer, price and selling expenses."} />
@@ -1847,7 +2015,26 @@ export default function RecyclingPage() {
                 <div className="border border-slate-200 bg-white p-5"><h3 className="font-semibold">Stock accounting</h3><div className="mt-3 divide-y text-sm"><div className="flex justify-between py-3"><span>Material purchased</span><strong>{money(data.summary.purchaseCostUgx)}</strong></div><div className="flex justify-between py-3"><span>Processing cost recorded</span><strong>{money(data.summary.processingCostUgx)}</strong></div><div className="flex justify-between py-3"><span>Unsold inventory value</span><strong>{money(data.summary.inventoryValueUgx)}</strong></div><div className="flex justify-between py-3"><span>Physical stock</span><strong>{data.summary.availableKg.toLocaleString()} kg</strong></div></div><p className="mt-3 text-xs leading-5 text-slate-500">Buying stock reduces cash but does not become a trading loss immediately. Its cost moves to cost of goods sold only when that material is sold.</p></div>
               </section>
               <section className="border-y border-slate-300 bg-slate-50 p-5"><h3 className="font-semibold">How to record money correctly</h3><div className="mt-4 grid gap-4 text-sm md:grid-cols-4">{[["1. Fund the business","Set the verified opening balance under Finance. Do not use a fake sale to create cash."],["2. Buy material","Choose Paid only when cash actually leaves. Choose Credit when the supplier will be paid later."],["3. Record sales","Record the dispatch first. Mark payment only when the buyer’s money is actually received."],["4. Reconcile daily","Review cash, float, receivables and payables, then close the business day after corrections."]].map(([title,description])=><div key={title}><p className="font-semibold text-[var(--color-action)]">{title}</p><p className="mt-1 leading-6 text-slate-600">{description}</p></div>)}</div></section></>}
-              {!fieldManagerMode&&<section><div className="flex flex-wrap items-end justify-between gap-3"><div><h3 className="font-semibold">Business cash movement ledger</h3><p className="mt-1 text-sm text-slate-500">Referenced owner funding, other non-sale income, withdrawals and corrections.</p></div><button onClick={()=>openForm("cash")} className="border border-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-[var(--color-action)]">Post cash movement</button></div>{data.cashMovements.length?<div className="table-wrap mt-4"><table><thead><tr><th>Date</th><th>Direction</th><th>Category</th><th>Reference</th><th>Amount</th><th>Recorded by</th></tr></thead><tbody>{data.cashMovements.map(x=><tr key={x.id}><td>{new Date(x.movement_date).toLocaleDateString("en-GB")}</td><td><Status value={x.direction}/></td><td className="capitalize">{x.category.replaceAll("_"," ")}</td><td>{x.reference}</td><td className={x.direction==="out"?"text-red-700":"text-green-700"}>{x.direction==="out"?"− ":"+ "}{money(x.amount_ugx)}</td><td>{x.recorded_by_name}</td></tr>)}</tbody></table></div>:<EmptyState title="No cash movements" description="Post only cash movements that are not already captured by a sale, purchase or expense."/>}</section>}
+              {!fieldManagerMode&&<section>
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div><h3 className="font-semibold">Loans</h3><p className="mt-1 text-sm text-slate-500">Money borrowed into office cash and paid back from it, usually from sale income. Loans are not income and repayments are not expenses, so profit is not affected.</p></div>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={()=>openForm("loan")} className="border border-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-[var(--color-action)]">Record loan received</button>
+                    {openLoans.length>0&&<button onClick={()=>{setError("");setRepayingLoan(openLoans[0])}} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">Repay a loan</button>}
+                  </div>
+                </div>
+                {data.loans?.length?<div className="table-wrap mt-4"><table><thead><tr><th>Lender</th><th>Received</th><th>Borrowed</th><th>Repaid</th><th>Still owed</th><th>Repay by</th><th/></tr></thead><tbody>{loansPage.paged.map(x=>{const owed=Number(x.outstanding_ugx);return <tr key={x.id}>
+                  <td><p className="table-primary">{x.lender_name}</p><p className="table-secondary">{x.reference}{x.notes?` · ${x.notes}`:""}</p></td>
+                  <td>{new Date(x.received_on).toLocaleDateString("en-GB")}</td>
+                  <td>{money(x.amount_ugx)}</td>
+                  <td>{money(x.repaid_ugx)}{x.last_repaid_on&&<p className="table-secondary">Last {new Date(x.last_repaid_on).toLocaleDateString("en-GB")}</p>}</td>
+                  <td className={owed>0?"font-semibold":"text-slate-500"}>{owed>0?money(owed):"Repaid"}</td>
+                  <td>{x.due_on?<span className={owed>0&&x.due_on.slice(0,10)<today()?"text-[var(--color-danger)]":""}>{new Date(x.due_on).toLocaleDateString("en-GB")}</span>:"—"}</td>
+                  <td className="text-right">{owed>0&&<button onClick={()=>setRepayingLoan(x)} className="border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700">Repay</button>}</td>
+                </tr>})}</tbody></table><Pager of={loansPage}/></div>:<EmptyState title="No loans" description="Record money borrowed for the business, for example to buy material, and pay it back when sales come in."/>}
+                {Number(data.summary.loansOutstandingUgx||0)>0&&<p className="mt-2 text-sm text-slate-600">Total still owed: <strong>{money(data.summary.loansOutstandingUgx||0)}</strong></p>}
+              </section>}
+              {!fieldManagerMode&&<section><div className="flex flex-wrap items-end justify-between gap-3"><div><h3 className="font-semibold">Business cash movement ledger</h3><p className="mt-1 text-sm text-slate-500">Referenced owner funding, other non-sale income, withdrawals and corrections.</p></div><button onClick={()=>openForm("cash")} className="border border-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-[var(--color-action)]">Post cash movement</button></div>{data.cashMovements.length?<div className="table-wrap mt-4"><table><thead><tr><th>Date</th><th>Direction</th><th>Category</th><th>Reference</th><th>Amount</th><th>Recorded by</th></tr></thead><tbody>{cashPage.paged.map(x=><tr key={x.id}><td>{new Date(x.movement_date).toLocaleDateString("en-GB")}</td><td><Status value={x.direction}/></td><td className="capitalize">{x.category.replaceAll("_"," ")}</td><td>{x.reference}</td><td className={x.direction==="out"?"text-red-700":"text-green-700"}>{x.direction==="out"?"− ":"+ "}{money(x.amount_ugx)}</td><td>{x.recorded_by_name}</td></tr>)}</tbody></table><Pager of={cashPage}/></div>:<EmptyState title="No cash movements" description="Post only cash movements that are not already captured by a sale, purchase or expense."/>}</section>}
               <section><div className="flex items-end justify-between gap-3"><div><h3 className="font-semibold">Manager float ledger</h3><p className="mt-1 text-sm text-slate-500">Money issued to field operations, used by linked work, and returned when unused.</p></div><button onClick={()=>openForm("float")} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">Record float movement</button></div>
               {data.floatTransactions.length ? (
                 <div className="table-wrap mt-4">
@@ -1858,11 +2045,12 @@ export default function RecyclingPage() {
                         <th>Movement</th>
                         <th>Amount</th>
                         <th>Running balance</th>
-                        <th>Notes</th>
+                        <th>Recorded by</th>
+                        <th>Reference / purpose</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {data.floatTransactions.map((x) => (
+                      {floatPage.paged.map((x) => (
                         <tr key={x.id}>
                           <td>
                             {new Date(x.transaction_date).toLocaleDateString(
@@ -1874,11 +2062,12 @@ export default function RecyclingPage() {
                           <td className="font-semibold">
                             {money(x.running_balance_ugx)}
                           </td>
+                          <td><span className="block font-medium">{x.recorded_by_name||"System"}</span><span className="text-xs text-slate-500">{x.created_at?new Date(x.created_at).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}):"—"}</span></td>
                           <td><span className="block font-medium">{x.reference||"Automatic"}</span><span className="text-xs text-slate-500">{x.notes || "—"}</span></td>
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </table><Pager of={floatPage}/>
                 </div>
               ) : (
                 <EmptyState
@@ -1900,6 +2089,11 @@ export default function RecyclingPage() {
               <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Saleable output</p><p className="font-semibold">{Number(data?.operations.sortedTodayKg || 0).toLocaleString()} kg</p></div>
               <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Material sold</p><p className="font-semibold">{Number(data?.operations.soldTodayKg || 0).toLocaleString()} kg</p></div>
             </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm font-semibold">Physical office cash counted (UGX)<input required min={0} step={1} type="number" name="countedOfficeCashUgx" placeholder={String(data?.summary.officeCashUgx ?? 0)} className={field} /><span className="mt-1 block text-xs font-normal text-slate-500">Ledger expects {money(data?.summary.officeCashUgx || 0)}</span></label>
+              <label className="block text-sm font-semibold">Physical manager float counted (UGX)<input required min={0} step={1} type="number" name="countedManagerFloatUgx" placeholder={String(data?.summary.floatBalanceUgx ?? 0)} className={field} /><span className="mt-1 block text-xs font-normal text-slate-500">Ledger expects {money(data?.summary.floatBalanceUgx || 0)}</span></label>
+            </div>
+            <label className="flex items-start gap-3 border border-slate-300 bg-white p-3 text-sm"><input required type="checkbox" name="allDevicesSynced" className="mt-1 size-4" /><span><strong className="block">All field devices are synchronized</strong><span className="mt-1 block text-slate-500">Every phone and tablet has been online and shows no records waiting to sync.</span></span></label>
             <label className="block text-sm font-semibold">Closing note (optional)<textarea name="notes" rows={3} maxLength={500} placeholder="Handover note, variance explanation, or manager comment" className={field} /></label>
             <div className="border-l-2 border-[var(--color-accent)] bg-amber-50 p-3 text-sm text-slate-700">After closing, records dated {data?.operations.operatingDate} cannot be added or changed. A company administrator can reopen the day with a mandatory reason.</div>
             <button disabled={saving} className="w-full bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white">{saving ? "Closing…" : "Confirm and close day"}</button>
@@ -1912,6 +2106,7 @@ export default function RecyclingPage() {
           onClose={() => setForm("")}
         >
           <form onSubmit={submitDailyReopen} className="space-y-4">
+            {!!data?.operations.currentClosure?.history?.length && <div className="border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-semibold uppercase tracking-[.12em] text-slate-500">Previous control actions</p><div className="mt-2 max-h-40 divide-y overflow-y-auto text-sm">{data.operations.currentClosure.history.map(event=><div key={event.id} className="py-2"><p><strong className="capitalize">{event.action}</strong> by {event.actorName || "authorized user"}</p><p className="text-xs text-slate-500">{new Date(event.createdAt).toLocaleString("en-GB")}{event.reason?` · ${event.reason}`:""}</p></div>)}</div></div>}
             <label className="block text-sm font-semibold">Reason for reopening<textarea required minLength={5} maxLength={500} name="reason" rows={4} placeholder="Explain the correction that must be made" className={field} /></label>
             <button disabled={saving} className="w-full bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white">{saving ? "Reopening…" : "Reopen business day"}</button>
           </form>
@@ -1940,10 +2135,17 @@ export default function RecyclingPage() {
         <Modal
           open={form === "purchase"}
           title={editingPurchase ? "Edit material purchase" : "Record material purchase"}
-          description={editingPurchase ? "Correct the transaction. Stock already used or sold and payments already made remain protected." : "Use a separate purchase for each material bought at a different price."}
-          onClose={() => {setForm("");setEditingPurchaseId("");}}
+          description={editingPurchase ? "Correct this material line. Stock already used or sold and payments already made remain protected." : "Record one supplier or driver delivery, then separate its materials into the correct stock types."}
+          onClose={() => {setForm("");setEditingPurchaseId("");setPurchaseLines([]);}}
         >
           <form key={editingPurchase?.id || "new-purchase"} onSubmit={submitPurchase} className="grid gap-4 sm:grid-cols-2">
+            {!editingPurchase && purchaseLines.length > 0 && <div className="sm:col-span-2 border border-slate-200 bg-slate-50">
+              <div className="border-b border-slate-200 px-3 py-2 text-sm font-semibold">Materials in this delivery</div>
+              {purchaseLines.map((line, index) => <div key={line.id} className="grid grid-cols-[1fr_auto] items-center gap-3 border-b border-slate-200 px-3 py-2 text-sm last:border-b-0">
+                <div><p className="font-semibold">{index + 1}. {line.materialType}</p><p className="text-xs text-slate-500">{line.quantityKg.toLocaleString()} kg · {money(line.unitPurchasePriceUgx)}/kg · {line.quality}</p></div>
+                <button type="button" onClick={() => setPurchaseLines((current) => current.filter((item) => item.id !== line.id))} className="text-xs font-semibold text-red-700">Remove</button>
+              </div>)}
+            </div>}
             <label className="text-sm font-semibold">
               Material type
               <select name="materialType" defaultValue={editingPurchase?.material_type || ""} className={field}>
@@ -2022,6 +2224,20 @@ export default function RecyclingPage() {
                 <option value="contaminated">Contaminated</option>
               </select>
             </label>
+            {!editingPurchase && <button type="button" onClick={(event) => addPurchaseLine(event.currentTarget.form)} className="border border-[var(--color-action)] px-4 py-3 text-sm font-semibold text-[var(--color-action)] sm:col-span-2">{purchaseLines.length ? "+ Add another material" : "Add material to this delivery"}</button>}
+            <label className="text-sm font-semibold">
+              Delivered / received by (optional)
+              <select name="deliveredByUserId" defaultValue={editingPurchase?.delivered_by_user_id || ""} className={field}>
+                <option value="">Not assigned</option>
+                {(data?.deliveryStaff || []).map((member) => <option key={member.id} value={member.id}>{member.full_name}</option>)}
+              </select>
+              <span className="mt-1 block text-xs font-normal text-slate-500">Select the driver or field worker. The supplier remains recorded separately.</span>
+            </label>
+            <label className="text-sm font-semibold">
+              Delivery reference
+              <input required={!editingPurchase} minLength={2} maxLength={120} name="deliveryReference" defaultValue={editingPurchase?.purchase_group_reference || `DEL-${today().replaceAll("-", "")}`} className={field} />
+              <span className="mt-1 block text-xs font-normal text-slate-500">All material lines from this load share this reference.</span>
+            </label>
             {!editingPurchase && <label className="text-sm font-semibold">
               Purchase payment
               <select
@@ -2077,18 +2293,22 @@ export default function RecyclingPage() {
               disabled={saving}
               className="bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white sm:col-span-2"
             >
-              {saving ? "Saving…" : editingPurchase ? "Update purchase" : "Save purchase"}
+              {saving ? "Saving…" : editingPurchase ? "Update purchase" : "Save delivery"}
             </button>
           </form>
         </Modal>
         <Modal
           open={form === "sorting"}
           title="Record sorting and grading"
-          description="Choose purchased input stock and create one saleable material grade. Record another line when the same mixed lot produces a second grade."
+          description="Record what was sorted out of a material. Only the sorted weight and the waste leave it; the rest stays in stock to sort another day."
           onClose={() => setForm("")}
         >
           <form onSubmit={submitSorting} className="grid gap-4 sm:grid-cols-2">
-            <label className="text-sm font-semibold sm:col-span-2">
+            <div className="sm:col-span-2"><p className="text-sm font-semibold">Choose how stock is consumed</p><div className="mt-2 grid grid-cols-2 gap-2"><button type="button" onClick={()=>setSortingInputMode("material_total")} className={`border px-3 py-3 text-sm font-semibold ${sortingInputMode==="material_total"?"border-[var(--color-action)] bg-blue-50 text-[var(--color-action)]":"border-slate-300"}`}>Use material total</button><button type="button" onClick={()=>setSortingInputMode("lot")} className={`border px-3 py-3 text-sm font-semibold ${sortingInputMode==="lot"?"border-[var(--color-action)] bg-blue-50 text-[var(--color-action)]":"border-slate-300"}`}>Choose one purchase</button></div><p className="mt-2 text-xs text-slate-500">Material total automatically uses the oldest available lots first and preserves every source in the audit trail.</p></div>
+            {sortingInputMode==="material_total"?<label className="text-sm font-semibold sm:col-span-2">
+              Material total
+              <select required name="inputMaterialType" className={field}><option value="">Choose material</option>{stockGroups.map((group)=><option key={group.material} value={group.material}>{group.material} · {group.availableKg.toLocaleString()} kg available</option>)}</select>
+            </label>:<label className="text-sm font-semibold sm:col-span-2">
               Input material lot
               <select required name="inputLotId" className={field}>
                 <option value="">Choose purchased stock</option>
@@ -2105,7 +2325,7 @@ export default function RecyclingPage() {
                     </option>
                   ))}
               </select>
-            </label>
+            </label>}
             <label className="text-sm font-semibold">
               Processing date
               <input
@@ -2113,17 +2333,6 @@ export default function RecyclingPage() {
                 type="date"
                 name="processedOn"
                 defaultValue={today()}
-                className={field}
-              />
-            </label>
-            <label className="text-sm font-semibold">
-              Input weight (kg)
-              <input
-                required
-                type="number"
-                min=".01"
-                step=".01"
-                name="inputKg"
                 className={field}
               />
             </label>
@@ -2146,7 +2355,7 @@ export default function RecyclingPage() {
               <span className="mt-1 block text-xs font-normal text-slate-500">This new grade is saved to the material catalogue automatically.</span>
             </label>
             <label className="text-sm font-semibold">
-              Saleable output (kg)
+              Sorted out (kg)
               <input
                 required
                 type="number"
@@ -2157,7 +2366,7 @@ export default function RecyclingPage() {
               />
             </label>
             <label className="text-sm font-semibold">
-              Rejected / waste (kg)
+              Waste thrown away (kg)
               <input
                 type="number"
                 min="0"
@@ -2173,9 +2382,9 @@ export default function RecyclingPage() {
               <textarea name="notes" rows={2} className={field} />
             </label>
             <div className="border-l-2 border-[var(--color-accent)] bg-amber-50 p-3 text-xs text-slate-700 sm:col-span-2">
-              Saleable output plus rejected weight cannot exceed the input
-              weight. Any difference remains recorded as unclassified processing
-              loss.
+              The sorted weight and the waste are taken from the material. For
+              example, sorting 3,000 kg of sacs from 10,000 kg of mixed leaves
+              7,000 kg of mixed in stock.
             </div>
             <button
               disabled={saving}
@@ -2183,6 +2392,20 @@ export default function RecyclingPage() {
             >
               {saving ? "Saving…" : "Save sorting output"}
             </button>
+          </form>
+        </Modal>
+        <Modal
+          open={Boolean(reversingEntry)}
+          title="Reverse sorting"
+          description={reversingEntry ? `${reversingEntry.output_kg.toLocaleString()} kg of ${reversingEntry.output_material} and ${reversingEntry.rejected_kg.toLocaleString()} kg of waste go back into ${reversingEntry.input_material_type} as ${reversingEntry.input_kg.toLocaleString()} kg. The sorted stock is removed.` : ""}
+          onClose={() => !saving && setReversingEntry(null)}
+        >
+          <form key={reversingEntry?.id} onSubmit={submitReversal} className="grid gap-4 text-sm">
+            {reversingEntry && reversingEntry.processing_cost_ugx > 0 && <p className="border-l-2 border-[var(--color-accent)] bg-amber-50 p-3 text-xs text-slate-700">The processing cost of {money(reversingEntry.processing_cost_ugx)} is removed too and returns to cash. If that money was really paid, record it again with the corrected sorting.</p>}
+            <p className="text-xs text-slate-500">A sorting whose stock has already been sold, sorted again or adjusted cannot be reversed. The reversed record stays in the edit history.</p>
+            <label className="font-semibold">Reason<input required minLength={5} maxLength={300} name="reason" placeholder="Example: recorded the whole mixed weight by mistake" className={field} /></label>
+            {error && <p className="text-[var(--color-danger)]">{error}</p>}
+            <button disabled={saving} className="bg-[var(--color-action)] px-4 py-3 font-semibold text-white disabled:opacity-50">{saving ? "Reversing…" : "Reverse sorting"}</button>
           </form>
         </Modal>
         <Modal
@@ -2244,18 +2467,12 @@ export default function RecyclingPage() {
           <form key={editingSale?.id || "new-sale"} onSubmit={submitSale} className="grid gap-4 sm:grid-cols-2">
             {limitedWorkerMode ? <input type="hidden" name="saleChannel" value={editingSale?.sale_channel || (collectorMode ? "local" : "industrial")} /> : <label className="text-sm font-semibold sm:col-span-2">Sale channel<select name="saleChannel" defaultValue={editingSale?.sale_channel || "industrial"} className={field}><option value="industrial">Industry buyer</option><option value="local">Local buyer</option></select></label>}
             <label className="text-sm font-semibold sm:col-span-2">
-              Material stock
-              <select required name="lotId" defaultValue={editingSale?.lot_id || ""} className={field}>
-                <option value="">Choose available material</option>
-                {data?.lots
-                  .filter((x) => Number(x.available_kg) > 0 || x.id === editingSale?.lot_id)
-                  .map((x) => (
-                    <option key={x.id} value={x.id}>
-                      {x.material_type} ·{" "}
-                      {Number(x.available_kg).toLocaleString()} kg
-                    </option>
-                  ))}
+              Material
+              <select required name="materialType" defaultValue={editingSale?.material_type || ""} className={field}>
+                <option value="">Choose material in stock</option>
+                {saleMaterials.map((x) => <option key={x.material} value={x.material}>{x.material} · {x.availableKg.toLocaleString()} kg in stock</option>)}
               </select>
+              <span className="mt-1 block text-xs font-normal text-slate-500">The weight is taken from the oldest stock of this material first.</span>
             </label>
             <label className="text-sm font-semibold">
               Saved {collectorMode ? "local" : "industrial"} buyer
@@ -2284,16 +2501,14 @@ export default function RecyclingPage() {
               <input required name="industry" defaultValue={editingSale?.industry || ""} placeholder={collectorMode ? "Local trader, shop, community buyer" : "Manufacturing or recycling industry"} className={field} />
             </label>
             <label className="text-sm font-semibold">
-              Quantity (kg)
-              <input
-                required
-                type="number"
-                min=".01"
-                step=".01"
-                name="quantityKg"
-                defaultValue={editingSale?.quantity_kg || ""}
-                className={field}
-              />
+              Weight delivered (kg)
+              <input required type="number" min=".01" step=".01" name="deliveredKg" defaultValue={editingSale?.delivered_kg || editingSale?.quantity_kg || ""} className={field} />
+              <span className="mt-1 block text-xs font-normal text-slate-500">Leaves stock</span>
+            </label>
+            <label className="text-sm font-semibold">
+              Weight the buyer paid for (kg)
+              <input required type="number" min=".01" step=".01" name="quantityKg" defaultValue={editingSale?.quantity_kg || ""} className={field} />
+              <span className="mt-1 block text-xs font-normal text-slate-500">The rest is recorded as waste the buyer refused</span>
             </label>
             <label className="text-sm font-semibold">
               Price per kg (UGX)
@@ -2320,6 +2535,17 @@ export default function RecyclingPage() {
                 className={field}
               />
             </label>
+            {!editingSale && <label className="text-sm font-semibold">
+              Payment
+              <select name="paymentReceived" defaultValue="now" className={field}>
+                <option value="now">Paid now, into office cash (costs come out of it)</option>
+                <option value="later">Buyer pays later</option>
+              </select>
+            </label>}
+            {!editingSale && <label className="text-sm font-semibold">
+              Payment reference (optional)
+              <input name="paymentReference" minLength={2} maxLength={120} placeholder="Receipt or transfer number" className={field} />
+            </label>}
             {expenseFields.map(([name, label]) => (
               <label key={name} className="text-sm font-semibold">
                 {label} (UGX)
@@ -2395,6 +2621,29 @@ export default function RecyclingPage() {
             >
               {saving ? "Saving…" : "Save float movement"}
             </button>
+          </form>
+        </Modal>
+        <Modal open={form==="loan"} title="Record loan received" description="The amount is added to office cash now. Pay it back later from office cash with Repay." onClose={()=>setForm("")}>
+          <form onSubmit={submitLoan} className="grid gap-4 sm:grid-cols-2">
+            <label className="text-sm font-semibold sm:col-span-2">Lender<input required minLength={2} maxLength={160} name="lenderName" placeholder="Bank, SACCO or person" className={field}/></label>
+            <label className="text-sm font-semibold">Amount received (UGX)<input required type="number" min="1" name="amountUgx" className={field}/></label>
+            <label className="text-sm font-semibold">Date received<input required type="date" name="receivedOn" defaultValue={today()} max={today()} className={field}/></label>
+            <label className="text-sm font-semibold">Repay by (optional)<input type="date" name="dueOn" className={field}/></label>
+            <label className="text-sm font-semibold">Reference<input required minLength={2} maxLength={120} name="reference" placeholder="Agreement or transfer number" className={field}/></label>
+            <label className="text-sm font-semibold sm:col-span-2">Notes (optional)<textarea name="notes" rows={2} maxLength={500} placeholder="Purpose, interest agreed, or terms" className={field}/></label>
+            {error&&<p className="text-sm text-[var(--color-danger)] sm:col-span-2">{error}</p>}
+            <button disabled={saving} className="bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50 sm:col-span-2">{saving?"Saving…":"Record loan"}</button>
+          </form>
+        </Modal>
+        <Modal open={Boolean(repayingLoan)} title="Repay loan from office cash" description={repayingLoan?`${repayingLoan.lender_name} · ${money(repayingLoan.outstanding_ugx)} still owed. The repayment is paid from office cash, which holds ${money(data?.summary.officeCashUgx??0)} now.`:""} onClose={()=>!saving&&setRepayingLoan(null)}>
+          <form key={repayingLoan?.id} onSubmit={submitRepayment} className="grid gap-4 sm:grid-cols-2">
+            {openLoans.length>1&&<label className="text-sm font-semibold sm:col-span-2">Loan<select value={repayingLoan?.id} onChange={(event)=>setRepayingLoan(openLoans.find((loan)=>loan.id===event.target.value)??null)} className={field}>{openLoans.map((loan)=><option key={loan.id} value={loan.id}>{loan.lender_name} · {loan.reference} · {money(loan.outstanding_ugx)} owed</option>)}</select></label>}
+            <label className="text-sm font-semibold">Amount (UGX)<input required type="number" min="1" max={repayingLoan?Number(repayingLoan.outstanding_ugx):undefined} name="amountUgx" defaultValue={repayingLoan?Math.min(Number(repayingLoan.outstanding_ugx),Math.max(Number(data?.summary.officeCashUgx??0),0))||"":""} className={field}/></label>
+            <label className="text-sm font-semibold">Date paid<input required type="date" name="paidOn" defaultValue={today()} max={today()} className={field}/></label>
+            <label className="text-sm font-semibold sm:col-span-2">Reference<input required minLength={2} maxLength={120} name="reference" placeholder="Receipt or transfer number" className={field}/></label>
+            <label className="text-sm font-semibold sm:col-span-2">Notes (optional)<textarea name="notes" rows={2} maxLength={500} className={field}/></label>
+            {error&&<p className="text-sm text-[var(--color-danger)] sm:col-span-2">{error}</p>}
+            <button disabled={saving} className="bg-[var(--color-action)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50 sm:col-span-2">{saving?"Saving…":"Record repayment"}</button>
           </form>
         </Modal>
         <Modal open={form==="cash"} title="Post business cash movement" description="Use this only for money entering or leaving the business outside normal sales, purchases and expenses. Posted records remain in the audit trail." onClose={()=>setForm("")}>

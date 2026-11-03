@@ -4,7 +4,7 @@ import { authorizeStaffWrite, protectedStaff } from "./staff-authorization";
 
 export async function findOrganizationUsers(organizationId: string) {
   const result = await dbPool.query(
-    `SELECT u.id, u.full_name, u.email, u.phone, u.status, u.last_login_at, u.created_at,
+    `SELECT u.id, u.full_name, u.email, u.phone, u.status, u.last_login_at, u.created_at, u.email_verified_at, u.email_verification_required,
        (SELECT m.status FROM organization_memberships m WHERE m.user_id=u.id AND m.organization_id=u.organization_id) AS membership_status,
        EXISTS(SELECT 1 FROM organization_memberships m JOIN organization_membership_roles mr ON mr.membership_id=m.id AND mr.organization_id=m.organization_id
          JOIN organization_role_permissions rp ON rp.role_id=mr.role_id AND rp.organization_id=mr.organization_id
@@ -20,7 +20,7 @@ export async function findOrganizationUsers(organizationId: string) {
      LEFT JOIN supervisor_drivers sd ON sd.supervisor_user_id = u.id
      WHERE u.organization_id = $1::uuid
        AND EXISTS (SELECT 1 FROM user_roles staff_ur JOIN roles staff_role ON staff_role.id=staff_ur.role_id
-         WHERE staff_ur.user_id=u.id AND staff_role.name IN ('company_admin','supervisor','driver','iot_operator','recycling_collector','recycling_sales','recycling_field_manager'))
+         WHERE staff_ur.user_id=u.id AND staff_role.name IN ('company_admin','company_owner','company_investor','supervisor','driver','iot_operator','recycling_collector','recycling_sales','recycling_field_manager'))
        AND NOT EXISTS (
          SELECT 1 FROM user_roles customer_ur
          JOIN roles customer_role ON customer_role.id = customer_ur.role_id
@@ -91,14 +91,14 @@ export async function createOrganizationStaffRecord(
     email: string;
     phone?: string;
     passwordHash: string;
-    role: "supervisor" | "driver" | "recycling_collector" | "recycling_sales" | "recycling_field_manager";
+    role: "supervisor" | "driver" | "recycling_collector" | "recycling_sales" | "recycling_field_manager" | "company_owner" | "company_investor";
     licenseNumber?: string;
   }
 ) {
   const userResult = await client.query(
     `INSERT INTO users (organization_id, full_name, email, phone, password_hash)
      VALUES ($1::uuid, $2, LOWER($3), $4, $5)
-     RETURNING id, organization_id, full_name, email, phone, status, created_at`,
+     RETURNING id, organization_id, full_name, email, phone, status, created_at, email_verified_at, email_verification_required`,
     [input.organizationId, input.fullName, input.email, input.phone ?? null, input.passwordHash]
   );
   const user = userResult.rows[0];
@@ -123,15 +123,15 @@ export async function createOrganizationCustomerRecord(
   client: PoolClient,
   input: {
     organizationId: string; fullName: string; email: string; phone?: string;
-    passwordHash: string; customerType: string; locationLabel: string;
+    passwordHash: string; emailVerificationRequired: boolean; customerType: string; locationLabel: string;
     address: string; zoneId:string; latitude?: number; longitude?: number;
   }
 ) {
   const userResult = await client.query(
-    `INSERT INTO users (organization_id, full_name, email, phone, password_hash)
-     VALUES ($1::uuid, $2, LOWER($3), $4, $5)
-     RETURNING id, organization_id, full_name, email, phone, status, created_at`,
-    [input.organizationId, input.fullName, input.email, input.phone ?? null, input.passwordHash]
+    `INSERT INTO users (organization_id, full_name, email, phone, password_hash, email_verified_at, email_verification_required)
+     VALUES ($1::uuid, $2, LOWER($3), $4, $5, CASE WHEN $6::boolean THEN NULL ELSE NOW() END, $6::boolean)
+     RETURNING id, organization_id, full_name, email, phone, status, created_at, email_verified_at, email_verification_required`,
+    [input.organizationId, input.fullName, input.email, input.phone ?? null, input.passwordHash, input.emailVerificationRequired]
   );
   const user = userResult.rows[0];
   await client.query(

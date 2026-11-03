@@ -11,6 +11,7 @@ import {
   createOrganizationCustomerRecord,
 } from "../repositories/organization-user.repository";
 import { CreateOrganizationCustomerInput, CreateOrganizationUserInput } from "../validators/auth.validator";
+import { issueEmailVerification } from "./email-verification.service";
 
 export async function listOrganizationUsers(organizationId: string) {
   return findOrganizationUsers(organizationId);
@@ -23,7 +24,7 @@ export async function createOrganizationUser(organizationId: string, input: Crea
     await client.query("BEGIN");
     const actor=await authorizeStaffWrite(client,organizationId,actorId);
     if(!actor.isAdministrator)protectedStaff("Only the company administrator can create staff accounts");
-    const allowedRoles=actor.organizationType==='recycling_company'?["recycling_collector","recycling_sales","recycling_field_manager"]:actor.organizationType==='processing_plant'?["supervisor"]:["supervisor","driver"];
+    const allowedRoles=actor.organizationType==='recycling_company'?["recycling_collector","recycling_sales","recycling_field_manager","company_owner","company_investor"]:actor.organizationType==='processing_plant'?["supervisor"]:["supervisor","driver"];
     if(!allowedRoles.includes(input.role))protectedStaff(actor.organizationType==='recycling_company'?"Choose a recycling field manager, collection worker or industrial sales worker role":actor.organizationType==='processing_plant'?"Factories add supervisors; drivers belong to collection companies":"Choose a supervisor or driver role");
     const result = await createOrganizationStaffRecord(client, {
       organizationId,
@@ -34,6 +35,51 @@ export async function createOrganizationUser(organizationId: string, input: Crea
       role: input.role,
       licenseNumber: input.licenseNumber,
     });
+    if(input.role==="company_owner")await client.query(
+      `WITH membership AS (
+        INSERT INTO organization_memberships(organization_id,user_id,status)
+        VALUES($1::uuid,$2::uuid,'active')
+        ON CONFLICT(organization_id,user_id) DO UPDATE SET status='active',updated_at=CURRENT_TIMESTAMP
+        RETURNING id
+       ),owner_role AS (
+        INSERT INTO organization_roles(organization_id,name,legacy_role_name)
+        VALUES($1::uuid,'Company owner','company_owner')
+        ON CONFLICT(organization_id,legacy_role_name) DO UPDATE SET name=EXCLUDED.name
+        RETURNING id
+       ),grants AS (
+        INSERT INTO organization_role_permissions(organization_id,role_id,permission_code)
+        SELECT $1::uuid,owner_role.id,permission.code FROM owner_role
+        JOIN organization_permission_catalog permission ON permission.code IN (
+         'reports.organization.read','finance.read','inventory.read','procurement.read','payables.read',
+         'billing.read','customers.read','contracts.read','fleet.read','staff.read','attendance.read','recycling.read')
+        ON CONFLICT(role_id,permission_code) DO NOTHING
+       )
+       INSERT INTO organization_membership_roles(organization_id,membership_id,role_id)
+       SELECT $1::uuid,membership.id,owner_role.id FROM membership,owner_role ON CONFLICT DO NOTHING`,
+      [organizationId,result.user.id],
+    );
+    if(input.role==="company_investor")await client.query(
+      `WITH membership AS (
+        INSERT INTO organization_memberships(organization_id,user_id,status)
+        VALUES($1::uuid,$2::uuid,'active')
+        ON CONFLICT(organization_id,user_id) DO UPDATE SET status='active',updated_at=CURRENT_TIMESTAMP
+        RETURNING id
+       ),investor_role AS (
+        INSERT INTO organization_roles(organization_id,name,legacy_role_name)
+        VALUES($1::uuid,'Investor / guest','company_investor')
+        ON CONFLICT(organization_id,legacy_role_name) DO UPDATE SET name=EXCLUDED.name
+        RETURNING id
+       ),grants AS (
+        INSERT INTO organization_role_permissions(organization_id,role_id,permission_code)
+        SELECT $1::uuid,investor_role.id,permission.code FROM investor_role
+        JOIN organization_permission_catalog permission ON permission.code IN (
+         'reports.organization.read','finance.read','inventory.read','recycling.read')
+        ON CONFLICT(role_id,permission_code) DO NOTHING
+       )
+       INSERT INTO organization_membership_roles(organization_id,membership_id,role_id)
+       SELECT $1::uuid,membership.id,investor_role.id FROM membership,investor_role ON CONFLICT DO NOTHING`,
+      [organizationId,result.user.id],
+    );
     if(input.role==="recycling_field_manager")await client.query(
       `INSERT INTO organization_role_permissions(organization_id,role_id,permission_code)
        SELECT $1::uuid,role.id,permission.code
@@ -54,7 +100,8 @@ export async function createOrganizationUser(organizationId: string, input: Crea
       [organizationId],
     );
     await client.query("COMMIT");
-    return result;
+    const verification=await issueEmailVerification(result.user.id);
+    return {...result,verificationRequired:true,verificationEmailSent:verification.sent};
   } catch (error) {
     await client.query("ROLLBACK");
     if ((error as { code?: string }).code === "23505") {
@@ -78,9 +125,12 @@ export async function createOrganizationCustomer(organizationId: string, input: 
       organizationId, ...input, phone,
       email: input.email ?? `household-${randomUUID()}@households.kampalawms.invalid`,
       passwordHash: await bcrypt.hash(input.password ?? randomBytes(32).toString("hex"), 12),
+      emailVerificationRequired: Boolean(input.email),
     });
     await client.query("COMMIT");
-    return result;
+    if(!input.email)return {...result,verificationRequired:false,verificationEmailSent:false};
+    const verification=await issueEmailVerification(result.user.id);
+    return {...result,verificationRequired:true,verificationEmailSent:verification.sent};
   } catch (error) {
     await client.query("ROLLBACK");
     if ((error as { code?: string }).code === "23505") {

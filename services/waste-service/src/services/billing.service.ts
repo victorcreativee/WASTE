@@ -1,6 +1,6 @@
-import { getPaymentProvider } from "../billing/payment-provider";
+import { startCustomerPayment } from "../repositories/mobile-money.repository";
 import {
-  confirmPayment, createPendingPayment, createServicePlan, findBillingOverview,
+  confirmPayment, createServicePlan, findBillingOverview,
   findServicePlans, subscribeCustomer,
   updateServicePlan, updateServicePlanStatus,
   generateDueSubscriptionInvoices, updateSubscriptionStatus, recordOrganizationPayment,
@@ -12,8 +12,6 @@ export { createServicePlan, findBillingOverview, findServicePlans, subscribeCust
 export async function initiateCustomerPayment(userId: string, input: {
   invoiceId: string; amountUgx: number; provider: string; payerPhone?: string;
 }) {
-  const provider = getPaymentProvider(input.provider);
-  const initiation = await provider.initiate({ amountUgx: input.amountUgx, payerPhone: input.payerPhone, invoiceNumber: input.invoiceId });
-  const payment = await createPendingPayment(userId, input, initiation.providerReference);
-  return payment ? { payment, providerMessage: initiation.message } : null;
+  const started = await startCustomerPayment(userId, input);
+  return started ? { payment: started.payment, automatic: started.automatic, providerMessage: started.message } : null;
 }

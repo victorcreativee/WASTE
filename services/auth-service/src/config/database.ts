@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { env } from "./env";
+import { enforceRowSecurity } from "../runtime";
 
 export const dbPool = new Pool({
   connectionString: env.databaseUrl,
@@ -8,6 +9,7 @@ export const dbPool = new Pool({
   connectionTimeoutMillis: 5000,
   application_name: env.serviceName,
 });
+enforceRowSecurity(dbPool);
 
 // An idle client can error when PostgreSQL restarts or the network drops.
 // Without a listener Node treats it as an uncaught 'error' event and the whole service crashes.

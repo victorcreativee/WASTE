@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # KCCA Command Center release gate. Runs, in order, and stops at the first failure:
-#   1. type checks (gateway, three services, admin web)     5. migrations on a fresh PostGIS database
+#   1. type checks (gateway, services, web, mobile)         5. migrations on a fresh PostGIS database
 #   2. unit tests (auth, waste)                             6. end-to-end suites against local test instances
 #   3. production dependency audit (no critical/high,          (ports 8191 auth, 8193 waste; local database only)
 #      except the documented gateway exception)
@@ -24,8 +24,14 @@ trap cleanup EXIT
 step() { printf '\n== %s\n' "$1"; }
 
 step "1. Type checks"
-for pkg in apps/api-gateway services/auth-service services/organization-service services/waste-service apps/admin-web; do
+for pkg in apps/api-gateway services/auth-service services/organization-service services/waste-service apps/admin-web apps/recycling-mobile; do
   (cd "$pkg" && npx tsc --noEmit -p .) && echo "   ok  $pkg"
+done
+
+step "1b. Mobile lint and production-script syntax"
+(cd apps/recycling-mobile && npx eslint . --no-cache) && echo "   ok  apps/recycling-mobile lint"
+for script in infrastructure/production/backup.sh infrastructure/production/verify-backup.sh infrastructure/production/deploy.sh infrastructure/production/migrate.sh; do
+  bash -n "$script" && echo "   ok  $script"
 done
 
 step "2. Unit tests"

@@ -2,7 +2,7 @@
 # Deploys a release in a safe order:
 #   1. build images            4. apply migrations (migrate.sh)
 #   2. start database + redis  5. start or restart every service
-#   3. back up the database    6. confirm every service reports ready (all required tables present)
+#   3. back up + restore test  6. confirm every service reports ready (all required tables present)
 # Stops at the first failure. Run from anywhere: infrastructure/production/deploy.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -13,6 +13,11 @@ compose() { docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
 
 [[ -f "$ENV_FILE" ]] || { echo "ERROR: Missing $ENV_FILE (copy .env.example and fill it in)"; exit 1; }
 grep -q '^PUBLIC_APP_URL=.\+' "$ENV_FILE" || echo "WARNING: PUBLIC_APP_URL is empty; certificate QR codes will point to localhost."
+
+if [[ -d .git && "${ALLOW_DIRTY_DEPLOY:-}" != "1" ]]; then
+  dirty="$(git status --porcelain)"
+  [[ -z "$dirty" ]] || { echo "ERROR: Refusing to deploy a dirty working tree. Commit the release or explicitly set ALLOW_DIRTY_DEPLOY=1."; exit 1; }
+fi
 
 echo "1/6 Building images..."
 compose build
@@ -25,7 +30,16 @@ for _ in $(seq 1 60); do
 done
 
 echo "3/6 Backing up the database before migrating..."
-if [[ "${SKIP_BACKUP:-}" == "1" ]]; then echo "   skipped (SKIP_BACKUP=1)"; else infrastructure/production/backup.sh; fi
+if [[ "${SKIP_BACKUP:-}" == "1" ]]; then
+  echo "   skipped (SKIP_BACKUP=1)"
+else
+  infrastructure/production/backup.sh
+  if [[ "${SKIP_RESTORE_TEST:-}" == "1" ]]; then
+    echo "   restore rehearsal skipped (SKIP_RESTORE_TEST=1)"
+  else
+    infrastructure/production/verify-backup.sh
+  fi
+fi
 
 echo "4/6 Applying migrations..."
 infrastructure/production/migrate.sh

@@ -20,6 +20,23 @@ export async function desktopIdempotency(
   if (!uuid.test(key)) return res.status(400).json({ success: false, message: "A valid desktop synchronization key is required" });
   if (!organizationId || !userId) return res.status(403).json({ success: false, message: "Desktop synchronization requires an organization account" });
 
+  const createdAtHeader = req.header("X-KWMS-Operation-Created-At") ?? "";
+  const createdAt = new Date(createdAtHeader);
+  if (!createdAtHeader || Number.isNaN(createdAt.getTime())) {
+    return res.status(400).json({ success: false, message: "This offline action was created by an older app version. Update the app and enter it again." });
+  }
+  try {
+    const reset = await dbPool.query(
+      "SELECT reset_at FROM organization_data_resets WHERE organization_id=$1::uuid",
+      [organizationId],
+    );
+    if (reset.rows[0] && createdAt.getTime() <= new Date(reset.rows[0].reset_at).getTime()) {
+      return res.status(409).json({ success: false, message: "This offline action was created before the company data reset and cannot be restored. Enter it again only if it is still required." });
+    }
+  } catch (error) {
+    if ((error as { code?: string }).code !== "42P01") throw error;
+  }
+
   const hash = createHash("sha256")
     .update(`${req.method}\n${req.originalUrl}\n${JSON.stringify(req.body ?? null)}`)
     .digest("hex");

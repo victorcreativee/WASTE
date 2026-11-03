@@ -52,8 +52,15 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       TRUST_PROXY: ${TRUST_PROXY:-}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      DB_APP_ROLE: ${DB_APP_ROLE-kwms_app}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?required}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?required}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+      NOTIFY_EMAIL_PROVIDER: ${NOTIFY_EMAIL_PROVIDER:-off}
+      NOTIFY_EMAIL_FROM: ${NOTIFY_EMAIL_FROM:-}
+      SMTP_URL: ${SMTP_URL:-}
+      NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
+      NOTIFY_WEBHOOK_SECRET: ${NOTIFY_WEBHOOK_SECRET:-}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8091/api/auth/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 15s
@@ -77,6 +84,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       TRUST_PROXY: ${TRUST_PROXY:-}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      DB_APP_ROLE: ${DB_APP_ROLE-kwms_app}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?required}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8092/api/organizations/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
@@ -101,6 +109,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       TRUST_PROXY: ${TRUST_PROXY:-}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      DB_APP_ROLE: ${DB_APP_ROLE-kwms_app}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?required}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
       RETURNS_FIRST_PERIOD: ${RETURNS_FIRST_PERIOD:-}
@@ -114,6 +123,9 @@ services:
       AT_USERNAME: ${AT_USERNAME:-}
       AT_API_KEY: ${AT_API_KEY:-}
       AT_SENDER_ID: ${AT_SENDER_ID:-}
+      RECEIPT_SIGNING_KEY: ${RECEIPT_SIGNING_KEY:?required}
+      PAYMENT_CREDENTIALS_KEY: ${PAYMENT_CREDENTIALS_KEY:?required}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8093/api/waste/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 15s

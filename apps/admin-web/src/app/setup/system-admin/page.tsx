@@ -8,6 +8,7 @@ export default function SystemAdminSetupPage() {
     [saving, setSaving] = useState(false),
     [error, setError] = useState(""),
     [done, setDone] = useState(false),
+    [createdEmail,setCreatedEmail]=useState(""),
     [show, setShow] = useState(false);
   useEffect(() => {
     apiRequest<{ data: { setupRequired: boolean } }>(
@@ -57,6 +58,7 @@ export default function SystemAdminSetupPage() {
       });
 
       setDone(true);
+      setCreatedEmail(email.toLowerCase());
       setAvailable(false);
     } catch (e) {
       setError(
@@ -85,14 +87,14 @@ export default function SystemAdminSetupPage() {
           <div className="mt-8 border-l-2 border-emerald-600 bg-emerald-50 p-5">
             <h2 className="font-semibold text-emerald-900">Setup complete</h2>
             <p className="mt-2 text-sm text-emerald-800">
-              The one-time setup is now closed. Sign in with the account you
-              created.
+              The one-time setup is now closed. Verify the email address, then
+              sign in with the account you created.
             </p>
             <Link
-              href="/login"
+              href={`/verify-email?email=${encodeURIComponent(createdEmail)}`}
               className="mt-5 inline-block bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white"
             >
-              Continue to sign in
+              Verify email
             </Link>
           </div>
         ) : !available ? (

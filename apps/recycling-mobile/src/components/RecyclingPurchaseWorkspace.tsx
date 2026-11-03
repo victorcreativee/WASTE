@@ -24,6 +24,8 @@ import { formatDay, localDay } from "../lib/dates";
 type Screen = "today" | "buy" | "history" | "report" | "account";
 type Material = { id: string; name: string; active: boolean };
 type Partner = { id: string; name: string; partner_type: string; active: boolean };
+type DeliveryStaff = { id: string; full_name: string; roles: string[] };
+type PurchaseLine = { id: string; materialType: string; allowNewMaterial: boolean; quantityKg: number; unitPurchasePriceUgx: number; quality: string };
 type Lot = {
   id: string;
   origin?: string;
@@ -39,6 +41,16 @@ type Lot = {
   paid_ugx?: string;
   balance_ugx?: string;
   status: string;
+  supplier_partner_id?: string;
+  delivered_by_user_id?: string;
+  delivered_by_name?: string;
+  purchase_group_reference?: string;
+  worker_wages_ugx?: string;
+  food_ugx?: string;
+  transport_ugx?: string;
+  driver_fee_ugx?: string;
+  other_expense_ugx?: string;
+  notes?: string;
 };
 
 const lotCost = (lot: Lot) => Number(lot.total_cost_ugx ?? Number(lot.quantity_kg) * Number(lot.unit_purchase_price_ugx));
@@ -49,6 +61,7 @@ type Workspace = {
   operations: { operatingDate: string; isClosed: boolean };
   materials: Material[];
   partners: Partner[];
+  deliveryStaff?: DeliveryStaff[];
   lots: Lot[];
   myActivity?: { purchases?: number; purchasedKg?: number };
   /** The member's recycling permission codes; older servers do not send this. */
@@ -86,6 +99,10 @@ export function RecyclingPurchaseWorkspace({
   const [material, setMaterial] = useState("");
   const [customMaterial, setCustomMaterial] = useState("");
   const [supplierId, setSupplierId] = useState("");
+  const [deliveredByUserId, setDeliveredByUserId] = useState("");
+  const [deliveryReference, setDeliveryReference] = useState("");
+  const [purchaseLines, setPurchaseLines] = useState<PurchaseLine[]>([]);
+  const [editingLotId, setEditingLotId] = useState("");
   const [source, setSource] = useState("");
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
@@ -179,13 +196,48 @@ export function RecyclingPurchaseWorkspace({
   ];
   // The form follows the business day until someone picks another date.
   const recordDate = purchaseDate || today;
-  const materialCost = Number(quantity || 0) * Number(price || 0);
+  const currentMaterialCost = Number(quantity || 0) * Number(price || 0);
+  const savedLinesCost = purchaseLines.reduce((sum, line) => sum + line.quantityKg * line.unitPurchasePriceUgx, 0);
+  const materialCost = currentMaterialCost + savedLinesCost;
   const extraCosts = Number(transport || 0) + Number(costs.wages || 0) + Number(costs.food || 0) + Number(costs.driver || 0) + Number(costs.other || 0);
   const total = Math.round(materialCost + extraCosts);
   // Paid purchases come out of the manager float on the server; warn early when the saved balance is not enough.
   const paysFromFloat = user.roles.some((role) => ["recycling_field_manager", "recycling_collector", "recycling_sales"].includes(role));
   const floatAvailable = Number(workspace?.summary?.floatBalanceUgx ?? 0);
   const floatShort = paysFromFloat && payment === "paid" && workspace?.summary?.floatBalanceUgx !== undefined && total > floatAvailable;
+
+  function addCurrentLine() {
+    const materialType = customMaterial.trim() || material;
+    if (!materialType || Number(quantity) <= 0 || Number(price) < 0) {
+      setError("Choose a material and enter its valid weight and price before adding another item.");
+      return false;
+    }
+    setPurchaseLines((current) => [...current, {
+      id: `${Date.now()}-${current.length}`,
+      materialType,
+      allowNewMaterial: Boolean(customMaterial.trim()),
+      quantityKg: Number(quantity),
+      unitPurchasePriceUgx: Number(price),
+      quality,
+    }]);
+    setMaterial(""); setCustomMaterial(""); setQuantity(""); setPrice(""); setQuality("mixed"); setError("");
+    return true;
+  }
+
+  function resetPurchaseForm() {
+    setMaterial(""); setCustomMaterial(""); setSupplierId(""); setSource(""); setQuantity(""); setPrice("");
+    setTransport("0"); setReference(""); setNotes(""); setPurchaseDate(""); setCosts({ wages: "", food: "", driver: "", other: "" });
+    setShowCosts(false); setLocation(null); setDeliveredByUserId(""); setDeliveryReference(""); setPurchaseLines([]); setEditingLotId(""); setQuality("mixed");
+  }
+
+  function startEdit(lot: Lot) {
+    setEditingLotId(lot.id); setPurchaseLines([]); setMaterial(lot.material_type); setCustomMaterial("");
+    setSupplierId(lot.supplier_partner_id || ""); setSource(lot.source_name); setQuantity(lot.quantity_kg); setPrice(lot.unit_purchase_price_ugx);
+    setQuality(lot.quality); setPurchaseDate(localDay(lot.collected_on)); setTransport(lot.transport_ugx || "0");
+    setCosts({ wages: lot.worker_wages_ugx || "0", food: lot.food_ugx || "0", driver: lot.driver_fee_ugx || "0", other: lot.other_expense_ugx || "0" });
+    setShowCosts(Boolean(Number(lot.worker_wages_ugx || 0) + Number(lot.food_ugx || 0) + Number(lot.driver_fee_ugx || 0) + Number(lot.other_expense_ugx || 0)));
+    setNotes(lot.notes || ""); setDeliveredByUserId(lot.delivered_by_user_id || ""); setDeliveryReference(lot.purchase_group_reference || ""); setScreen("buy"); setError("");
+  }
 
   async function attachLocation() {
     try {
@@ -211,8 +263,20 @@ export function RecyclingPurchaseWorkspace({
   async function savePurchase() {
     const materialType = customMaterial.trim() || material;
     const supplier = workspace?.partners.find((item) => item.id === supplierId);
-    if (!materialType || (!supplierId && source.trim().length < 2) || Number(quantity) <= 0 || Number(price) < 0) {
+    const lines = [...purchaseLines];
+    if (materialType || quantity || price) {
+      if (!materialType || Number(quantity) <= 0 || Number(price) < 0) {
+        setError("Complete the current material’s name, weight and price, or remove the incomplete values.");
+        return;
+      }
+      lines.push({ id: "current", materialType, allowNewMaterial: Boolean(customMaterial.trim()), quantityKg: Number(quantity), unitPurchasePriceUgx: Number(price), quality });
+    }
+    if (!lines.length || (!supplierId && source.trim().length < 2)) {
       setError("Choose a material and supplier, then enter a valid weight and purchase price.");
+      return;
+    }
+    if (!editingLotId && deliveryReference.trim().length < 2) {
+      setError("Enter or generate the delivery reference so all material lines remain linked to one transaction.");
       return;
     }
     if (recordDate > localDay()) {
@@ -230,30 +294,44 @@ export function RecyclingPurchaseWorkspace({
     try {
       setSaving(true);
       setError("");
+      const endpoint = editingLotId ? `/api/waste/recycling/lots/${editingLotId}` : "/api/waste/recycling/purchase-batches";
       const result = await mobileRequest<{ queuedOffline?: boolean; localId?: string }>(
-        "/api/waste/recycling/lots",
+        endpoint,
         token,
         user.email,
         {
-          method: "POST",
-          body: JSON.stringify({
-            materialType,
-            allowNewMaterial: Boolean(customMaterial.trim()),
+          method: editingLotId ? "PATCH" : "POST",
+          body: JSON.stringify(editingLotId ? {
+            materialType: lines[0].materialType,
+            allowNewMaterial: lines[0].allowNewMaterial,
             supplierPartnerId: supplierId || undefined,
             sourceName: supplier?.name || source.trim(),
-            quantityKg: Number(quantity),
-            unitPurchasePriceUgx: Number(price),
+            deliveredByUserId: deliveredByUserId || undefined,
+            deliveryReference: deliveryReference.trim() || undefined,
+            quantityKg: lines[0].quantityKg,
+            unitPurchasePriceUgx: lines[0].unitPurchasePriceUgx,
             collectedOn: recordDate,
-            quality,
-            purchasePaymentStatus: payment,
-            purchasePaymentReference: reference.trim() || undefined,
+            quality: lines[0].quality,
             workerWagesUgx: Number(costs.wages || 0),
             foodUgx: Number(costs.food || 0),
             transportUgx: Number(transport || 0),
             driverFeeUgx: Number(costs.driver || 0),
             otherExpenseUgx: Number(costs.other || 0),
-            // The server takes field staff's paid purchases from the manager float.
-            managerFloatUsedUgx: 0,
+            notes: notes.trim() || undefined,
+          } : {
+            supplierPartnerId: supplierId || undefined,
+            sourceName: supplier?.name || source.trim(),
+            deliveredByUserId: deliveredByUserId || undefined,
+            deliveryReference: deliveryReference.trim(),
+            collectedOn: recordDate,
+            purchasePaymentStatus: payment,
+            purchasePaymentReference: reference.trim() || undefined,
+            lines: lines.map(({ id: _id, ...line }) => line),
+            workerWagesUgx: Number(costs.wages || 0), foodUgx: Number(costs.food || 0), transportUgx: Number(transport || 0),
+            driverFeeUgx: Number(costs.driver || 0), otherExpenseUgx: Number(costs.other || 0),
+            // The server enforces this policy too. Sending the same value lets the
+            // offline projection show the exact balance that will exist after sync.
+            managerFloatUsedUgx: paysFromFloat && payment === "paid" ? total : 0,
             collectionLatitude: location?.latitude,
             collectionLongitude: location?.longitude,
             collectionAccuracyM: location?.accuracy,
@@ -261,14 +339,15 @@ export function RecyclingPurchaseWorkspace({
           }),
         },
       );
-      if (result.queuedOffline) {
+      if (result.queuedOffline && !editingLotId) {
+        const firstLine = lines[0];
         const local: Lot = {
           id: result.localId || "local-purchase",
-          material_type: materialType,
+          material_type: lines.length > 1 ? `${firstLine.materialType} + ${lines.length - 1} more` : firstLine.materialType,
           source_name: supplier?.name || source.trim(),
-          quantity_kg: String(Number(quantity)),
-          available_kg: String(Number(quantity)),
-          unit_purchase_price_ugx: String(Number(price)),
+          quantity_kg: String(lines.reduce((sum, line) => sum + line.quantityKg, 0)),
+          available_kg: String(lines.reduce((sum, line) => sum + line.quantityKg, 0)),
+          unit_purchase_price_ugx: String(firstLine.unitPurchasePriceUgx),
           total_cost_ugx: String(total),
           collected_on: recordDate,
           quality,
@@ -285,31 +364,19 @@ export function RecyclingPurchaseWorkspace({
           myActivity: current.myActivity && recordDate === today ? {
             ...current.myActivity,
             purchases: (current.myActivity.purchases || 0) + 1,
-            purchasedKg: (current.myActivity.purchasedKg || 0) + Number(quantity),
+            purchasedKg: (current.myActivity.purchasedKg || 0) + lines.reduce((sum, line) => sum + line.quantityKg, 0),
           } : current.myActivity,
         } : current);
       } else {
         void load();
       }
-      setMaterial("");
-      setCustomMaterial("");
-      setSupplierId("");
-      setSource("");
-      setQuantity("");
-      setPrice("");
-      setTransport("0");
-      setReference("");
-      setNotes("");
-      setPurchaseDate("");
-      setCosts({ wages: "", food: "", driver: "", other: "" });
-      setShowCosts(false);
-      setLocation(null);
+      resetPurchaseForm();
       setScreen("today");
       Alert.alert(
-        result.queuedOffline ? "Purchase saved offline" : "Purchase recorded",
+        result.queuedOffline ? "Purchase saved offline" : editingLotId ? "Purchase corrected" : "Delivery recorded",
         result.queuedOffline
           ? "The purchase is secured on this device and will synchronize automatically."
-          : "Company stock and purchasing records are now updated.",
+          : editingLotId ? "The correction and audit history are now updated." : `${lines.length} material ${lines.length === 1 ? "type is" : "types are"} now in the correct stock categories.`,
       );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not save this purchase.");
@@ -447,8 +514,8 @@ export function RecyclingPurchaseWorkspace({
 
         {screen === "buy" ? <>
           <View>
-            <Text style={page.title}>New purchase</Text>
-            <Text style={[type.small, { marginTop: 4 }]}>Saved on this phone first and sent when there is internet.</Text>
+            <Text style={page.title}>{editingLotId ? "Correct purchase" : "New delivery purchase"}</Text>
+            <Text style={[type.small, { marginTop: 4 }]}>{editingLotId ? "Authorized corrections keep a permanent audit trail." : "One supplier or driver delivery can contain several material types."}</Text>
           </View>
           <Card>
             <Text style={type.heading}>Purchase date</Text>
@@ -458,11 +525,16 @@ export function RecyclingPurchaseWorkspace({
 
           <Card>
             <Text style={type.heading}>Material</Text>
+            {purchaseLines.map((line, index) => <ListRow key={line.id} icon="cube-outline" title={line.materialType}
+              subtitle={`${line.quantityKg.toLocaleString("en-GB")} kg · ${ugx(line.unitPurchasePriceUgx)}/kg · ${line.quality}`}
+              value={ugx(line.quantityKg * line.unitPurchasePriceUgx)} detail={`Item ${index + 1}`}
+              onPress={() => setPurchaseLines((current) => current.filter((item) => item.id !== line.id))} />)}
             <Chips value={customMaterial ? "" : material} onChange={(value) => { setMaterial(value); setCustomMaterial(""); }}
               options={(workspace?.materials || []).filter((item) => item.active).map((item) => ({ value: item.name, label: item.name }))} />
             <Field label="Not in the list?" hint="Type the material name only if none of the options fit.">
               <Input value={customMaterial} onChangeText={setCustomMaterial} placeholder="Another material" />
             </Field>
+            {!editingLotId ? <Button variant="secondary" icon="add-outline" title={purchaseLines.length ? "Add another material" : "Add this material and continue"} onPress={addCurrentLine} /> : null}
           </Card>
 
           <Card>
@@ -474,6 +546,15 @@ export function RecyclingPurchaseWorkspace({
             {!supplierId ? <Field label="Supplier or collection point">
               <Input value={source} onChangeText={setSource} placeholder="e.g. Nakawa market collectors" />
             </Field> : null}
+            {!editingLotId ? <>
+              <Field label="Delivered or received by" hint="This is the driver or field worker. It is separate from the supplier.">
+                <Chips value={deliveredByUserId} onChange={setDeliveredByUserId}
+                  options={(workspace?.deliveryStaff || []).map((item) => ({ value: item.id, label: item.full_name }))} />
+              </Field>
+              <Field label="Delivery reference" hint="One reference links all materials in this delivery.">
+                <ReferenceInput value={deliveryReference} onChangeText={setDeliveryReference} prefix="DEL" placeholder="e.g. delivery note or weigh ticket" />
+              </Field>
+            </> : null}
             {location
               ? <ListRow icon="location" iconTone="success" title="Collection location added" subtitle={`${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}${location.accuracy ? ` · ±${Math.round(location.accuracy)} m` : ""}`}
                   onPress={() => setLocation(null)} detail="Tap to remove" />
@@ -491,7 +572,7 @@ export function RecyclingPurchaseWorkspace({
             </Field>
           </Card>
 
-          <Card>
+          {!editingLotId ? <Card>
             <Text style={type.heading}>Payment</Text>
             <Segmented value={payment} onChange={setPayment} options={[{ value: "paid", label: "Paid now" }, { value: "credit", label: "On credit" }]} />
             {payment === "paid" ? <Field label="Payment reference"
@@ -508,7 +589,7 @@ export function RecyclingPurchaseWorkspace({
                 </Text>
               </View>
             ) : null}
-          </Card>
+          </Card> : null}
 
           <Card>
             <Text style={type.heading}>Costs of this purchase</Text>
@@ -536,7 +617,8 @@ export function RecyclingPurchaseWorkspace({
             </View>
             {extraCosts > 0 ? <Text style={type.small}>Material {ugx(materialCost)} + costs {ugx(extraCosts)} · {formatDay(recordDate, false)}</Text>
               : <Text style={type.small}>{formatDay(recordDate)}</Text>}
-            <Button title={saving ? "Saving…" : "Save purchase"} icon="checkmark-circle-outline" loading={saving} disabled={closedDays.includes(recordDate)} onPress={() => void savePurchase()} />
+            <Button title={saving ? "Saving…" : editingLotId ? "Save correction" : `Save ${purchaseLines.length + (material || customMaterial || quantity ? 1 : 0)} material ${purchaseLines.length + (material || customMaterial || quantity ? 1 : 0) === 1 ? "line" : "lines"}`} icon="checkmark-circle-outline" loading={saving} disabled={closedDays.includes(recordDate)} onPress={() => void savePurchase()} />
+            {editingLotId ? <Button variant="ghost" title="Cancel correction" onPress={() => { resetPurchaseForm(); setScreen("history"); }} /> : null}
           </Card>
         </> : null}
 
@@ -567,8 +649,10 @@ export function RecyclingPurchaseWorkspace({
             <Button variant="ghost" title="Cancel" onPress={() => setPayingLotId("")} />
           </Card> : null}
           <Input value={query} onChangeText={setQuery} placeholder="Search material, supplier or payment" />
-          {filtered.map((lot) => <PurchaseRow key={lot.id} lot={lot}
-            onPress={canPaySuppliers && owed(lot) && lot.status !== "pending_sync" ? () => startPayment(lot) : undefined} />)}
+          {filtered.map((lot) => <View key={lot.id}>
+            <PurchaseRow lot={lot} onPress={canPaySuppliers && owed(lot) && lot.status !== "pending_sync" ? () => startPayment(lot) : undefined} />
+            {user.roles.includes("recycling_field_manager") && lot.status !== "pending_sync" ? <Button variant="ghost" icon="create-outline" title={`Edit ${lot.material_type}`} onPress={() => startEdit(lot)} /> : null}
+          </View>)}
           {!filtered.length ? <EmptyState icon="search-outline" title={historyFilter === "owed" ? "Nothing owed" : "No matching purchases"}
             text={historyFilter === "owed" ? "Every supplier has been paid in full." : "Try another word, or record a new purchase."} /> : null}
         </> : null}

@@ -49,6 +49,23 @@ docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T database sh -c 
 
 mv "$partial" "$target"
 chmod 600 "$target"
+
+# Keep a checksum beside every dump. The restore rehearsal validates it before
+# creating a disposable database, so silent disk or transfer corruption is
+# caught before a real recovery is needed.
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$(dirname "$target")" && sha256sum "$(basename "$target")" > "$(basename "$target").sha256")
+elif command -v shasum >/dev/null 2>&1; then
+  (cd "$(dirname "$target")" && shasum -a 256 "$(basename "$target")" > "$(basename "$target").sha256")
+else
+  echo "ERROR: sha256sum or shasum is required to protect backups"
+  rm -f "$target"
+  exit 1
+fi
+chmod 600 "$target.sha256"
 echo "Backup written: $target ($(du -h "$target" | cut -f1))"
 
-find "$BACKUP_DIR" -name 'kampala_wms-*.dump' -type f -mtime +"$KEEP_DAYS" -print -delete
+while IFS= read -r expired; do
+  echo "Removing expired backup: $expired"
+  rm -f -- "$expired" "$expired.sha256"
+done < <(find "$BACKUP_DIR" -name 'kampala_wms-*.dump' -type f -mtime +"$KEEP_DAYS" -print)

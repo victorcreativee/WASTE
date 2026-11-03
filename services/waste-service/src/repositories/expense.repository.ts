@@ -1,4 +1,5 @@
 import { dbPool } from '../config/database';
+import { assertRecyclingBusinessDayOpen } from '../services/recycling-business-day';
 export async function findExpenses(organizationId:string|null){
  const rows=await dbPool.query(`SELECT e.*,u.full_name AS created_by_name,a.full_name AS approved_by_name FROM organization_expenses e LEFT JOIN users u ON u.id=e.created_by LEFT JOIN users a ON a.id=e.approved_by WHERE ($1::uuid IS NULL OR e.organization_id=$1::uuid) ORDER BY e.expense_date DESC,e.created_at DESC`,[organizationId]);
  const recycling=await dbPool.query(`
@@ -21,7 +22,7 @@ export async function findExpenses(organizationId:string|null){
    UNION ALL
    SELECT f.id,('REC-FLOAT-'||UPPER(LEFT(f.id::text,8))),'other',COALESCE(f.notes,'Manager float expense'),NULL,
     f.amount_ugx,f.transaction_date,'paid',NULL,'recycling_float',true,f.created_at
-   FROM recycling_manager_float_transactions f WHERE f.transaction_type='spent' AND f.purchase_lot_id IS NULL AND f.sorting_batch_id IS NULL AND f.sale_id IS NULL AND ($1::uuid IS NULL OR f.organization_id=$1::uuid)
+   FROM recycling_manager_float_transactions f WHERE f.transaction_type='spent' AND f.purchase_lot_id IS NULL AND f.sorting_batch_id IS NULL AND f.sale_id IS NULL AND f.expense_batch_reference IS NULL AND ($1::uuid IS NULL OR f.organization_id=$1::uuid)
   ) x ORDER BY expense_date DESC,created_at DESC`,[organizationId]);
  const expenses=[...rows.rows.map(x=>({...x,read_only:false,source_type:x.source_type||'manual'})),...recycling.rows].sort((a,b)=>new Date(b.expense_date).getTime()-new Date(a.expense_date).getTime());
  const recyclingPayments=await dbPool.query(`SELECT COALESCE(SUM(GREATEST(p.paid-l.manager_float_used_ugx,0)),0)::bigint amount FROM recycling_material_lots l JOIN(SELECT lot_id,SUM(amount_ugx) paid FROM recycling_purchase_payments WHERE ($1::uuid IS NULL OR organization_id=$1::uuid) AND paid_on>=date_trunc('month',CURRENT_DATE)::date GROUP BY lot_id)p ON p.lot_id=l.id`,[organizationId]);
@@ -30,14 +31,45 @@ export async function findExpenses(organizationId:string|null){
  const awaitingApproval=expenses.filter(x=>x.status==='draft').length;
  return {summary:{paid_this_month:String(paidThisMonth),awaiting_payment:String(awaitingPayment),awaiting_approval:awaitingApproval},expenses};
 }
-export async function createExpense(organizationId:string,userId:string,data:any){const number=`EXP-${Date.now()}`;const r=await dbPool.query(`INSERT INTO organization_expenses(organization_id,expense_number,category,description,vendor,amount_ugx,expense_date,reference,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,[organizationId,number,data.category,data.description,data.vendor??null,data.amountUgx,data.expenseDate,data.reference??null,userId]);return r.rows[0];}
-export async function updateExpenseStatus(id:string,organizationId:string,userId:string,status:string){const client=await dbPool.connect();try{await client.query('BEGIN');await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`,[`finance:${organizationId}`]);const r=await client.query(`UPDATE organization_expenses SET status=$4,approved_by=CASE WHEN $4='approved' THEN $3::uuid ELSE approved_by END,approved_at=CASE WHEN $4='approved' THEN CURRENT_TIMESTAMP ELSE approved_at END,paid_at=CASE WHEN $4='paid' THEN CURRENT_TIMESTAMP ELSE paid_at END,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid AND organization_id=$2::uuid AND (($4='approved' AND status='draft' AND amount_ugx<=organization_available_to_commit($2::uuid)) OR ($4='paid' AND status='approved' AND amount_ugx<=organization_cash_position($2::uuid)) OR ($4='void' AND status<>'paid')) RETURNING *`,[id,organizationId,userId,status]);await client.query('COMMIT');return r.rows[0]??null;}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}}
+export async function createExpense(organizationId:string,userId:string,data:any){
+ const client=await dbPool.connect(),number=`EXP-${Date.now()}`;
+ try{
+  await client.query('BEGIN');
+  await assertRecyclingBusinessDayOpen(client,organizationId,data.expenseDate,'recording this expense');
+  const r=await client.query(`INSERT INTO organization_expenses(organization_id,expense_number,category,description,vendor,amount_ugx,expense_date,reference,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,[organizationId,number,data.category,data.description,data.vendor??null,data.amountUgx,data.expenseDate,data.reference??null,userId]);
+  await client.query('COMMIT');return r.rows[0];
+ }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+}
+export async function createPaidDailyExpenseBatch(organizationId:string,userId:string,data:any){
+ const client=await dbPool.connect(),batchReference=data.reference||`DAY-${data.expenseDate.replaceAll('-','')}-${Date.now().toString(36).toUpperCase()}`;
+ try{
+  await client.query('BEGIN');
+  await assertRecyclingBusinessDayOpen(client,organizationId,data.expenseDate,'recording these daily expenses');
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`finance:${organizationId}`]);
+  const total=data.lines.reduce((sum:number,line:any)=>sum+line.amountUgx,0);
+  const available=data.fundingSource==='manager_float'
+   ?Number((await client.query(`SELECT COALESCE(SUM(CASE WHEN transaction_type='given' THEN amount_ugx ELSE -amount_ugx END),0)::bigint balance FROM recycling_manager_float_transactions WHERE organization_id=$1::uuid`,[organizationId])).rows[0].balance)
+   :Number((await client.query('SELECT organization_cash_position($1::uuid)::bigint cash',[organizationId])).rows[0].cash);
+  if(total>available)throw Object.assign(new Error(`Daily expenses require UGX ${total.toLocaleString()} but only UGX ${Math.max(available,0).toLocaleString()} is available in ${data.fundingSource==='manager_float'?'manager float':'office cash'}.`),{statusCode:409});
+  const saved=[];
+  for(let index=0;index<data.lines.length;index++){
+   const line=data.lines[index],number=`EXP-${Date.now()}-${index+1}`;
+   const result=await client.query(`INSERT INTO organization_expenses(organization_id,expense_number,category,description,vendor,amount_ugx,expense_date,reference,status,created_by,approved_by,approved_at,paid_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,'paid',$9,$9,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) RETURNING *`,[organizationId,number,line.category,line.description,line.vendor??null,line.amountUgx,data.expenseDate,batchReference,userId]);
+   saved.push(result.rows[0]);
+  }
+  if(data.fundingSource==='manager_float')await client.query(`INSERT INTO recycling_manager_float_transactions(organization_id,transaction_date,transaction_type,amount_ugx,reference,notes,expense_batch_reference,recorded_by)
+   VALUES($1,$2,'spent',$3,$4,$5,$4,$6)`,[organizationId,data.expenseDate,total,batchReference,`Daily operating expenses: ${data.lines.map((line:any)=>line.description).join('; ')}`,userId]);
+  await client.query('COMMIT');return{batchReference,totalUgx:total,expenseDate:data.expenseDate,expenses:saved};
+ }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+}
+export async function updateExpenseStatus(id:string,organizationId:string,userId:string,status:string){const client=await dbPool.connect();try{await client.query('BEGIN');const expense=(await client.query(`SELECT expense_date::text expense_date FROM organization_expenses WHERE id=$1::uuid AND organization_id=$2::uuid FOR UPDATE`,[id,organizationId])).rows[0];if(!expense){await client.query('ROLLBACK');return null}await assertRecyclingBusinessDayOpen(client,organizationId,expense.expense_date,'changing this expense');await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`,[`finance:${organizationId}`]);const r=await client.query(`UPDATE organization_expenses SET status=$4,approved_by=CASE WHEN $4='approved' THEN $3::uuid ELSE approved_by END,approved_at=CASE WHEN $4='approved' THEN CURRENT_TIMESTAMP ELSE approved_at END,paid_at=CASE WHEN $4='paid' THEN CURRENT_TIMESTAMP ELSE paid_at END,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid AND organization_id=$2::uuid AND (($4='approved' AND status='draft' AND amount_ugx<=organization_available_to_commit($2::uuid)) OR ($4='paid' AND status='approved' AND amount_ugx<=organization_cash_position($2::uuid)) OR ($4='void' AND status<>'paid')) RETURNING *`,[id,organizationId,userId,status]);await client.query('COMMIT');return r.rows[0]??null;}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}}
 export async function findFinancialPosition(organizationId:string){const r=await dbPool.query(`WITH settings AS (SELECT COALESCE((SELECT opening_balance_ugx FROM organization_finance_settings WHERE organization_id=$1::uuid),0)::bigint opening_balance_ugx,COALESCE((SELECT as_of_date FROM organization_finance_settings WHERE organization_id=$1::uuid),DATE '1970-01-01')::date as_of_date,EXISTS(SELECT 1 FROM organization_finance_settings WHERE organization_id=$1::uuid) AS opening_balance_configured), totals AS (SELECT s.*,
  COALESCE((SELECT SUM(amount_ugx) FROM customer_payments WHERE organization_id=$1::uuid AND status='successful' AND COALESCE(confirmed_at,created_at)::date>=s.as_of_date),0)::bigint service_receipts_ugx,
  COALESCE((SELECT SUM(amount_ugx) FROM recycling_sale_payments WHERE organization_id=$1::uuid AND paid_on>=s.as_of_date),0)::bigint recycling_receipts_ugx,
  COALESCE((SELECT SUM(amount_ugx) FROM organization_expenses WHERE organization_id=$1::uuid AND status='paid' AND COALESCE(paid_at::date,expense_date)>=s.as_of_date),0)::bigint standard_operating_payments_ugx,
  COALESCE((SELECT SUM(GREATEST(p.paid-l.manager_float_used_ugx,0)) FROM recycling_material_lots l JOIN(SELECT lot_id,SUM(amount_ugx) paid FROM recycling_purchase_payments WHERE organization_id=$1::uuid AND paid_on>=s.as_of_date GROUP BY lot_id)p ON p.lot_id=l.id),0)::bigint recycling_purchase_payments_ugx,
- COALESCE((SELECT SUM(amount_ugx) FROM recycling_manager_float_transactions WHERE organization_id=$1::uuid AND transaction_type='spent' AND transaction_date>=s.as_of_date),0)::bigint recycling_float_spent_ugx,
+ COALESCE((SELECT SUM(amount_ugx) FROM recycling_manager_float_transactions WHERE organization_id=$1::uuid AND transaction_type='spent' AND transaction_date>=s.as_of_date AND expense_batch_reference IS NULL),0)::bigint recycling_float_spent_ugx,
  COALESCE((SELECT SUM(processing_cost_ugx-manager_float_used_ugx) FROM recycling_sorting_batches WHERE organization_id=$1::uuid AND processed_on>=s.as_of_date),0)::bigint recycling_processing_payments_ugx,
  COALESCE((SELECT SUM(worker_wages_ugx+food_ugx+transport_ugx+other_expense_ugx-manager_float_used_ugx) FROM recycling_material_sales WHERE organization_id=$1::uuid AND sold_on>=s.as_of_date),0)::bigint recycling_sale_cost_payments_ugx,
  COALESCE((SELECT SUM(amount_ugx) FROM supplier_payments WHERE organization_id=$1::uuid AND paid_on>=s.as_of_date),0)::bigint supplier_payments_ugx,
@@ -57,8 +89,10 @@ export async function findFinancialPosition(organizationId:string){const r=await
  OR EXISTS(SELECT 1 FROM supplier_payments WHERE organization_id=$1::uuid)
  OR EXISTS(SELECT 1 FROM recycling_sale_payments WHERE organization_id=$1::uuid)
  OR EXISTS(SELECT 1 FROM recycling_purchase_payments WHERE organization_id=$1::uuid)
+ OR EXISTS(SELECT 1 FROM recycling_cash_movements WHERE organization_id=$1::uuid)
  OR EXISTS(SELECT 1 FROM recycling_sorting_batches WHERE organization_id=$1::uuid AND processing_cost_ugx>0)
- OR EXISTS(SELECT 1 FROM recycling_manager_float_transactions WHERE organization_id=$1::uuid AND transaction_type='spent'))) AS opening_balance_locked,
+ OR EXISTS(SELECT 1 FROM recycling_material_sales WHERE organization_id=$1::uuid AND worker_wages_ugx+food_ugx+transport_ugx+other_expense_ugx>0)
+ OR EXISTS(SELECT 1 FROM recycling_manager_float_transactions WHERE organization_id=$1::uuid))) AS opening_balance_locked,
  COALESCE((SELECT jsonb_agg(h ORDER BY h.changed_at DESC) FROM
    (SELECT opening_balance_ugx,as_of_date,previous_balance_ugx,previous_as_of_date,action,changed_at FROM organization_finance_setting_history WHERE organization_id=$1::uuid ORDER BY changed_at DESC LIMIT 20) h),'[]'::jsonb) AS opening_balance_history,
  organization_cash_position($1::uuid)::bigint cash_position_ugx,organization_committed_funds($1::uuid)::bigint committed_funds_ugx,organization_available_to_commit($1::uuid)::bigint available_to_commit_ugx FROM combined`,[organizationId]);return r.rows[0];}
@@ -75,8 +109,10 @@ export async function setOpeningBalance(organizationId:string,userId:string,inpu
       UNION ALL SELECT paid_on FROM supplier_payments WHERE organization_id=$1::uuid
       UNION ALL SELECT paid_on FROM recycling_sale_payments WHERE organization_id=$1::uuid
       UNION ALL SELECT paid_on FROM recycling_purchase_payments WHERE organization_id=$1::uuid
+      UNION ALL SELECT movement_date FROM recycling_cash_movements WHERE organization_id=$1::uuid
       UNION ALL SELECT processed_on FROM recycling_sorting_batches WHERE organization_id=$1::uuid AND processing_cost_ugx>0
-      UNION ALL SELECT transaction_date FROM recycling_manager_float_transactions WHERE organization_id=$1::uuid AND transaction_type='spent'
+      UNION ALL SELECT sold_on FROM recycling_material_sales WHERE organization_id=$1::uuid AND worker_wages_ugx+food_ugx+transport_ugx+other_expense_ugx>0
+      UNION ALL SELECT transaction_date FROM recycling_manager_float_transactions WHERE organization_id=$1::uuid
     ) cash_dates`,[organizationId]);
   const existing=await client.query('SELECT *,as_of_date::text opening_date FROM organization_finance_settings WHERE organization_id=$1::uuid FOR UPDATE',[organizationId]);
   const previous=existing.rows[0],{today,first_cash_date}=dates.rows[0];
@@ -86,8 +122,8 @@ export async function setOpeningBalance(organizationId:string,userId:string,inpu
   if(previous&&previous.opening_date===input.asOfDate&&BigInt(previous.opening_balance_ugx)===BigInt(input.openingBalanceUgx)){
     await client.query('COMMIT');return previous;
   }
-  if(previous&&first_cash_date) throw conflict('Opening balance is locked because receipts or payments have been recorded. Use a reviewed accounting adjustment, not a replacement opening balance.');
-  if(first_cash_date&&input.asOfDate>first_cash_date) throw conflict('The opening date cannot exclude existing receipts or payments. Choose a date on or before '+first_cash_date+'.');
+  if(previous&&first_cash_date) throw conflict('Opening balance is locked because financial activity has been recorded. Use a reviewed accounting adjustment, not a replacement opening balance.');
+  if(first_cash_date&&input.asOfDate>first_cash_date) throw conflict('The opening date cannot exclude existing financial activity. Choose a date on or before '+first_cash_date+'.');
   const result=await client.query(`INSERT INTO organization_finance_settings(organization_id,opening_balance_ugx,as_of_date,updated_by)
     VALUES($1,$2,$3,$4) ON CONFLICT(organization_id) DO UPDATE SET opening_balance_ugx=EXCLUDED.opening_balance_ugx,
     as_of_date=EXCLUDED.as_of_date,updated_by=EXCLUDED.updated_by,updated_at=CURRENT_TIMESTAMP RETURNING *`,

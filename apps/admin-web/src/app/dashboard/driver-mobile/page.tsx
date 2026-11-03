@@ -6,6 +6,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { apiRequest, queueDesktopOperation } from "@/lib/api";
 import { OrganizationWorkspaceNav } from "@/components/layout/OrganizationWorkspaceNav";
 import {PageHeader} from "@/components/ui/System";
+import {LocationConsent} from "@/components/privacy/LocationConsent";
 
 type Driver = {
   id: string;
@@ -145,6 +146,7 @@ export default function DriverMobilePage() {
   const [skipReason, setSkipReason] = useState("blocked_access");
   const [skipNotes, setSkipNotes] = useState("");
   const [locationSharing,setLocationSharing]=useState<"off"|"sharing"|"blocked">("off");
+  const [gpsConsent,setGpsConsent]=useState(false);
   const lastLocationSent=useRef(0);
   const tripDetailsRef=useRef<HTMLElement|null>(null);
 
@@ -291,7 +293,7 @@ export default function DriverMobilePage() {
   }
 
   useEffect(()=>{
-    if(!isDriverAccount||!(selectedRoute?.status==="in_progress"||selectedRoute?.disposal_leg_open)||!navigator.geolocation)return;
+    if(!isDriverAccount||!gpsConsent||!(selectedRoute?.status==="in_progress"||selectedRoute?.disposal_leg_open)||!navigator.geolocation)return;
     const watch=navigator.geolocation.watchPosition(position=>{
       setLocationSharing("sharing");
       if(Date.now()-lastLocationSent.current<15000)return;
@@ -299,7 +301,7 @@ export default function DriverMobilePage() {
       void apiRequest("/api/waste/fleet/live/location",{method:"POST",body:JSON.stringify({routeId:selectedRoute.id,latitude:position.coords.latitude,longitude:position.coords.longitude,accuracyM:position.coords.accuracy,speedKph:position.coords.speed===null?undefined:position.coords.speed*3.6,headingDegrees:position.coords.heading??undefined,recordedAt:new Date(position.timestamp).toISOString()})}).catch(()=>setLocationSharing("blocked"));
     },()=>setLocationSharing("blocked"),{enableHighAccuracy:true,maximumAge:10000,timeout:20000});
     return()=>navigator.geolocation.clearWatch(watch);
-  },[isDriverAccount,selectedRoute?.id,selectedRoute?.status,selectedRoute?.disposal_leg_open]);
+  },[isDriverAccount,gpsConsent,selectedRoute?.id,selectedRoute?.status,selectedRoute?.disposal_leg_open]);
 
   async function arriveAtStop(stopId: string) {
     try {
@@ -469,6 +471,7 @@ export default function DriverMobilePage() {
         )}
         {syncNotice&&<div className="mt-6 flex items-start justify-between gap-4 border-l-4 border-amber-500 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-900"><span>{syncNotice}</span><button type="button" onClick={()=>setSyncNotice("")} className="shrink-0">Dismiss</button></div>}
 
+        {isDriverAccount&&<LocationConsent onChange={setGpsConsent}/>}
         {isDriverAccount&&driverDashboard&&<DriverOverview data={driverDashboard}/>}
 
         {!isDriverAccount&&<ManagementTrips trips={managementTrips} drivers={drivers} onOpen={loadRouteDetails}/>}
@@ -480,7 +483,7 @@ export default function DriverMobilePage() {
           </div>
           {!selectedRoute ? <div className="px-5 py-12 text-center"><p className="font-semibold text-slate-900">No route assigned today</p><p className="mt-2 text-sm text-slate-500">Your next dispatched route will appear here automatically.</p></div> : <div className="p-4 sm:p-5">
             <div className="flex flex-wrap items-start justify-between gap-5">
-              <div><div className="flex flex-wrap items-center gap-3"><h3 className="text-2xl font-semibold">{selectedRoute.name}</h3><StatusText value={selectedRoute.status}/></div><p className="mt-2 text-sm text-slate-500">{formatJobDate(selectedRoute.route_date)} · Truck {selectedRoute.plate_number || "not assigned"}{selectedRoute.total_distance_km ? ` · ${selectedRoute.total_distance_km} km` : ""}{selectedRoute.estimated_duration_minutes ? ` · ${selectedRoute.estimated_duration_minutes} min` : ""}</p>{isDriverAccount&&selectedRoute.status==="in_progress"&&<p className={`mt-2 text-xs font-semibold ${locationSharing==="sharing"?"text-[var(--color-action)]":locationSharing==="blocked"?"text-red-700":"text-slate-500"}`}>{locationSharing==="sharing"?"Live location is being shared with dispatch":locationSharing==="blocked"?"Location is not sharing. Allow location access so dispatch can support you.":"Connecting live location…"}</p>}</div>
+              <div><div className="flex flex-wrap items-center gap-3"><h3 className="text-2xl font-semibold">{selectedRoute.name}</h3><StatusText value={selectedRoute.status}/></div><p className="mt-2 text-sm text-slate-500">{formatJobDate(selectedRoute.route_date)} · Truck {selectedRoute.plate_number || "not assigned"}{selectedRoute.total_distance_km ? ` · ${selectedRoute.total_distance_km} km` : ""}{selectedRoute.estimated_duration_minutes ? ` · ${selectedRoute.estimated_duration_minutes} min` : ""}</p>{isDriverAccount&&selectedRoute.status==="in_progress"&&<p className={`mt-2 text-xs font-semibold ${!gpsConsent?"text-slate-500":locationSharing==="sharing"?"text-[var(--color-action)]":locationSharing==="blocked"?"text-red-700":"text-slate-500"}`}>{!gpsConsent?"Location sharing is off: you have not agreed to the location notice":locationSharing==="sharing"?"Live location is being shared with dispatch":locationSharing==="blocked"?"Location is not sharing. Allow location access so dispatch can support you.":"Connecting live location…"}</p>}</div>
             </div>
             <div className="mt-5 grid border-y border-slate-200 text-sm sm:grid-cols-3"><div className="py-3 sm:border-r sm:pr-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Customers</p><p className="mt-1 text-xl font-semibold">{routeCustomers.length}</p></div><div className="border-t py-3 sm:border-r sm:border-t-0 sm:px-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Collected</p><p className="mt-1 text-xl font-semibold">{collectedCustomers}</p></div><div className="border-t py-3 sm:border-t-0 sm:pl-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Remaining</p><p className="mt-1 text-xl font-semibold">{Math.max(routeCustomers.length-resolvedCustomers,0)}</p></div></div>
             <div className="mt-5 h-1 overflow-hidden bg-slate-200"><div className="h-full bg-[var(--color-action)]" style={{width:`${routeProgress}%`}} /></div>

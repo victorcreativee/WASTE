@@ -5,6 +5,7 @@ import {
   createFirstSystemAdmin,
   systemBootstrapStatus,
 } from "../repositories/system-bootstrap.repository";
+import {issueEmailVerification} from "../services/email-verification.service";
 
 const router = Router();
 
@@ -79,11 +80,12 @@ router.post(
       const input = schema.parse(req.body);
 
       const user = await createFirstSystemAdmin(input);
+      const verification=await issueEmailVerification(user.id);
 
       return res.status(201).json({
         success: true,
-        message: "System Administrator created successfully",
-        data: user,
+        message: verification.sent ? "System Administrator created. Verify the email before signing in." : "System Administrator created, but the verification email could not be delivered. Configure email delivery and request a new verification email.",
+        data: {...user,verificationRequired:true,verificationEmailSent:verification.sent},
       });
     } catch (error) {
       next(error);

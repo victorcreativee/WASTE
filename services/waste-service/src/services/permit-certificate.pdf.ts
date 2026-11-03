@@ -17,7 +17,7 @@ type CertificatePermit = {
 const PAGE_W = 595;
 const MARGIN = 56;
 
-function ascii(value: unknown) {
+export function ascii(value: unknown) {
   return String(value ?? "").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, "-")
     .replace(/[^\x20-\x7E]/g, " ").replace(/[()\\]/g, c => `\\${c}`);
 }
@@ -101,7 +101,11 @@ export function renderPermitCertificate(permit: CertificatePermit): Buffer {
     text(tx, y0 + box - 111, 8, "permit is reported as such even on an older printed copy.", false, 0.45);
   }
 
-  const stream = ops.join("\n");
+  return assemblePdf(ops.join("\n"));
+}
+
+/** A single A4 page with Helvetica (F1) and Helvetica-Bold (F2) around one content stream. */
+export function assemblePdf(stream: string): Buffer {
   const objects = [
     "",
     "<< /Type /Catalog /Pages 2 0 R >>",

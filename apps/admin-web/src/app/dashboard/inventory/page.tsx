@@ -9,6 +9,7 @@ import {
   Status,
 } from "@/components/ui/System";
 import { apiRequest } from "@/lib/api";
+import { Pager, usePagination } from "@/components/ui/Pagination";
 type Item = {
   id: string;
   sku: string;
@@ -143,6 +144,7 @@ export default function InventoryPage() {
         "Purchase request created.",
       );
   }
+  const itemsPage = usePagination(items), movementsPage = usePagination(data.movements), requestsPage = usePagination(data.requests);
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl">
@@ -340,7 +342,7 @@ export default function InventoryPage() {
             </div>
             <div className="table-wrap">
               {items.length ? (
-                <table className="min-w-[820px] text-left">
+                <><table className="min-w-[820px] text-left">
                   <thead>
                     <tr>
                       <th>Item</th>
@@ -353,7 +355,7 @@ export default function InventoryPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((i) => (
+                    {itemsPage.paged.map((i) => (
                       <tr key={i.id}>
                         <td>
                           <p className="table-primary">{i.name}</p>
@@ -376,7 +378,7 @@ export default function InventoryPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table><Pager of={itemsPage}/></>
               ) : (
                 <EmptyState
                   title="No inventory items"
@@ -389,7 +391,7 @@ export default function InventoryPage() {
         {tab === "movements" && (
           <section className="mt-6">
             {data.movements.length ? (
-              <table className="w-full text-left text-sm">
+              <><table className="w-full text-left text-sm">
                 <thead className="border-y">
                   <tr>
                     <th className="p-3">Date</th>
@@ -401,7 +403,7 @@ export default function InventoryPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {data.movements.map((m) => (
+                  {movementsPage.paged.map((m) => (
                     <tr key={m.id}>
                       <td className="p-3">
                         {new Date(m.created_at).toLocaleDateString("en-GB")}
@@ -416,7 +418,7 @@ export default function InventoryPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table><Pager of={movementsPage}/></>
             ) : (
               <EmptyState
                 title="No stock movements"
@@ -441,7 +443,7 @@ export default function InventoryPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.requests.map((r) => (
+                    {requestsPage.paged.map((r) => (
                       <tr key={r.id}>
                         <td>
                           <p className="table-primary">{r.item_name}</p>
@@ -475,7 +477,7 @@ export default function InventoryPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table><Pager of={requestsPage}/>
               </div>
             ) : (
               <EmptyState

@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'crypto';
 import bcrypt from 'bcrypt';
 import { dbPool } from '../config/database';
 import type { PoolClient } from 'pg';
+import {issueEmailVerification} from '../services/email-verification.service';
 
 const failure=(message:string,statusCode=409)=>Object.assign(new Error(message),{statusCode});
 const digest=(token:string)=>createHash('sha256').update(token).digest('hex');
@@ -82,6 +83,6 @@ export async function acceptAdminInvitation(token:string,email:string,fullName:s
   await client.query('INSERT INTO user_roles(user_id,role_id) VALUES($1::uuid,$2::uuid)',[id,adminRole.rows[0].id]);
   await client.query('UPDATE organization_admin_invitations SET accepted_at=CURRENT_TIMESTAMP,accepted_user_id=$2::uuid WHERE id=$1::uuid',[invitation.id,id]);
   await audit(client,org,id,'invitation_accepted',invitation.id,{user_id:id});
-  await client.query('COMMIT');return {message:'Administrator account created. Sign in with your email and password.'};
+  await client.query('COMMIT');const verification=await issueEmailVerification(id);return {message:verification.sent?'Administrator account created. Verify the email before signing in.':'Administrator account created, but its verification email could not be delivered. Ask the System Admin to check email delivery settings.',data:{verificationRequired:true,verificationEmailSent:verification.sent,email:email.toLowerCase()}};
  }catch(error){await client.query('ROLLBACK');if((error as {code?:string}).code==='23505')throw unavailable();throw error;}finally{client.release();}
 }

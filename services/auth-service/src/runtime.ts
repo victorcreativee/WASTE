@@ -1,6 +1,8 @@
 import type { Server } from "node:http";
 import type { NextFunction, Request, Response } from "express";
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
+import type { Pool, PoolClient } from "pg";
 import type { CorsOptions } from "cors";
 import { ZodError } from "zod";
 
@@ -172,8 +174,51 @@ export function requestContext(serviceName: string) {
         }));
       });
     }
-    next();
+    // Set up after body parsing, which would otherwise drop the async context.
+    requestStore.run(req, next);
   };
+}
+
+// ---------- Database row security and audit context (migration 113) ----------
+
+type ContextRequest = Request & { requestId?: string; auth?: { userId?: string }; user?: { userId?: string }; apiKey?: { id: string } };
+const requestStore = new AsyncLocalStorage<Request>();
+
+/** What PostgreSQL is told about the current request: user, IP, request id, path and API key. Background work has none. */
+export function databaseContextValues(req: ContextRequest | undefined) {
+  if (!req) return [null, null, null, null, null];
+  return [req.auth?.userId ?? req.user?.userId ?? null, req.ip ?? null, req.requestId ?? "request",
+    `${req.method} ${req.originalUrl.split("?")[0]}`, req.apiKey?.id ?? null];
+}
+
+/**
+ * Every connection switches to the restricted role (DB_APP_ROLE, default kwms_app) and is told who the current
+ * request is for before it is used, so row-level security and the audit log apply to all queries. DB_APP_ROLE=""
+ * turns enforcement off (an emergency switch); the audit context is still sent.
+ */
+export function enforceRowSecurity(pool: Pool, role = process.env.DB_APP_ROLE ?? "kwms_app") {
+  if (role && !/^[a-z_][a-z0-9_]*$/.test(role)) throw new Error("DB_APP_ROLE must be a plain role name");
+  const baseConnect = pool.connect.bind(pool) as () => Promise<PoolClient>;
+  const sent = new WeakMap<PoolClient, string>();
+  async function prepare(client: PoolClient) {
+    const values = databaseContextValues(requestStore.getStore() as ContextRequest | undefined);
+    const key = JSON.stringify(values);
+    const previous = sent.get(client);
+    if (previous === key) return;
+    if (previous === undefined && role) await client.query(`SET ROLE ${role}`);
+    await client.query("SELECT kwms_set_request_context($1::uuid,$2,$3,$4,$5::uuid)", values);
+    sent.set(client, key);
+  }
+  type Done = (error?: Error | boolean) => void;
+  const connect = (callback?: (error: Error | undefined, client?: PoolClient, done?: Done) => void) => {
+    const ready = baseConnect().then(async client => {
+      try { await prepare(client); return client; } catch (error) { client.release(error as Error); throw error; }
+    });
+    if (!callback) return ready;
+    ready.then(client => callback(undefined, client, client.release), error => callback(error as Error));
+  };
+  (pool as unknown as { connect: typeof connect }).connect = connect;
+  return pool;
 }
 
 export function requestIdOf(req: Request) {

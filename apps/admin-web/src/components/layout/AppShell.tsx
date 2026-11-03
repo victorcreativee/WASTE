@@ -15,11 +15,20 @@ const cityNav:NavItem[] = [
   {group:"Overview",label:"Live command centre",href:"/dashboard/command-center"},
   {group:"Regulation",label:"Permits & renewals",href:"/dashboard/permits"},
   {group:"Regulation",label:"Monthly returns",href:"/dashboard/returns-register"},
+  {group:"Regulation",label:"Collection receipts",href:"/dashboard/receipt-audit"},
+  {group:"Regulation",label:"Collection tariffs",href:"/dashboard/tariffs"},
+  {group:"Regulation",label:"Audit log",href:"/dashboard/audit-log"},
+  {group:"Regulation",label:"GPS data protection",href:"/dashboard/gps-privacy"},
+  {group:"Regulation",label:"API keys",href:"/dashboard/api-keys"},
   {group:"Regulation",label:"Penalties",href:"/dashboard/penalties"},
   {group:"City oversight",label:"Licensed operators",href:"/dashboard/organizations"},
   {group:"City oversight",label:"Live operations",href:"/dashboard/waste"},
   {group:"City oversight",label:"Weighbridge operations",href:"/dashboard/weighbridge"},
   {group:"City oversight",label:"Disposal verification",href:"/dashboard/disposal-oversight"},
+  {group:"City oversight",label:"Constituencies",href:"/dashboard/constituencies"},
+  {group:"City oversight",label:"Waste point registry",href:"/dashboard/registry"},
+  {group:"City oversight",label:"GPS data completeness",href:"/dashboard/fleet-quality"},
+  {group:"City oversight",label:"Landfill and carbon",href:"/dashboard/landfill"},
   {group:"City oversight",label:"GPS track checks",href:"/dashboard/track-checks"},
   {group:"City oversight",label:"Illegal dumping",href:"/dashboard/dumping"},
   {group:"City oversight",label:"Recycling oversight",href:"/dashboard/recycling-oversight"},
@@ -29,20 +38,25 @@ const cityNav:NavItem[] = [
   {group:"City oversight",label:"Collector performance",href:"/dashboard/city-reports"},
   {group:"City oversight",label:"Compliance cases",href:"/dashboard/compliance"},
 ];
-const systemNav:NavItem[]=[{group:"Platform",label:"Platform overview",href:"/dashboard"},{group:"Platform",label:"Company applications",href:"/dashboard/account-applications"},{group:"Platform",label:"Account verification",href:"/dashboard/account-verification"},{group:"Platform",label:"Platform packages",href:"/dashboard/platform-packages"},{group:"Platform",label:"Platform users",href:"/dashboard/platform-users"},{group:"Platform",label:"Weighbridge workers",href:"/dashboard/weighbridge-workers"},{group:"Platform",label:"Organizations",href:"/dashboard/organizations"},{group:"Platform",label:"Subscriptions",href:"/dashboard/subscriptions"},{group:"Reference",label:"Recycling oversight",href:"/dashboard/recycling-oversight"},{group:"Reference",label:"Disposal verification",href:"/dashboard/disposal-oversight"},{group:"Reference",label:"Illegal dumping",href:"/dashboard/dumping"},{group:"Reference",label:"Penalties",href:"/dashboard/penalties"},{group:"Reference",label:"City reports",href:"/dashboard/city-report"},{group:"Reference",label:"KCCA permit register",href:"/dashboard/permits"},{group:"Reference",label:"Collector performance",href:"/dashboard/city-reports"}];
+const systemNav:NavItem[]=[{group:"Platform",label:"Platform overview",href:"/dashboard"},{group:"Platform",label:"Company applications",href:"/dashboard/account-applications"},{group:"Platform",label:"Account verification",href:"/dashboard/account-verification"},{group:"Platform",label:"Platform packages",href:"/dashboard/platform-packages"},{group:"Platform",label:"Platform users",href:"/dashboard/platform-users"},{group:"Platform",label:"Weighbridge workers",href:"/dashboard/weighbridge-workers"},{group:"Platform",label:"Organizations",href:"/dashboard/organizations"},{group:"Platform",label:"Subscriptions",href:"/dashboard/subscriptions"},{group:"Reference",label:"Recycling oversight",href:"/dashboard/recycling-oversight"},{group:"Reference",label:"Disposal verification",href:"/dashboard/disposal-oversight"},{group:"Reference",label:"Constituencies",href:"/dashboard/constituencies"},{group:"Reference",label:"Waste point registry",href:"/dashboard/registry"},{group:"Reference",label:"GPS data completeness",href:"/dashboard/fleet-quality"},{group:"Reference",label:"Landfill and carbon",href:"/dashboard/landfill"},{group:"Reference",label:"Collection receipts",href:"/dashboard/receipt-audit"},{group:"Reference",label:"Collection tariffs",href:"/dashboard/tariffs"},{group:"Reference",label:"Audit log",href:"/dashboard/audit-log"},{group:"Reference",label:"GPS data protection",href:"/dashboard/gps-privacy"},{group:"Reference",label:"API keys",href:"/dashboard/api-keys"},{group:"Reference",label:"Illegal dumping",href:"/dashboard/dumping"},{group:"Reference",label:"Penalties",href:"/dashboard/penalties"},{group:"Reference",label:"City reports",href:"/dashboard/city-report"},{group:"Reference",label:"KCCA permit register",href:"/dashboard/permits"},{group:"Reference",label:"Collector performance",href:"/dashboard/city-reports"}];
 type NavItem={label:string;href:string;group?:string;packageFeature?:string};
 const companyNav:NavItem[] = [
   {group:"Overview",label:"Organization overview",href:"/dashboard/company"},
   {group:"Service delivery",label:"Today’s operations",href:"/dashboard/waste",packageFeature:"core_operations"},
   {group:"Service delivery",label:"Service areas & routes",href:"/dashboard/service-areas",packageFeature:"service_areas"},
   {group:"Service delivery",label:"Fleet control",href:"/dashboard/fleet",packageFeature:"fleet"},
+  {group:"Service delivery",label:"GPS and driver records",href:"/dashboard/fleet-quality",packageFeature:"fleet"},
+  {group:"Service delivery",label:"GPS trackers",href:"/dashboard/trackers",packageFeature:"fleet"},
   {group:"Service delivery",label:"Trips & drivers",href:"/dashboard/driver-mobile",packageFeature:"core_operations"},
   {group:"Service delivery",label:"Daily tonnage",href:"/dashboard/tonnage",packageFeature:"tonnage"},
   {group:"Service delivery",label:"Service issues",href:"/dashboard/citizen-issues",packageFeature:"service_issues"},
   {group:"People & customers",label:"Customer management",href:"/dashboard/customer-service",packageFeature:"customers"},
+  {group:"People & customers",label:"Waste point registry",href:"/dashboard/registry"},
   {group:"People & customers",label:"Staff management",href:"/dashboard/team",packageFeature:"core_operations"},
   {group:"Commercial",label:"Contracts & service levels",href:"/dashboard/contracts",packageFeature:"contracts"},
   {group:"Commercial",label:"Income & billing",href:"/dashboard/billing",packageFeature:"billing"},
+  {group:"Commercial",label:"Arrears",href:"/dashboard/arrears",packageFeature:"billing"},
+  {group:"Commercial",label:"Mobile money",href:"/dashboard/mobile-money",packageFeature:"billing"},
   {group:"Finance",label:"Payroll",href:"/dashboard/payroll",packageFeature:"finance"},
   {group:"Finance",label:"Accounts payable",href:"/dashboard/accounts-payable",packageFeature:"finance"},
   {group:"Supply",label:"Inventory",href:"/dashboard/inventory",packageFeature:"inventory"},
@@ -53,9 +67,14 @@ const companyNav:NavItem[] = [
   {group:"KCCA regulation",label:"Compliance cases",href:"/dashboard/compliance"},
   {group:"KCCA regulation",label:"Monthly returns",href:"/dashboard/returns"},
   {group:"KCCA regulation",label:"Disposal records",href:"/dashboard/disposal"},
+  {group:"KCCA regulation",label:"Landfill and carbon",href:"/dashboard/landfill"},
+  {group:"KCCA regulation",label:"Collection receipts",href:"/dashboard/receipts"},
   {group:"KCCA regulation",label:"Dumping cleanups",href:"/dashboard/cleanup-orders"},
   {group:"KCCA regulation",label:"Penalty notices",href:"/dashboard/penalty-notices"},
   {group:"Administration",label:"Access & permissions",href:"/dashboard/access",packageFeature:"access"},
+  {group:"Administration",label:"Audit log",href:"/dashboard/audit-log"},
+  {group:"Administration",label:"GPS data protection",href:"/dashboard/gps-privacy"},
+  {group:"Administration",label:"API keys",href:"/dashboard/api-keys"},
   {group:"Administration",label:"Subscription",href:"/dashboard/subscription"},
   {group:"Administration",label:"Company settings",href:"/dashboard/company-settings"},
 ];
@@ -64,10 +83,13 @@ const supervisorNav:NavItem[] = [
   {group:"Operations",label:"Daily operations",href:"/dashboard/waste"},
   {group:"Operations",label:"Service areas",href:"/dashboard/service-areas"},
   {group:"Operations",label:"Fleet control",href:"/dashboard/fleet"},
+  {group:"Operations",label:"GPS and driver records",href:"/dashboard/fleet-quality"},
+  {group:"Operations",label:"GPS trackers",href:"/dashboard/trackers"},
   {group:"Operations",label:"Trip monitoring",href:"/dashboard/driver-mobile"},
   {group:"Operations",label:"Daily tonnage",href:"/dashboard/tonnage"},
   {group:"Operations",label:"Service issues",href:"/dashboard/citizen-issues"},
   {group:"Customers",label:"Customer management",href:"/dashboard/customer-service"},
+  {group:"Customers",label:"Waste point registry",href:"/dashboard/registry"},
   {group:"People",label:"Staff management",href:"/dashboard/team"},
   {group:"Customers",label:"Billing monitor",href:"/dashboard/billing"},
   {group:"Resources",label:"Inventory",href:"/dashboard/inventory"},
@@ -76,6 +98,8 @@ const supervisorNav:NavItem[] = [
   {group:"KCCA regulation",label:"Permit",href:"/dashboard/permit"},
   {group:"KCCA regulation",label:"Monthly returns",href:"/dashboard/returns"},
   {group:"KCCA regulation",label:"Disposal records",href:"/dashboard/disposal"},
+  {group:"KCCA regulation",label:"Landfill and carbon",href:"/dashboard/landfill"},
+  {group:"KCCA regulation",label:"Collection receipts",href:"/dashboard/receipts"},
   {group:"KCCA regulation",label:"Dumping cleanups",href:"/dashboard/cleanup-orders"},
 ];
 const recyclingCompanyNav:NavItem[]=[
@@ -86,7 +110,7 @@ const recyclingCompanyNav:NavItem[]=[
   {group:"Finance",label:"Accounts payable",href:"/dashboard/accounts-payable"},
   {group:"Supply",label:"Inventory",href:"/dashboard/inventory"},
   {group:"Supply",label:"Procurement",href:"/dashboard/procurement"},
-  {group:"Insights",label:"Reports",href:"/dashboard/reports"},
+  {group:"Insights",label:"Reports",href:"/dashboard/recycling-reports"},
   {group:"KCCA regulation",label:"Regulatory overview",href:"/dashboard/regulatory"},
   {group:"KCCA regulation",label:"Permit",href:"/dashboard/permit"},
   {group:"KCCA regulation",label:"Compliance cases",href:"/dashboard/compliance"},
@@ -115,7 +139,7 @@ const customerNav:NavItem[] = [
   {group:"Support",label:"Requests & issues",href:"/dashboard/citizen-issues"},
 ];
 const driverNav:NavItem[] = [{group:"Today",label:"My route & jobs",href:"/dashboard/driver-mobile"}];
-const weighbridgeNav:NavItem[] = [{group:"Facility operations",label:"Record vehicle",href:"/dashboard/weighbridge/operations"},{group:"Facility operations",label:"Transaction records",href:"/dashboard/weighbridge"}];
+const weighbridgeNav:NavItem[] = [{group:"Facility operations",label:"Record vehicle",href:"/dashboard/weighbridge/operations"},{group:"Facility operations",label:"Transaction records",href:"/dashboard/weighbridge"},{group:"Facility operations",label:"Load composition",href:"/dashboard/landfill"}];
 const recyclingCollectorNav:NavItem[] = [
   {group:"Daily work",label:"Materials & local sales",href:"/dashboard/recycling"},
 ];
@@ -124,6 +148,12 @@ const recyclingFieldManagerNav:NavItem[] = [
   {group:"Field operations",label:"Recycling operations",href:"/dashboard/recycling"},
   {group:"Field operations",label:"Team & attendance",href:"/dashboard/team"},
   {group:"Insights",label:"Operational reports",href:"/dashboard/recycling-reports"},
+];
+const companyOwnerNav:NavItem[] = [
+  {group:"Company insight",label:"Company overview & reports",href:"/dashboard/recycling-reports"},
+];
+const companyInvestorNav:NavItem[] = [
+  {group:"Investor access",label:"Business overview & reports",href:"/dashboard/recycling-reports"},
 ];
 
 type CurrentUser = {
@@ -162,7 +192,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [packageAccess,setPackageAccess]=useState<{organization_type:string;package_name:string;feature_codes:string[]}|null>(null);
   useEffect(()=>{
     let cancelled=false;
-    if(!currentUser?.roles?.some(r=>["company_admin","supervisor","driver","iot_operator","recycling_collector","recycling_sales","recycling_field_manager"].includes(r)))return;
+    if(!currentUser?.roles?.some(r=>["company_admin","company_owner","company_investor","supervisor","driver","iot_operator","recycling_collector","recycling_sales","recycling_field_manager"].includes(r)))return;
     apiRequest<{data:{permissions:string[]}}>("/api/auth/organization-access/me").then(result=>{
       if(!cancelled)setAccessUser({user:storedUser,permissions:result.data.permissions});
     }).catch(()=>{if(!cancelled)setAccessUser(null);});
@@ -178,6 +208,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     : currentUser?.roles?.includes("recycling_collector") ? recyclingCollectorNav
     : currentUser?.roles?.includes("recycling_sales") ? recyclingSalesNav
     : currentUser?.roles?.includes("recycling_field_manager") ? recyclingFieldManagerNav
+    : currentUser?.roles?.includes("company_owner") ? companyOwnerNav
+    : currentUser?.roles?.includes("company_investor") ? companyInvestorNav
     : currentUser?.roles?.includes("company_admin") ? (factoryWorkspace?factoryNav:recyclingWorkspace?recyclingCompanyNav:companyNav)
     : currentUser?.roles?.includes("supervisor") ? (factoryWorkspace?factoryNav.filter(item=>!["/dashboard/team","/dashboard/penalty-notices","/dashboard/subscription"].includes(item.href)):recyclingWorkspace?recyclingCompanyNav.filter(item=>!["/dashboard/penalty-notices","/dashboard/subscription"].includes(item.href)):supervisorNav)
     : currentUser?.roles?.includes("system_admin") ? systemNav : cityNav;
@@ -200,6 +232,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     : currentUser?.roles?.includes("recycling_collector") ? "Material Collection"
     : currentUser?.roles?.includes("recycling_sales") ? "Industrial Sales"
     : currentUser?.roles?.includes("recycling_field_manager") ? "Recycling Field Control"
+    : currentUser?.roles?.includes("company_investor") ? "Wallas EcoTrade Investor Portal"
     : factoryWorkspace ? "Recycling Factory"
     : recyclingWorkspace ? "Recycling Operations"
     : currentUser?.roles?.includes("company_admin") ? "Waste Collection Operations"

@@ -42,14 +42,14 @@ export async function getOrganizationUsersHandler(req: AuthenticatedRequest, res
 
 export async function createOrganizationUserHandler(req: AuthenticatedRequest, res: Response) {
   const user = await createOrganizationUser(organizationId(req), createOrganizationUserSchema.parse(req.body), req.user!.userId);
-  return res.status(201).json({ success: true, message: "Staff account created", data: user });
+  return res.status(201).json({ success: true, message: user.verificationEmailSent ? "Staff account created. The user must verify their email before signing in." : "Staff account created, but the verification email could not be delivered. Check email delivery settings and resend it.", data: user });
 }
 
 export async function createOrganizationCustomerHandler(req: AuthenticatedRequest, res: Response) {
   const customer = await createOrganizationCustomer(
     organizationId(req), createOrganizationCustomerSchema.parse(req.body), req.user!.userId
   );
-  return res.status(201).json({ success: true, message: "Customer account and service location created", data: customer });
+  return res.status(201).json({ success: true, message: customer.verificationRequired ? (customer.verificationEmailSent ? "Customer account created. The customer must verify their email before signing in." : "Customer account created, but its verification email could not be delivered.") : "Customer account and service location created", data: customer });
 }
 
 export async function updateOrganizationUserStatusHandler(req: AuthenticatedRequest, res: Response) {

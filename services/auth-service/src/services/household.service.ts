@@ -186,7 +186,7 @@ export async function signUpHousehold(input: HouseholdSignup, meta: SessionMeta 
     )).rows[0];
     if (!place) throw failure("Choose your division and an area within it.", 400);
     const user = (await client.query(
-      `INSERT INTO users (organization_id, full_name, email, phone, password_hash) VALUES (NULL, $1, $2, $3, $4) RETURNING id`,
+      `INSERT INTO users (organization_id, full_name, email, phone, password_hash, email_verified_at, email_verification_required) VALUES (NULL, $1, $2, $3, $4, NOW(), false) RETURNING id`,
       [input.fullName, `household-${randomUUID()}@households.kampalawms.invalid`, phone, passwordHash]
     )).rows[0];
     userId = user.id;

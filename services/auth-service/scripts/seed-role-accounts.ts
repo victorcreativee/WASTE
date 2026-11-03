@@ -19,13 +19,15 @@ function required(name: string) {
 async function upsertAccount(client: PoolClient, spec: AccountSpec) {
   const passwordHash = await bcrypt.hash(spec.password, 12);
   const userResult = await client.query(
-    `INSERT INTO users (organization_id, full_name, email, password_hash, status)
-     VALUES ($1::uuid, $2, LOWER($3), $4, 'active')
+    `INSERT INTO users (organization_id, full_name, email, password_hash, status, email_verified_at, email_verification_required)
+     VALUES ($1::uuid, $2, LOWER($3), $4, 'active', NOW(), false)
      ON CONFLICT (email) DO UPDATE SET
        organization_id = EXCLUDED.organization_id,
        full_name = EXCLUDED.full_name,
        password_hash = EXCLUDED.password_hash,
        status = 'active',
+       email_verified_at = NOW(),
+       email_verification_required = false,
        updated_at = CURRENT_TIMESTAMP
      RETURNING id, email`,
     [spec.organizationId, spec.fullName, spec.email, passwordHash]

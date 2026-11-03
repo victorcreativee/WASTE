@@ -23,6 +23,7 @@ type User = { fullName: string; email: string; roles: string[] };
 type Lot = {
   id: string;
   material_type: string;
+  collected_on?: string;
   source_name: string;
   available_kg: string;
   quality: string;
@@ -68,6 +69,19 @@ type Workspace = {
 };
 type Screen = "today" | "sell" | "history" | "report" | "account";
 
+// Takes sold weight from the oldest lots of a material first, as the server does.
+function takeOldestFirst(lots: Lot[], material: string, kg: number) {
+  let remaining = kg;
+  const taken = new Map<string, number>();
+  for (const lot of [...lots].filter((x) => x.material_type === material && Number(x.available_kg) > 0).sort((a, b) => String(a.collected_on).localeCompare(String(b.collected_on)))) {
+    const used = Math.min(remaining, Number(lot.available_kg));
+    taken.set(lot.id, used);
+    remaining -= used;
+    if (remaining <= 0) break;
+  }
+  return lots.map((x) => taken.has(x.id) ? { ...x, available_kg: String(Number(x.available_kg) - (taken.get(x.id) ?? 0)) } : x);
+}
+
 async function request<T>(
   path: string,
   token: string,
@@ -107,7 +121,9 @@ export function RecyclingSalesWorkspace({
   const [paymentReference, setPaymentReference] = useState("");
   const [savingPayment, setSavingPayment] = useState(false);
   const [savingSale, setSavingSale] = useState(false);
-  const [lotId, setLotId] = useState(""),
+  const [material, setMaterial] = useState(""),
+    [deliveredKg, setDeliveredKg] = useState(""),
+    [paidNow, setPaidNow] = useState<"now" | "later">("now"),
     [partnerId, setPartnerId] = useState(""),
     [buyerName, setBuyerName] = useState(""),
     [invoice, setInvoice] = useState(""),
@@ -168,8 +184,13 @@ export function RecyclingSalesWorkspace({
       () => workspace?.lots.filter((x) => Number(x.available_kg) > 0) || [],
       [workspace],
     ),
-    selectedLot = stock.find((x) => x.id === lotId),
-    total = Number(quantity || 0) * Number(unitPrice || 0);
+    // Stock is sold by material: the weight comes from the oldest lots of that material first.
+    materials = [...stock.reduce((map, x) => map.set(x.material_type, (map.get(x.material_type) || 0) + Number(x.available_kg)), new Map<string, number>())].map(([name, kg]) => ({ name, kg })),
+    materialKg = materials.find((x) => x.name === material)?.kg ?? 0,
+    // The buyer pays for the weight they accept; anything not entered means they accepted all of it.
+    paidKg = Number(quantity || deliveredKg || 0),
+    refusedKg = Math.max(Number(deliveredKg || 0) - paidKg, 0),
+    total = paidKg * Number(unitPrice || 0);
   const closedDays = [
     ...(workspace?.dailyClosures || []).filter((item) => item.status === "closed").map((item) => localDay(item.operating_date)),
     ...(workspace?.operations.isClosed ? [workspace.operations.operatingDate] : []),
@@ -247,23 +268,16 @@ export function RecyclingSalesWorkspace({
     } finally { setSavingPayment(false); }
   }
   async function saveSale() {
-    if (
-      !lotId ||
-      (!partnerId && buyerName.trim().length < 2) ||
-      Number(quantity) <= 0 ||
-      Number(unitPrice) <= 0
-    )
-      return setError(
-        "Choose stock and a buyer, then enter a valid weight and price.",
-      );
+    if (!material || (!partnerId && buyerName.trim().length < 2) || Number(deliveredKg) <= 0 || paidKg <= 0 || Number(unitPrice) <= 0)
+      return setError("Choose the material and a buyer, then enter the weight delivered and the price.");
+    if (paidKg > Number(deliveredKg))
+      return setError("The weight paid for cannot be more than the weight delivered.");
     if (saleDay > localDay())
       return setError("The sale date cannot be in the future.");
     if (closedDays.includes(saleDay))
       return setError(`${formatDay(saleDay)} is closed. Choose another date or ask a manager to reopen it.`);
-    if (selectedLot && Number(quantity) > Number(selectedLot.available_kg))
-      return setError(
-        `Only ${Number(selectedLot.available_kg).toLocaleString()} kg is available in this stock lot.`,
-      );
+    if (Number(deliveredKg) > materialKg)
+      return setError(`Only ${materialKg.toLocaleString()} kg of ${material} is in stock.`);
     try {
       setSavingSale(true);
       setError("");
@@ -274,33 +288,40 @@ export function RecyclingSalesWorkspace({
       }>("/api/waste/recycling/sales", token, user.email, {
         method: "POST",
         body: JSON.stringify({
-          lotId,
+          materialType: material,
+          deliveredKg: Number(deliveredKg),
+          paymentReceived: paidNow,
           buyerPartnerId: partnerId || undefined,
           buyerName: partnerId ? undefined : buyerName.trim(),
           saleChannel: "industrial",
           industry: partner?.name || buyerName.trim(),
           invoiceNumber: invoice.trim() || undefined,
-          quantityKg: Number(quantity),
+          quantityKg: paidKg,
           unitPriceUgx: Number(unitPrice),
           soldOn: saleDay,
           workerWagesUgx: Number(saleCosts.wages || 0),
           foodUgx: Number(saleCosts.food || 0),
           transportUgx: Number(transport || 0),
           otherExpenseUgx: Number(saleCosts.other || 0),
+          // Costs of a sale paid on the spot come out of the money received, not the float.
+          managerFloatUsedUgx: paysFromFloat && paidNow === "later"
+            ? Number(saleCosts.wages || 0) + Number(saleCosts.food || 0) + Number(transport || 0) + Number(saleCosts.other || 0)
+            : 0,
           notes: notes.trim() || undefined,
         }),
       });
-      if (result.queuedOffline && workspace && selectedLot) {
+      if (result.queuedOffline && workspace) {
         const localSale: Sale = {
-          id: result.localId || `local-${Date.now()}`,
-          material_type: selectedLot.material_type,
+          // A queued request always carries the id it will be sent with.
+          id: result.localId ?? "local-sale",
+          material_type: material,
           buyer_name: partner?.name || buyerName.trim(),
           industry: partner?.name || buyerName.trim(),
           invoice_number: invoice.trim() || null,
-          quantity_kg: String(Number(quantity)),
+          quantity_kg: String(paidKg),
           unit_price_ugx: String(Number(unitPrice)),
           total_ugx: String(total),
-          balance_ugx: String(total),
+          balance_ugx: String(paidNow === "now" ? 0 : total),
           status: "pending_sync",
           payment_state: "unpaid",
           sold_on: saleDay,
@@ -309,30 +330,33 @@ export function RecyclingSalesWorkspace({
           current
             ? {
                 ...current,
-                lots: current.lots.map((x) =>
-                  x.id === lotId
-                    ? {
-                        ...x,
-                        available_kg: String(
-                          Number(x.available_kg) - Number(quantity),
-                        ),
-                      }
-                    : x,
-                ),
+                lots: takeOldestFirst(current.lots, material, Number(deliveredKg)),
                 sales: [localSale, ...current.sales],
+                summary: paysFromFloat && paidNow === "later" && current.summary
+                  ? {
+                      ...current.summary,
+                      floatBalanceUgx: Number(current.summary.floatBalanceUgx ?? 0)
+                        - Number(saleCosts.wages || 0)
+                        - Number(saleCosts.food || 0)
+                        - Number(transport || 0)
+                        - Number(saleCosts.other || 0),
+                    }
+                  : current.summary,
                 // Only roles with a personal summary from the server get it updated here.
                 myActivity: current.myActivity && saleDay === current.operations.operatingDate ? {
                   ...current.myActivity,
                   sales: (current.myActivity.sales || 0) + 1,
-                  soldKg: (current.myActivity.soldKg || 0) + Number(quantity),
+                  soldKg: (current.myActivity.soldKg || 0) + paidKg,
                   saleValueUgx: (current.myActivity.saleValueUgx || 0) + total,
-                  outstandingUgx: (current.myActivity.outstandingUgx || 0) + total,
+                  outstandingUgx: (current.myActivity.outstandingUgx || 0) + (paidNow === "now" ? 0 : total),
                 } : current.myActivity,
               }
             : current,
         );
       }
-      setLotId("");
+      setMaterial("");
+      setDeliveredKg("");
+      setPaidNow("now");
       setPartnerId("");
       setBuyerName("");
       setInvoice("");
@@ -417,10 +441,10 @@ export function RecyclingSalesWorkspace({
               { icon: "document-text-outline", label: "Day report", onPress: () => setScreen("report"), tone: "neutral" },
             ]} />
             <SectionHeader title={`Stock to sell · ${stockKg.toLocaleString("en-GB")} kg`} />
-            {stock.slice(0, 8).map((x) => (
-              <ListRow key={x.id} icon="cube-outline" iconTone="action" title={x.material_type} subtitle={`${x.source_name} · ${x.quality}`}
-                value={`${Number(x.available_kg).toLocaleString("en-GB")} kg`} chevron
-                onPress={() => { setLotId(x.id); setScreen("sell"); }} />
+            {materials.map((x) => (
+              <ListRow key={x.name} icon="cube-outline" iconTone="action" title={x.name}
+                value={`${x.kg.toLocaleString("en-GB")} kg`} chevron
+                onPress={() => { setMaterial(x.name); setScreen("sell"); }} />
             ))}
             {!stock.length && <EmptyState icon="cube-outline" title="No stock to sell" text="Stock appears here once purchases are received or sorted." />}
           </>
@@ -429,7 +453,7 @@ export function RecyclingSalesWorkspace({
           <>
             <View>
               <Text style={page.title}>New sale</Text>
-              <Text style={[type.small, { marginTop: 4 }]}>Pick the stock, the buyer, then the weight and price.</Text>
+              <Text style={[type.small, { marginTop: 4 }]}>Pick the material, the buyer, then the weight and price.</Text>
             </View>
             <Card>
               <Text style={type.heading}>Sale date</Text>
@@ -437,9 +461,8 @@ export function RecyclingSalesWorkspace({
               {closedDays.includes(saleDay) ? <Banner tone="warning" text={`${formatDay(saleDay)} is closed. Choose another date or ask a manager to reopen it.`} /> : null}
             </Card>
             <Card>
-              <Text style={type.heading}>Stock</Text>
-              {stock.length ? <Chips value={lotId} onChange={setLotId}
-                options={stock.map((x) => ({ value: x.id, label: `${x.material_type} · ${Number(x.available_kg).toLocaleString("en-GB")} kg` }))} />
+              <Text style={type.heading}>Material</Text>
+              {materials.length ? <Chips value={material} onChange={setMaterial} options={materials.map((x) => ({ value: x.name, label: `${x.name} · ${x.kg.toLocaleString("en-GB")} kg` }))} />
                 : <Text style={type.small}>No stock is available to sell.</Text>}
             </Card>
             <Card>
@@ -464,18 +487,26 @@ export function RecyclingSalesWorkspace({
             <Card>
               <Text style={type.heading}>Weight and price</Text>
               <View style={page.columns}>
-                <Field label="Weight (kg)" style={page.column} hint={selectedLot ? `${Number(selectedLot.available_kg).toLocaleString("en-GB")} kg available` : undefined}>
-                  <Input value={quantity} onChangeText={setQuantity} keyboardType="decimal-pad" placeholder="0" />
+                <Field label="Weight delivered (kg)" style={page.column} hint={material ? `${materialKg.toLocaleString("en-GB")} kg in stock` : undefined}>
+                  <Input value={deliveredKg} onChangeText={setDeliveredKg} keyboardType="decimal-pad" placeholder="0" />
                 </Field>
+                <Field label="Weight paid for (kg)" style={page.column} hint={refusedKg > 0 ? `${refusedKg.toLocaleString("en-GB")} kg refused as waste` : "Leave empty if the buyer took it all"}>
+                  <Input value={quantity} onChangeText={setQuantity} keyboardType="decimal-pad" placeholder={deliveredKg || "0"} />
+                </Field>
+              </View>
+              <View style={page.columns}>
                 <Field label="Price per kg" style={page.column}><MoneyInput value={unitPrice} onChangeText={setUnitPrice} /></Field>
               </View>
+              <Field label="Payment">
+                <Segmented value={paidNow} onChange={setPaidNow} options={[{ value: "now", label: "Paid now, to the office" }, { value: "later", label: "Pays later" }]} />
+              </Field>
               <Field label="Invoice or delivery note number" hint="The number on the invoice or delivery note you give the buyer, if any.">
                 <ReferenceInput value={invoice} onChangeText={setInvoice} prefix="INV" placeholder="Optional" />
               </Field>
             </Card>
             <Card>
               <Text style={type.heading}>Costs of this sale</Text>
-              {paysFromFloat ? <Text style={type.small}>Paid from the manager float · {ugx(Number(workspace?.summary?.floatBalanceUgx ?? 0))} available.</Text> : null}
+              {paidNow === "now" ? <Text style={type.small}>Paid from the money the buyer pays now.</Text> : paysFromFloat ? <Text style={type.small}>Paid from the manager float · {ugx(Number(workspace?.summary?.floatBalanceUgx ?? 0))} available.</Text> : null}
               <Field label="Transport (UGX)"><MoneyInput value={transport === "0" ? "" : transport} onChangeText={(value) => setTransport(value || "0")} /></Field>
               {showSaleCosts ? <>
                 <View style={page.columns}>
@@ -492,7 +523,7 @@ export function RecyclingSalesWorkspace({
                   <Text style={type.small}>Sale value</Text>
                   <Text style={[type.display, { color: color.actionInk }]}>{ugx(total)}</Text>
                 </View>
-                {Number(quantity) > 0 && Number(unitPrice) > 0 ? <Text style={type.caption}>{Number(quantity).toLocaleString("en-GB")} kg × {ugx(unitPrice)}</Text> : null}
+                {paidKg > 0 && Number(unitPrice) > 0 ? <Text style={type.caption}>{paidKg.toLocaleString("en-GB")} kg × {ugx(unitPrice)}</Text> : null}
               </View>
               <Text style={type.small}>{saleCostTotal > 0 ? `Costs ${ugx(saleCostTotal)} · ` : ""}{formatDay(saleDay)}</Text>
               <Button title={savingSale ? "Saving…" : "Save sale"} icon="checkmark-circle-outline" loading={savingSale} disabled={closedDays.includes(saleDay)} onPress={saveSale} />

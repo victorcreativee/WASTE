@@ -45,7 +45,7 @@ type Workspace = {
 type Location = { latitude: number; longitude: number; accuracy: number };
 const field =
   "mt-1.5 min-h-12 w-full rounded-lg border border-slate-300 bg-white px-3 text-base outline-none focus:border-[var(--color-action)] focus:ring-2 focus:ring-blue-100";
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 
 export default function RecyclingFieldPage() {
   const [data, setData] = useState<Workspace | null>(null),

@@ -56,7 +56,8 @@ export async function householdOverview(userId: string) {
          FROM customer_invoices WHERE customer_id = $1::uuid AND status <> 'cancelled'
         ORDER BY (balance_ugx > 0) DESC, due_on DESC LIMIT 12`, [context.customer_id]),
     dbPool.query(
-      `SELECT id, invoice_id, amount_ugx, provider, status, receipt_number, created_at, confirmed_at
+      `SELECT id, invoice_id, amount_ugx, provider, status, receipt_number, created_at, confirmed_at, failure_reason,
+              provider_request_id IS NOT NULL AS automatic, needs_review
          FROM customer_payments WHERE customer_id = $1::uuid ORDER BY created_at DESC LIMIT 8`, [context.customer_id]),
     dbPool.query(
       `SELECT id, category, title, status, created_at, resolved_at, resolution_notes
@@ -154,7 +155,7 @@ export async function updateHouseholdPlace(userId: string, input: { address?: st
   )).rows[0];
 }
 
-export const REMINDER_KINDS = ["collection_tomorrow", "bill_issued", "bill_due", "payment_received", "missed_collection", "request_resolved"] as const;
+export const REMINDER_KINDS = ["collection_tomorrow", "bill_issued", "bill_due", "payment_received", "missed_collection", "request_resolved", "bill_overdue"] as const;
 export type ReminderSettings = Record<(typeof REMINDER_KINDS)[number], boolean>;
 
 /** The company's SMS reminder switches (all off until it turns them on) and how many SMS reminders went out in 30 days. */

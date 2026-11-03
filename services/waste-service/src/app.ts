@@ -47,6 +47,20 @@ import tripRoutes from "./routes/trip.routes";
 import weighbridgeRoutes from "./routes/weighbridge.routes";
 import complianceRoutes from "./routes/compliance.routes";
 import recyclingRoutes from "./routes/recycling.routes";
+import receiptRoutes from "./routes/receipt.routes";
+import receiptPublicRoutes from "./routes/receipt-public.routes";
+import landfillRoutes, { landfillPublicRoutes } from "./routes/landfill.routes";
+import apiKeyRoutes, { openApiRoutes } from "./routes/open-api.routes";
+import arrearsRoutes from "./routes/arrears.routes";
+import constituencyRoutes from "./routes/constituency.routes";
+import registryRoutes from "./routes/registry.routes";
+import fleetQualityRoutes from "./routes/fleet-quality.routes";
+import trackerRoutes, { trackerIngestRoutes } from "./routes/tracker.routes";
+import tariffRoutes from "./routes/tariff.routes";
+import auditRoutes from "./routes/audit.routes";
+import privacyRoutes from "./routes/privacy.routes";
+import mobileMoneyRoutes, { mobileMoneyPublicRoutes } from "./routes/mobile-money.routes";
+import { getPublicTariffs } from "./controllers/tariff.controller";
 import { requirePackageFeature } from "./middlewares/package-access.middleware";
 import { desktopIdempotency } from "./middlewares/desktop-idempotency.middleware";
 
@@ -66,6 +80,14 @@ app.use("/api/waste", healthRoutes);
 app.get("/api/waste/ready", readinessHandler("waste-service", (sql, params) => dbPool.query(sql, params), ["organization_permit_activities", "permit_renewal_requests", "regulatory_returns", "city_reports", "user_sessions"]));
 app.use("/api/waste/public", regulatoryPublicRoutes);
 app.use("/api/waste/public", publicServiceRoutes);
+app.use("/api/waste/public", receiptPublicRoutes);
+app.use("/api/waste/public", landfillPublicRoutes);
+// The open API authenticates with API keys, not sign-in tokens (migration 116).
+// GPS trackers authenticate with their device key (migration 121).
+app.use("/api/v1/trackers", trackerIngestRoutes);
+app.use("/api/v1", openApiRoutes);
+app.use("/api/waste/public", mobileMoneyPublicRoutes);
+app.get("/api/waste/public/tariffs", (req, res, next) => getPublicTariffs(req, res).catch(next));
 app.get("/api/waste/public/plans", (req, res, next) => { getPublicPlans(req, res).catch(next); });
 app.use("/api/waste", requireAuth);
 app.use("/api/waste", desktopIdempotency);
@@ -107,8 +129,20 @@ app.use("/api/waste", penaltyRoutes);
 app.use("/api/waste", trackRoutes);
 app.use("/api/waste", subscriptionRoutes);
 app.use("/api/waste", recyclingRoutes);
+app.use("/api/waste", receiptRoutes);
+app.use("/api/waste", tariffRoutes);
+app.use("/api/waste", auditRoutes);
+app.use("/api/waste", privacyRoutes);
+app.use("/api/waste", landfillRoutes);
+app.use("/api/waste", apiKeyRoutes);
+app.use("/api/waste", mobileMoneyRoutes);
 app.use("/api/waste", routeExecutionRoutes);
+app.use("/api/waste", arrearsRoutes);
+app.use("/api/waste", constituencyRoutes);
+app.use("/api/waste", registryRoutes);
 app.use("/api/waste", billingRoutes);
+app.use("/api/waste", fleetQualityRoutes);
+app.use("/api/waste", trackerRoutes);
 app.use("/api/waste", fleetRoutes);
 app.use("/api/waste", expenseRoutes);
 app.use("/api/waste", inventoryRoutes);
@@ -144,7 +178,9 @@ app.use(
             ? "This trip already has an active weighbridge ticket"
             : constraint === "one_live_explanation_per_trip"
               ? "This trip already has an explanation"
-              : "This information is already registered",
+              : constraint === "recycling_purchase_payments_organization_id_reference_key"
+                ? "This payment reference is already linked to an existing purchase. Check the purchase history before recording it again."
+                : "This information is already registered",
   })
 );
 

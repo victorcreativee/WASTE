@@ -5,9 +5,13 @@ export const createServicePlanSchema = z.object({
   description: z.string().trim().max(1000).optional(),
   customerType: z.enum(["residential","commercial","office_business","industrial"]).optional(),
   billingFrequency: z.enum(["monthly","quarterly","annual","on_demand"]),
-  feeUgx: z.number().int().nonnegative(),
+  feeUgx: z.number().int().nonnegative().optional(),
   collectionsPerPeriod: z.number().int().positive(),
   responseHours: z.number().int().positive(),
+  // A package that follows a KCCA tariff band takes its price and customer type from KCCA (migration 112).
+  tariffBandId: z.string().uuid().nullable().optional(),
+}).superRefine((value, ctx) => {
+  if (!value.tariffBandId && value.feeUgx === undefined) ctx.addIssue({ code: "custom", path: ["feeUgx"], message: "Enter the package price, or choose a KCCA tariff band" });
 });
 export const updateServicePlanStatusSchema = z.object({ isActive: z.boolean() });
 export const updateSubscriptionStatusSchema = z.object({ status: z.enum(["active","suspended","cancelled"]) });

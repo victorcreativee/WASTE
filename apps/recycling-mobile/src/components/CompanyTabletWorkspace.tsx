@@ -17,12 +17,13 @@ import { discardMobileOutbox, mobileRequest, readCachedResponse } from "../lib/m
 import { AccountWorkspace } from "./AccountWorkspace";
 import { AppHeader, Banner, DateField, QuickActions, ReferenceInput, Segmented, StatStrip, SummaryCard } from "../ui/kit";
 import { color, ugx } from "../ui/theme";
-import { DailyReport } from "./DailyReport";
-import { MoneyFlow } from "./MoneyFlow";
+import { RecyclingInsightsReport } from "./RecyclingInsightsReport";
 import { useBottomNavigationSpace, RoleBottomNavigation } from "./RoleBottomNavigation";
 import { SectionNavigation } from "./SectionNavigation";
 import { SyncStatus } from "./SyncStatus";
 import { formatDay, localDay } from "../lib/dates";
+import { MaterialLotPicker } from "./MaterialLotPicker";
+import { MaterialStockSummary } from "./MaterialStockSummary";
 
 type User = {
   fullName: string;
@@ -31,8 +32,9 @@ type User = {
   permissions?: string[];
 };
 type Tab = "dashboard" | "operations" | "reports" | "account";
-type OperationSection = "processing" | "stock" | "expenses" | "finance" | "close";
+type OperationSection = "processing" | "stock" | "finance" | "close";
 type RecordMap = Record<string, unknown>;
+type DailyExpenseLine = { id: string; category: string; description: string; vendor: string; amountUgx: string };
 
 function records(value: unknown): RecordMap[] {
   if (Array.isArray(value)) return value as RecordMap[];
@@ -76,7 +78,8 @@ function isActive(item: RecordMap) {
 
 const num = (value: unknown) => Number(value || 0);
 const FLOAT_KIND: Record<string, string> = { given: "Issued by the office", spent: "Spent", returned: "Returned to the office" };
-const EXPENSE_CATEGORIES = [["fuel", "Fuel"], ["maintenance", "Maintenance"], ["equipment", "Equipment"], ["utilities", "Utilities"], ["disposal_fees", "Disposal fees"], ["office", "Office"], ["other", "Other"]] as const;
+const EXPENSE_CATEGORIES = [["food", "Food"], ["transport", "Transport"], ["daily_wages", "Daily wages"], ["worker_credit", "Worker credit"], ["fuel", "Fuel"], ["maintenance", "Maintenance"], ["equipment", "Equipment"], ["utilities", "Utilities"], ["disposal_fees", "Disposal fees"], ["office", "Office"], ["other", "Other"]] as const;
+const newExpenseLine = (): DailyExpenseLine => ({ id: `${Date.now()}-${Math.random()}`, category: "other", description: "", vendor: "", amountUgx: "" });
 
 const DASHBOARD_ENDPOINTS = [
   ["trips", "/api/waste/trips"],
@@ -136,17 +139,20 @@ export function CompanyTabletWorkspace({
   const [floatReference, setFloatReference] = useState("");
   const [floatNotes, setFloatNotes] = useState("");
   const [savingFloat, setSavingFloat] = useState(false);
-  const emptySorting = { lotId: "", inputKg: "", outputMaterial: "", outputKg: "", rejectedKg: "0", wages: "", utilities: "", transport: "", consumables: "", other: "", float: "", notes: "" };
+  const emptySorting = { inputMode: "material_total" as "material_total"|"lot", lotId: "", materialType: "", outputMaterial: "", outputKg: "", rejectedKg: "0", wages: "", utilities: "", transport: "", consumables: "", other: "", float: "", notes: "" };
   const [sorting, setSorting] = useState(emptySorting);
   const [entryDate, setEntryDate] = useState("");
-  const [reportView, setReportView] = useState<"day" | "money">("day");
-  const [floatShown, setFloatShown] = useState(10);
+  const [floatPage, setFloatPage] = useState(1);
   const [adjustment, setAdjustment] = useState({ lotId: "", type: "loss", quantityKg: "", reason: "", notes: "" });
   const [closeNotes, setCloseNotes] = useState("");
+  const [countedOfficeCash, setCountedOfficeCash] = useState("");
+  const [countedManagerFloat, setCountedManagerFloat] = useState("");
+  const [allDevicesSynced, setAllDevicesSynced] = useState(false);
   const [reopenReason, setReopenReason] = useState("");
   const [savingOperation, setSavingOperation] = useState(false);
   const [operationSection, setOperationSection] = useState<OperationSection>("processing");
-  const [expense, setExpense] = useState({ category: "other", description: "", vendor: "", amountUgx: "", reference: "" });
+  const [expenseReference, setExpenseReference] = useState("");
+  const [expenseLines, setExpenseLines] = useState<DailyExpenseLine[]>([newExpenseLine()]);
   const [savingExpense, setSavingExpense] = useState(false);
 
   // Applies one response per DASHBOARD_ENDPOINTS entry; undefined leaves that part of the screen as it was.
@@ -295,6 +301,8 @@ export function CompanyTabletWorkspace({
   const dayClosed = Boolean(
     data.recyclingOperations.isClosed || data.recyclingOperations.is_closed,
   );
+  const currentClosure = objectData(data.recyclingOperations.currentClosure) || {};
+  const closureHistory = records(currentClosure.history);
   const closedDays = [
     ...data.dailyClosures.filter((item) => item.status === "closed").map((item) => localDay(String(item.operating_date || ""))),
     ...(dayClosed ? [operatingDate] : []),
@@ -305,9 +313,10 @@ export function CompanyTabletWorkspace({
   const entryClosed = closedDays.includes(entryDay);
   const floatBalance = num(data.recyclingSummary.floatBalanceUgx);
   const officeCash = num(data.recyclingSummary.officeCashUgx);
-  // Field managers spend from the float; company administrators still send expenses for approval.
+  // Field managers spend from accountable float. Company administrators post verified, already-spent daily costs.
   const expenseFromFloat = user.roles.includes("recycling_field_manager");
   // The server limits money in and out to people who manage company or field money.
+  const canSeeCompanyReport = user.roles.some((role) => ["company_admin", "company_owner", "company_investor", "recycling_field_manager"].includes(role)) || Boolean(user.permissions?.includes("reports.organization.read"));
   const canSeeMoneyFlow = user.roles.some((role) => ["recycling_field_manager", "company_admin"].includes(role));
   const canManageInventory =
     user.roles.some((role) => ["company_admin", "recycling_field_manager"].includes(role)) ||
@@ -318,42 +327,29 @@ export function CompanyTabletWorkspace({
   const canCreateExpense =
     user.roles.some((role) => ["company_admin", "recycling_field_manager"].includes(role)) ||
     Boolean(user.permissions?.includes("finance.expense.create"));
+  const floatPageSize = 10;
+  const floatTotalPages = Math.max(1, Math.ceil(data.floatTransactions.length / floatPageSize));
+  const currentFloatPage = Math.min(floatPage, floatTotalPages);
+  const visibleFloatTransactions = data.floatTransactions.slice((currentFloatPage - 1) * floatPageSize, currentFloatPage * floatPageSize);
 
   async function saveExpense() {
-    const amountUgx = Number(expense.amountUgx);
-    if (!Number.isInteger(amountUgx) || amountUgx <= 0 || expense.description.trim().length < 3 || !expense.reference.trim()) {
-      Alert.alert("Check expense details", "Enter a positive whole UGX amount, a clear description, and a receipt or voucher reference.");
+    const lines = expenseLines.map((line) => ({ ...line, amountUgx: Number(line.amountUgx) }));
+    const totalUgx = lines.reduce((sum, line) => sum + Number(line.amountUgx || 0), 0);
+    if (!expenseReference.trim() || !lines.length || lines.some((line) => !Number.isInteger(line.amountUgx) || line.amountUgx <= 0 || line.description.trim().length < 3)) {
+      Alert.alert("Check expense details", "Add a receipt or voucher reference. Every line needs a clear description and a positive whole UGX amount.");
       return;
     }
     try {
       setSavingExpense(true);
-      const category = EXPENSE_CATEGORIES.find(([value]) => value === expense.category)?.[1] || "Other";
-      const result = expenseFromFloat
-        ? await mobileRequest<RecordMap>("/api/waste/recycling/manager-float", token, user.email, {
+      const result = await mobileRequest<RecordMap>("/api/waste/finance/expenses/daily-batch", token, user.email, {
             method: "POST",
-            body: JSON.stringify({
-              transactionDate: entryDay,
-              transactionType: "spent",
-              amountUgx,
-              reference: expense.reference.trim(),
-              notes: `${category}: ${expense.description.trim()}${expense.vendor.trim() ? ` · ${expense.vendor.trim()}` : ""}`,
-            }),
-          })
-        : await mobileRequest<RecordMap>("/api/waste/finance/expenses", token, user.email, {
-            method: "POST",
-            body: JSON.stringify({
-              category: expense.category,
-              description: expense.description.trim(),
-              vendor: expense.vendor.trim() || undefined,
-              amountUgx,
-              expenseDate: entryDay,
-              reference: expense.reference.trim(),
-            }),
+            body: JSON.stringify({ expenseDate: entryDay, reference: expenseReference.trim(), fundingSource: expenseFromFloat ? "manager_float" : "office_cash", lines: lines.map((line) => ({ category: line.category, description: line.description.trim(), vendor: line.vendor.trim() || undefined, amountUgx: line.amountUgx })) }),
           });
-      setExpense({ category: "other", description: "", vendor: "", amountUgx: "", reference: "" });
+      setExpenseReference("");
+      setExpenseLines([newExpenseLine()]);
       Alert.alert(
-        result.queuedOffline ? "Expense saved offline" : expenseFromFloat ? "Expense paid from float" : "Expense submitted",
-        result.queuedOffline ? "It will be sent when internet returns." : expenseFromFloat ? `${ugx(amountUgx)} was taken from the manager float.` : "The expense is now awaiting company approval.",
+        result.queuedOffline ? "Daily expenses saved offline" : "Daily expenses recorded",
+        result.queuedOffline ? "The complete expense sheet will sync when internet returns." : expenseFromFloat ? `${ugx(totalUgx)} was taken from the manager float.` : `${expenseLines.length} expense line${expenseLines.length === 1 ? "" : "s"} totalling ${ugx(totalUgx)} were posted to the organization cash ledger.`,
       );
       if (!result.queuedOffline) void load();
     } catch (caught) {
@@ -364,7 +360,6 @@ export function CompanyTabletWorkspace({
   }
 
   async function saveSorting() {
-    const inputKg = Number(sorting.inputKg);
     const outputKg = Number(sorting.outputKg);
     const rejectedKg = Number(sorting.rejectedKg || 0);
     const cost = (value: string) => Number(value || 0);
@@ -373,18 +368,18 @@ export function CompanyTabletWorkspace({
       Alert.alert("Check the float", "Money from the manager float cannot be more than the processing cost.");
       return;
     }
-    if (!sorting.lotId || !sorting.outputMaterial.trim() || inputKg <= 0 || outputKg <= 0 || rejectedKg < 0 || outputKg + rejectedKg > inputKg) {
-      Alert.alert("Check sorting details", "Choose an input lot, enter valid kilograms, and ensure output plus rejected weight does not exceed the input weight.");
+    if ((sorting.inputMode === "lot" ? !sorting.lotId : !sorting.materialType) || !sorting.outputMaterial.trim() || outputKg <= 0 || rejectedKg < 0) {
+      Alert.alert("Check sorting details", "Choose the material to sort from, the material sorted out and its weight.");
       return;
     }
     try {
       setSavingOperation(true);
       const result = await mobileRequest<RecordMap>("/api/waste/recycling/sorting", token, user.email, {
         method: "POST",
-        body: JSON.stringify({ inputLotId: sorting.lotId, processedOn: entryDay, inputKg, outputMaterialType: sorting.outputMaterial.trim(), allowNewMaterial: true, outputKg, rejectedKg, workerWagesUgx: cost(sorting.wages), utilitiesUgx: cost(sorting.utilities), transportUgx: cost(sorting.transport), consumablesUgx: cost(sorting.consumables), otherExpenseUgx: cost(sorting.other), managerFloatUsedUgx: cost(sorting.float), notes: sorting.notes.trim() || undefined }),
+        body: JSON.stringify({ inputMode: sorting.inputMode, ...(sorting.inputMode === "lot" ? { inputLotId: sorting.lotId } : { inputMaterialType: sorting.materialType }), processedOn: entryDay, inputKg: outputKg + rejectedKg, outputMaterialType: sorting.outputMaterial.trim(), allowNewMaterial: true, outputKg, rejectedKg, workerWagesUgx: cost(sorting.wages), utilitiesUgx: cost(sorting.utilities), transportUgx: cost(sorting.transport), consumablesUgx: cost(sorting.consumables), otherExpenseUgx: cost(sorting.other), managerFloatUsedUgx: expenseFromFloat ? processingCost : cost(sorting.float), notes: sorting.notes.trim() || undefined }),
       });
       setSorting(emptySorting);
-      Alert.alert(result.queuedOffline ? "Sorting saved offline" : "Sorting recorded", result.queuedOffline ? "The stock movement will synchronize automatically." : "Input, recovered stock, rejects, and processing cost are updated together.");
+      Alert.alert(result.queuedOffline ? "Sorting saved offline" : "Sorting recorded", result.queuedOffline ? "The stock movement will synchronize automatically." : "The sorted weight and the waste were taken from the material. The rest stays in stock.");
       if (!result.queuedOffline) void load();
     } catch (caught) {
       Alert.alert("Could not record sorting", caught instanceof Error ? caught.message : "Please try again.");
@@ -412,15 +407,18 @@ export function CompanyTabletWorkspace({
   }
 
   async function closeOperatingDay() {
+    if (countedOfficeCash === "" || countedManagerFloat === "") return Alert.alert("Count the cash first", "Enter the physical office cash and manager float separately.");
+    if (!allDevicesSynced) return Alert.alert("Synchronize every device", "Bring every field phone and tablet online and confirm there are no records waiting to sync.");
     Alert.alert("Close daily operations?", `This closes ${operatingDate} for new recycling transactions.`, [
       { text: "Cancel", style: "cancel" },
       { text: "Close day", style: "destructive", onPress: () => void (async () => {
         try {
           setSavingOperation(true);
-          const result = await mobileRequest<RecordMap>("/api/waste/recycling/daily-closures", token, user.email, { method: "POST", body: JSON.stringify({ operatingDate, notes: closeNotes.trim() || undefined }) });
+          await mobileRequest<RecordMap>("/api/waste/recycling/daily-closures", token, user.email, { method: "POST", body: JSON.stringify({ operatingDate, countedOfficeCashUgx: Number(countedOfficeCash), countedManagerFloatUgx: Number(countedManagerFloat), allDevicesSynced, notes: closeNotes.trim() || undefined }) });
           setCloseNotes("");
-          Alert.alert(result.queuedOffline ? "Closure queued offline" : "Day closed", result.queuedOffline ? "The closure will be checked and synchronized when internet returns." : "Daily operations are now locked and recorded.");
-          if (!result.queuedOffline) void load();
+          setCountedOfficeCash(""); setCountedManagerFloat(""); setAllDevicesSynced(false);
+          Alert.alert("Day closed", "Cash, float and daily operations reconciled. The date is now locked.");
+          void load();
         } catch (caught) { Alert.alert("Could not close the day", caught instanceof Error ? caught.message : "Please try again."); }
         finally { setSavingOperation(false); }
       })() },
@@ -429,7 +427,7 @@ export function CompanyTabletWorkspace({
 
   // Reopening needs the server to check the closure, so it is not queued offline.
   function reopenOperatingDay() {
-    const closureId = String(objectData(data.recyclingOperations.currentClosure)?.id || "");
+    const closureId = String(currentClosure.id || "");
     if (!closureId) return Alert.alert("Refresh first", "Pull down to refresh, then try again.");
     if (reopenReason.trim().length < 5) return Alert.alert("Give a reason", "Explain in a few words why the day must be reopened. It is kept with the audit record.");
     Alert.alert("Reopen this day?", `New recycling transactions will be allowed again for ${operatingDate}.`, [
@@ -583,19 +581,15 @@ export function CompanyTabletWorkspace({
               </View>
             ) : null}
             </> : null}
-            {tab === "reports" ? <>
-              {canSeeMoneyFlow ? <>
-                <Segmented value={reportView} onChange={setReportView} options={[{ value: "day", label: "Day report" }, { value: "money", label: "Money in & out" }]} />
-                <View style={{ height: 16 }} />
-              </> : null}
-              {reportView === "money" && canSeeMoneyFlow ? <MoneyFlow token={token} email={user.email} /> : <DailyReport token={token} email={user.email} />}
-            </> : null}
+            {tab === "reports" ? canSeeCompanyReport
+              ? <RecyclingInsightsReport token={token} email={user.email} />
+              : <Banner tone="warning" title="Reports unavailable" text="Your account does not have permission to view organization reports." />
+            : null}
             {tab === "operations" ? <>
             <SectionNavigation title="Daily work" items={[
               { id: "processing", label: "Processing", active: operationSection === "processing", onPress: () => setOperationSection("processing") },
               { id: "stock", label: "Stock", active: operationSection === "stock", onPress: () => setOperationSection("stock") },
-              ...(canCreateExpense ? [{ id: "expenses", label: "Expenses", active: operationSection === "expenses", onPress: () => setOperationSection("expenses") }] : []),
-              ...(user.roles.includes("recycling_field_manager") ? [{ id: "finance", label: "Finance", active: operationSection === "finance", onPress: () => setOperationSection("finance") }] : []),
+              ...(canCreateExpense || canSeeMoneyFlow ? [{ id: "finance", label: "Finance", active: operationSection === "finance", onPress: () => setOperationSection("finance") }] : []),
               ...(canCloseDay ? [{ id: "close", label: "Close day", active: operationSection === "close", onPress: () => setOperationSection("close") }] : []),
             ]} />
             {recyclingAvailable && canManageInventory && (operationSection === "processing" || operationSection === "stock") ? (
@@ -607,19 +601,15 @@ export function CompanyTabletWorkspace({
                     <Text style={styles.inputLabel}>Date of this record</Text>
                     <DateField value={entryDay} onChange={setEntryDate} blocked={closedDays} />
                     <Text style={styles.inputLabel}>Input material lot</Text>
-                    <View style={styles.choices}>
-                      {data.recycling.filter((lot) => Number(lot.available_kg ?? lot.quantity_kg ?? 0) > 0).map((lot, index) => {
-                        const id = String(lot.id || index);
-                        return <Pressable key={id} onPress={() => setSorting((value) => ({ ...value, lotId: id }))} accessibilityRole="radio" accessibilityState={{ checked: sorting.lotId === id }} style={[styles.choice, sorting.lotId === id && styles.choiceActive]}><Text style={[styles.choiceText, sorting.lotId === id && styles.choiceTextActive]}>{text(lot.material_type || lot.materialType, "Material")} · {Number(lot.available_kg ?? lot.quantity_kg ?? 0).toLocaleString()} kg</Text></Pressable>;
-                      })}
-                    </View>
+                    <Segmented value={sorting.inputMode} onChange={(inputMode) => setSorting((value) => ({ ...value, inputMode, lotId: "", materialType: "" }))} options={[{ value: "material_total", label: "Material total" }, { value: "lot", label: "One purchase" }]} />
+                    <Text style={styles.muted}>{sorting.inputMode === "material_total" ? "Only the sorted weight and the waste are taken, oldest stock first. The rest stays in this material to sort later." : "Use this when processing material from one specific delivery only."}</Text>
+                    {sorting.inputMode === "lot" ? <MaterialLotPicker lots={data.recycling} selectedId={sorting.lotId} onSelect={(lotId) => setSorting((value) => ({ ...value, lotId }))} /> : <View style={styles.choices}>{[...new Set(data.recycling.filter((lot)=>Number(lot.available_kg??lot.quantity_kg??0)>0).map((lot)=>text(lot.material_type||lot.materialType,"Material")))].map((materialType)=><Pressable key={materialType} onPress={()=>setSorting((value)=>({...value,materialType}))} style={[styles.choice,sorting.materialType===materialType&&styles.choiceActive]}><Text style={[styles.choiceText,sorting.materialType===materialType&&styles.choiceTextActive]}>{materialType} · {data.recycling.filter((lot)=>text(lot.material_type||lot.materialType,"Material")===materialType).reduce((sum,lot)=>sum+Number(lot.available_kg??lot.quantity_kg??0),0).toLocaleString()} kg</Text></Pressable>)}</View>}
                     <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
-                      <View style={styles.field}><Text style={styles.inputLabel}>Input kg</Text><TextInput accessibilityLabel="Input kg" value={sorting.inputKg} onChangeText={(value) => setSorting((current) => ({ ...current, inputKg: value }))} keyboardType="decimal-pad" style={styles.input} /></View>
                       <View style={styles.field}><Text style={styles.inputLabel}>Recovered material</Text><TextInput accessibilityLabel="Recovered material" value={sorting.outputMaterial} onChangeText={(value) => setSorting((current) => ({ ...current, outputMaterial: value }))} placeholder="Example: PET clear" style={styles.input} /></View>
                     </View>
                     <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
-                      <View style={styles.field}><Text style={styles.inputLabel}>Output kg</Text><TextInput accessibilityLabel="Output kg" value={sorting.outputKg} onChangeText={(value) => setSorting((current) => ({ ...current, outputKg: value }))} keyboardType="decimal-pad" style={styles.input} /></View>
-                      <View style={styles.field}><Text style={styles.inputLabel}>Rejected kg</Text><TextInput accessibilityLabel="Rejected kg" value={sorting.rejectedKg} onChangeText={(value) => setSorting((current) => ({ ...current, rejectedKg: value }))} keyboardType="decimal-pad" style={styles.input} /></View>
+                      <View style={styles.field}><Text style={styles.inputLabel}>Sorted out kg</Text><TextInput accessibilityLabel="Sorted out kg" value={sorting.outputKg} onChangeText={(value) => setSorting((current) => ({ ...current, outputKg: value }))} keyboardType="decimal-pad" style={styles.input} /></View>
+                      <View style={styles.field}><Text style={styles.inputLabel}>Waste kg</Text><TextInput accessibilityLabel="Waste kg" value={sorting.rejectedKg} onChangeText={(value) => setSorting((current) => ({ ...current, rejectedKg: value }))} keyboardType="decimal-pad" style={styles.input} /></View>
                     </View>
                     <Text style={styles.inputLabel}>Processing costs (UGX)</Text>
                     {expenseFromFloat ? <Text style={styles.muted}>Paid from the manager float · {ugx(floatBalance)} available.</Text> : null}
@@ -640,13 +630,14 @@ export function CompanyTabletWorkspace({
                   </View>
                 </View> : null}
                 {operationSection === "stock" ? <View style={[styles.section, styles.operationPanel]}>
+                  <View style={{ padding: 16, paddingBottom: 0 }}><MaterialStockSummary lots={data.recycling} sales={data.recyclingSales} sorting={data.sortingBatches} adjustments={data.stockAdjustments} /></View>
                   <Text style={styles.sectionTitle}>Stock adjustment</Text>
                   <Text style={styles.sectionCopy}>Record verified loss, correction in, or correction out with a clear audit reason.</Text>
                   <View style={styles.formArea}>
                     <Text style={styles.inputLabel}>Date of this record</Text>
                     <DateField value={entryDay} onChange={setEntryDate} blocked={closedDays} />
                     <Text style={styles.inputLabel}>Material lot</Text>
-                    <View style={styles.choices}>{data.recycling.map((lot, index) => { const id = String(lot.id || index); return <Pressable key={id} onPress={() => setAdjustment((value) => ({ ...value, lotId: id }))} accessibilityRole="radio" accessibilityState={{ checked: adjustment.lotId === id }} style={[styles.choice, adjustment.lotId === id && styles.choiceActive]}><Text style={[styles.choiceText, adjustment.lotId === id && styles.choiceTextActive]}>{text(lot.material_type || lot.materialType, "Material")}</Text></Pressable>; })}</View>
+                    <MaterialLotPicker lots={data.recycling} selectedId={adjustment.lotId} onSelect={(lotId) => setAdjustment((value) => ({ ...value, lotId }))} onlyAvailable={adjustment.type !== "correction_in"} />
                     <Text style={styles.inputLabel}>Adjustment type</Text>
                     <View style={styles.choices}>{[["loss", "Loss"], ["correction_in", "Correction in"], ["correction_out", "Correction out"]].map(([value, label]) => <Pressable key={value} onPress={() => setAdjustment((current) => ({ ...current, type: value }))} accessibilityRole="radio" accessibilityState={{ checked: adjustment.type === value }} style={[styles.choice, adjustment.type === value && styles.choiceActive]}><Text style={[styles.choiceText, adjustment.type === value && styles.choiceTextActive]}>{label}</Text></Pressable>)}</View>
                     <Text style={styles.inputLabel}>Quantity (kg)</Text><TextInput accessibilityLabel="Quantity (kg)" value={adjustment.quantityKg} onChangeText={(value) => setAdjustment((current) => ({ ...current, quantityKg: value }))} keyboardType="decimal-pad" style={styles.input} />
@@ -657,26 +648,29 @@ export function CompanyTabletWorkspace({
                 </View> : null}
               </View>
             ) : null}
-            {recyclingAvailable && canCreateExpense && operationSection === "expenses" ? (
+            {recyclingAvailable && canCreateExpense && operationSection === "finance" ? (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>{expenseFromFloat ? "Pay an expense from the float" : "Submit organization expense"}</Text>
+                <Text style={styles.sectionTitle}>Daily expense sheet</Text>
                 <Text style={styles.sectionCopy}>{expenseFromFloat
-                  ? `Record money spent from the manager float, with its receipt or voucher. ${ugx(floatBalance)} is available in the float.`
-                  : "Record a real field expense with its receipt or voucher. It enters the organization finance ledger as a draft and must be approved before payment affects cash."}</Text>
+                  ? `Record all costs paid from the manager float in one sheet. ${ugx(floatBalance)} is available.`
+                  : "Record all verified costs for one business day and save them once. Every line is stored separately by type, date and person in the same finance ledger."}</Text>
                 <View style={styles.formArea}>
-                  <Text style={styles.inputLabel}>Date on the receipt</Text>
+                  <Text style={styles.inputLabel}>Business date</Text>
                   <DateField value={entryDay} onChange={setEntryDate} blocked={closedDays} />
-                  <Text style={styles.inputLabel}>Category</Text>
-                  <View style={styles.choices}>{EXPENSE_CATEGORIES.map(([value,label]) => <Pressable key={value} onPress={() => setExpense((current) => ({ ...current, category: value }))} accessibilityRole="radio" accessibilityState={{ checked: expense.category === value }} style={[styles.choice, expense.category === value && styles.choiceActive]}><Text style={[styles.choiceText, expense.category === value && styles.choiceTextActive]}>{label}</Text></Pressable>)}</View>
-                  <Text style={styles.inputLabel}>What was paid for?</Text><TextInput accessibilityLabel="What was paid for?" value={expense.description} onChangeText={(value) => setExpense((current) => ({ ...current, description: value }))} placeholder="Example: Baling machine repair" style={styles.input} />
-                  <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
-                    <View style={styles.field}><Text style={styles.inputLabel}>Amount (UGX)</Text><TextInput accessibilityLabel="Amount (UGX)" value={expense.amountUgx} onChangeText={(value) => setExpense((current) => ({ ...current, amountUgx: value }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
-                    <View style={styles.field}><Text style={styles.inputLabel}>Receipt or voucher number</Text><ReferenceInput value={expense.reference} onChangeText={(value) => setExpense((current) => ({ ...current, reference: value }))} prefix="EXP" placeholder="Number on the receipt" /><Text style={styles.muted}>Copy the number printed on the shop receipt. No receipt? Tap New, write that number on a petty-cash voucher and keep it with the cash book.</Text></View>
-                  </View>
-                  <Text style={styles.inputLabel}>Vendor (optional)</Text><TextInput accessibilityLabel="Vendor (optional)" value={expense.vendor} onChangeText={(value) => setExpense((current) => ({ ...current, vendor: value }))} placeholder="Supplier or service provider" style={styles.input} />
-                  <Pressable disabled={savingExpense || entryClosed} onPress={() => void saveExpense()} style={[styles.primaryButton, (savingExpense || entryClosed) && styles.disabled]}><Text style={styles.primaryButtonText}>{entryClosed ? "This day is closed" : savingExpense ? "Submitting…" : "Submit for approval"}</Text></Pressable>
+                  <Text style={styles.inputLabel}>Voucher or batch reference</Text>
+                  <ReferenceInput value={expenseReference} onChangeText={setExpenseReference} prefix="EXP" placeholder="One reference for this sheet" />
+                  {expenseLines.map((line, index) => <View key={line.id} style={styles.expenseLine}>
+                    <View style={styles.expenseLineHeader}><Text style={styles.rowTitle}>Expense {index + 1}</Text>{expenseLines.length > 1 ? <Pressable onPress={() => setExpenseLines((current) => current.filter((item) => item.id !== line.id))}><Text style={styles.removeText}>Remove</Text></Pressable> : null}</View>
+                    <Text style={styles.inputLabel}>Type</Text>
+                    <View style={styles.choices}>{EXPENSE_CATEGORIES.map(([value,label]) => <Pressable key={value} onPress={() => setExpenseLines((current) => current.map((item) => item.id === line.id ? { ...item, category: value } : item))} accessibilityRole="radio" accessibilityState={{ checked: line.category === value }} style={[styles.choice, line.category === value && styles.choiceActive]}><Text style={[styles.choiceText, line.category === value && styles.choiceTextActive]}>{label}</Text></Pressable>)}</View>
+                    <Text style={styles.inputLabel}>Description</Text><TextInput value={line.description} onChangeText={(value) => setExpenseLines((current) => current.map((item) => item.id === line.id ? { ...item, description: value } : item))} placeholder="Example: Lunch for sorting team" style={styles.input} />
+                    <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}><View style={styles.field}><Text style={styles.inputLabel}>Amount (UGX)</Text><TextInput value={line.amountUgx} onChangeText={(value) => setExpenseLines((current) => current.map((item) => item.id === line.id ? { ...item, amountUgx: value.replace(/[^\d]/g, "") } : item))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View><View style={styles.field}><Text style={styles.inputLabel}>Person / worker / provider</Text><TextInput value={line.vendor} onChangeText={(value) => setExpenseLines((current) => current.map((item) => item.id === line.id ? { ...item, vendor: value } : item))} placeholder="Who received the money?" style={styles.input} /></View></View>
+                  </View>)}
+                  <Pressable onPress={() => setExpenseLines((current) => [...current, newExpenseLine()])} style={styles.secondaryButton}><Text style={styles.secondaryButtonText}>+ Add another expense</Text></Pressable>
+                  <View style={styles.expenseTotal}><Text style={styles.muted}>{expenseLines.length} line{expenseLines.length === 1 ? "" : "s"}</Text><Text style={styles.floatBalance}>{ugx(expenseLines.reduce((sum, line) => sum + Number(line.amountUgx || 0), 0))}</Text></View>
+                  <Pressable disabled={savingExpense || entryClosed} onPress={() => void saveExpense()} style={[styles.primaryButton, (savingExpense || entryClosed) && styles.disabled]}><Text style={styles.primaryButtonText}>{entryClosed ? "This day is closed" : savingExpense ? "Saving…" : "Save all as paid"}</Text></Pressable>
                 </View>
-                <View style={styles.floatSummary}><Text style={styles.muted}>Awaiting approval</Text><Text style={styles.floatBalance}>{Number(data.expenseSummary.awaiting_approval || 0).toLocaleString()}</Text></View>
+                <View style={styles.floatSummary}><Text style={styles.muted}>Recorded expenses</Text><Text style={styles.floatBalance}>{data.expenses.length.toLocaleString()}</Text></View>
                 {data.expenses.slice(0, 5).map((item, index) => <View key={String(item.id || index)} style={styles.row}><View style={styles.rowCopy}><Text style={styles.rowTitle}>{text(item.description, "Organization expense")}</Text><Text style={styles.muted}>{text(item.expense_number, "Pending sync")} · {text(item.status, "draft").replaceAll("_", " ")}</Text></View><Text style={styles.status}>UGX {Number(item.amount_ugx || 0).toLocaleString()}</Text></View>)}
               </View>
             ) : null}
@@ -684,8 +678,17 @@ export function CompanyTabletWorkspace({
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Daily close · {operatingDate}</Text>
                 <Text style={styles.sectionCopy}>{dayClosed ? "This operating day is already closed." : "Confirm that purchases, sorting, stock, expenses and sales are complete before closing."}</Text>
-                {!dayClosed ? <View style={styles.formArea}><Text style={styles.inputLabel}>Closing note (optional)</Text><TextInput accessibilityLabel="Closing note (optional)" value={closeNotes} onChangeText={setCloseNotes} placeholder="Shift summary or handover note" style={styles.input} /><Pressable disabled={savingOperation} onPress={closeOperatingDay} style={[styles.closeButton, savingOperation && styles.disabled]}><Text style={styles.closeButtonText}>Close daily operations</Text></Pressable></View> : (
+                {!dayClosed ? <View style={styles.formArea}>
+                  <View style={[styles.metrics, tablet && styles.metricsTablet]}>{[["Ledger office cash", data.recyclingSummary.officeCashUgx ?? 0],["Ledger manager float", data.recyclingSummary.floatBalanceUgx ?? 0]].map(([label,value])=><View key={String(label)} style={[styles.metric, tablet && styles.metricTablet]}><Text style={styles.metricLabel}>{String(label)}</Text><Text style={styles.metricValue}>UGX {Number(value).toLocaleString()}</Text></View>)}</View>
+                  <Text style={styles.inputLabel}>Physical office cash counted (UGX)</Text><TextInput value={countedOfficeCash} onChangeText={(value)=>setCountedOfficeCash(value.replace(/[^\d]/g,""))} keyboardType="number-pad" placeholder="Count what is actually in the office" style={styles.input} />
+                  <Text style={styles.inputLabel}>Physical manager float counted (UGX)</Text><TextInput value={countedManagerFloat} onChangeText={(value)=>setCountedManagerFloat(value.replace(/[^\d]/g,""))} keyboardType="number-pad" placeholder="Count what the manager still holds" style={styles.input} />
+                  <Pressable accessibilityRole="checkbox" accessibilityState={{checked:allDevicesSynced}} onPress={()=>setAllDevicesSynced(value=>!value)} style={[styles.choice,allDevicesSynced&&styles.choiceActive]}><Text style={[styles.choiceText,allDevicesSynced&&styles.choiceTextActive]}>{allDevicesSynced?"✓ ":""}All field devices are online and fully synchronized</Text></Pressable>
+                  <Text style={styles.inputLabel}>Closing note (optional)</Text><TextInput accessibilityLabel="Closing note (optional)" value={closeNotes} onChangeText={setCloseNotes} placeholder="Shift summary or handover note" style={styles.input} />
+                  <Text style={styles.sectionCopy}>Internet is required for closing so the server can verify the latest ledger. Offline purchases and expenses remain available, but closing never waits in the offline queue.</Text>
+                  <Pressable disabled={savingOperation} onPress={closeOperatingDay} style={[styles.closeButton, savingOperation && styles.disabled]}><Text style={styles.closeButtonText}>Reconcile and close day</Text></Pressable>
+                </View> : (
                   <View style={styles.formArea}>
+                    {closureHistory.length ? <View style={styles.auditPanel}><Text style={styles.inputLabel}>Previous control actions</Text>{closureHistory.slice(0,4).map((event,index)=><View key={String(event.id||index)} style={styles.auditRow}><Text style={styles.rowTitle}>{text(event.action,"Action")} · {text(event.actorName,"Authorized user")}</Text><Text style={styles.muted}>{event.createdAt?new Date(String(event.createdAt)).toLocaleString():""}{event.reason?` · ${String(event.reason)}`:""}</Text></View>)}</View> : null}
                     <Text style={styles.inputLabel}>Reason for reopening</Text>
                     <TextInput accessibilityLabel="Reason for reopening" value={reopenReason} onChangeText={setReopenReason} placeholder="e.g. A late supplier delivery must be recorded" style={styles.input} />
                     <Pressable disabled={savingOperation} onPress={reopenOperatingDay} style={[styles.primaryButton, savingOperation && styles.disabled]}><Text style={styles.primaryButtonText}>Reopen this day</Text></Pressable>
@@ -693,11 +696,11 @@ export function CompanyTabletWorkspace({
                 )}
               </View>
             ) : null}
-            {user.roles.includes("recycling_field_manager") && operationSection === "finance" ? (
+            {canSeeMoneyFlow && operationSection === "finance" ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Organization finance</Text>
                 <Text style={styles.sectionCopy}>
-                  Review the company&apos;s working cash and move accountable money between the office and manager float. Expense approval and payment remain with the company administrator.
+                  Review working cash and accountable money. Daily operating expenses above use this same finance ledger; purchase-specific driver fees and costs remain attached to their purchase.
                 </Text>
                 <View style={[styles.metrics, tablet && styles.metricsTablet]}>
                   {[
@@ -750,9 +753,9 @@ export function CompanyTabletWorkspace({
                 </View>
                 <View style={styles.floatHistoryHead}>
                   <Text style={styles.sectionTitle}>Float history</Text>
-                  <Text style={styles.muted}>{data.floatTransactions.length ? `Showing ${Math.min(floatShown, data.floatTransactions.length)} of ${data.floatTransactions.length}` : "No movements yet"}</Text>
+                  <Text style={styles.muted}>{data.floatTransactions.length ? `Page ${currentFloatPage} of ${floatTotalPages} · ${data.floatTransactions.length} movements` : "No movements yet"}</Text>
                 </View>
-                {data.floatTransactions.slice(0, floatShown).map((movement, index) => {
+                {visibleFloatTransactions.map((movement, index) => {
                   const kind = String(movement.transaction_type || "");
                   const incoming = kind === "given";
                   return (
@@ -760,7 +763,7 @@ export function CompanyTabletWorkspace({
                       <View style={styles.rowCopy}>
                         <Text style={styles.rowTitle}>{text(movement.notes, "Field movement")}</Text>
                         <Text style={styles.muted}>
-                          {FLOAT_KIND[kind] || kind} · {movement.transaction_date ? formatDay(localDay(String(movement.transaction_date)), false) : "Date unavailable"}
+                          {FLOAT_KIND[kind] || kind} · {movement.transaction_date ? formatDay(localDay(String(movement.transaction_date)), false) : "Date unavailable"} · {text(movement.recorded_by_name, "System")}
                           {movement.running_balance_ugx !== undefined ? ` · balance ${ugx(num(movement.running_balance_ugx))}` : ""}
                         </Text>
                       </View>
@@ -770,11 +773,11 @@ export function CompanyTabletWorkspace({
                     </View>
                   );
                 })}
-                {data.floatTransactions.length > floatShown ? (
-                  <Pressable accessibilityRole="button" onPress={() => setFloatShown((shown) => shown + 10)} style={styles.showMore}>
-                    <Text style={styles.showMoreText}>Show {Math.min(10, data.floatTransactions.length - floatShown)} more</Text>
-                  </Pressable>
-                ) : null}
+                {data.floatTransactions.length > floatPageSize ? <View style={styles.floatHistoryHead}>
+                  <Pressable accessibilityRole="button" disabled={currentFloatPage <= 1} onPress={() => setFloatPage((page) => Math.max(1, page - 1))} style={[styles.showMore, currentFloatPage <= 1 && styles.disabled]}><Text style={styles.showMoreText}>Previous</Text></Pressable>
+                  <Text style={styles.muted}>{currentFloatPage} / {floatTotalPages}</Text>
+                  <Pressable accessibilityRole="button" disabled={currentFloatPage >= floatTotalPages} onPress={() => setFloatPage((page) => Math.min(floatTotalPages, page + 1))} style={[styles.showMore, currentFloatPage >= floatTotalPages && styles.disabled]}><Text style={styles.showMoreText}>Next</Text></Pressable>
+                </View> : null}
               </View>
             ) : null}
             </> : null}
@@ -982,6 +985,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   formArea: { paddingHorizontal: 16, paddingBottom: 16, gap: 8 },
+  auditPanel: { borderColor: "#d8dee9", borderWidth: 1, backgroundColor: "#f8fafc", padding: 12, gap: 4 },
+  auditRow: { borderTopColor: "#e2e8f0", borderTopWidth: 1, paddingTop: 8, marginTop: 4 },
   operationGrid: { gap: 20 },
   operationGridTablet: { flexDirection: "row", alignItems: "flex-start" },
   operationPanel: { flex: 1 },
@@ -1021,6 +1026,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   secondaryButtonText: { color: "#2f7d5a", fontWeight: "600" },
+  expenseLine: { borderWidth: 1, borderColor: "#e0e7e3", borderRadius: 14, padding: 12, gap: 7, marginTop: 8 },
+  expenseLineHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  removeText: { color: "#b42318", fontWeight: "600", paddingVertical: 8 },
+  expenseTotal: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingVertical: 8 },
   textButton: {
     minHeight: 44,
     justifyContent: "center",

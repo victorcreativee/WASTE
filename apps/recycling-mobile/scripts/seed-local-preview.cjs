@@ -5,6 +5,7 @@
 //
 // The generated password is written to services/auth-service/.env.preview (git-ignored, outside the Expo project so Metro
 // never bundles it) as PREVIEW_PASSWORD; re-running keeps it.
+/* global __dirname */
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");

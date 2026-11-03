@@ -24,6 +24,7 @@ import {
   getUserPermissions,
 } from "../repositories/role.repository";
 import { findUserById } from "../repositories/auth.repository";
+import { issueEmailVerification } from "./email-verification.service";
 
 function sanitizeUser(user: {
   id: string;
@@ -33,6 +34,8 @@ function sanitizeUser(user: {
   phone: string | null;
   status: string;
   created_at: Date;
+  email_verified_at: Date | null;
+  email_verification_required: boolean;
 }) {
   return {
     id: user.id,
@@ -42,7 +45,15 @@ function sanitizeUser(user: {
     phone: user.phone,
     status: user.status,
     createdAt: user.created_at,
+    emailVerified: !user.email_verification_required || Boolean(user.email_verified_at),
+    emailVerificationRequired: user.email_verification_required,
   };
+}
+
+export function assertEmailVerified(user: {email_verified_at: Date | null; email_verification_required: boolean}) {
+  if (user.email_verification_required && !user.email_verified_at) {
+    throw Object.assign(new Error("Verify your email before signing in. Request a new verification email if the link expired."), { statusCode: 403, code: "EMAIL_VERIFICATION_REQUIRED" });
+  }
 }
 
 export async function registerUser(input: RegisterInput, meta: SessionMeta = {}) {
@@ -70,32 +81,20 @@ export async function registerUser(input: RegisterInput, meta: SessionMeta = {})
   if (defaultRole) {
     await assignRoleToUser(user.id, defaultRole.id);
   }
-  const sid = await createSession(user.id, meta);
-  const accessToken = signAccessToken({
-    userId: user.id,
-    email: user.email,
-    organizationId: user.organization_id,
-    ...sidClaim(sid),
-  });
-
-  const refreshToken = signRefreshToken({ userId: user.id, ...sidClaim(sid) }, user.password_hash);
+  const verification = await issueEmailVerification(user.id);
 
   return {
     user: sanitizeUser(user),
-    tokens: {
-      accessToken,
-      refreshToken,
-    },
+    verificationRequired: true,
+    verificationEmailSent: verification.sent,
   };
 }
 
-export async function registerOrganizationApplicant(input:OrganizationApplicantRegisterInput,meta:SessionMeta={}){
+export async function registerOrganizationApplicant(input:OrganizationApplicantRegisterInput,_meta:SessionMeta={}){
   const passwordHash=await bcrypt.hash(input.password,12);
   const user=await createOrganizationApplicant(input,passwordHash);
-  const sid=await createSession(user.id,meta);
-  const accessToken=signAccessToken({userId:user.id,email:user.email,organizationId:null,roles:["organization_applicant"],...sidClaim(sid)});
-  const refreshToken=signRefreshToken({userId:user.id,...sidClaim(sid)},user.password_hash);
-  return {user:sanitizeUser(user),roles:[{name:"organization_applicant"}],permissions:[],tokens:{accessToken,refreshToken}};
+  const verification=await issueEmailVerification(user.id);
+  return {user:sanitizeUser(user),roles:[{name:"organization_applicant"}],permissions:[],verificationRequired:true,verificationEmailSent:verification.sent};
 }
 
 let timingHash: Promise<string> | null = null;
@@ -124,6 +123,7 @@ export async function loginUser(input: LoginInput, meta: SessionMeta = {}) {
     (error as any).statusCode = 403;
     throw error;
   }
+  assertEmailVerified(user);
 
   return startSession(user, meta);
 }
@@ -132,6 +132,7 @@ type SessionUser = Parameters<typeof sanitizeUser>[0] & { password_hash: string 
 
 /** Opens a session for an account that has already proved who it is (password, household link or one-time code). */
 export async function startSession(user: SessionUser, meta: SessionMeta = {}) {
+  assertEmailVerified(user);
   const roles = await getUserRoles(user.id);
   await requireActiveOrganization(user.organization_id, roles, user.id);
   await updateLastLogin(user.id);
@@ -166,6 +167,7 @@ export async function getCurrentUser(userId: string) {
     (error as any).statusCode = 404;
     throw error;
   }
+  assertEmailVerified(user);
 
   const roles = await getUserRoles(user.id);
   await requireActiveOrganization(user.organization_id, roles, user.id);

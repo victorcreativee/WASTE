@@ -18,7 +18,7 @@ type Overview = {
   schedule: { weekdays: string[]; routes: string[]; upcoming: { scheduled_date: string; status: string }[] };
   collections: { id: string; scheduled_date: string; status: string; completed_at: string | null; exception_reason: string | null }[];
   invoices: { id: string; invoice_number: string; amount_ugx: string; balance_ugx: string; status: string; due_on: string; period_start: string | null; period_end: string | null }[];
-  payments: { id: string; invoice_id: string | null; amount_ugx: string; provider: string; status: string; receipt_number: string | null; created_at: string }[];
+  payments: { id: string; invoice_id: string | null; amount_ugx: string; provider: string; status: string; receipt_number: string | null; created_at: string; failure_reason?: string | null; automatic?: boolean; needs_review?: boolean }[];
   requests: { id: string; category: string; title: string; status: string; created_at: string; resolution_notes: string | null }[];
   messages: { id: string; title: string; body: string; created_at: string }[];
   serviceRequest: ServiceRequest | null;
@@ -207,6 +207,7 @@ function Dashboard({ overview, reload, setNotice, setError }: { overview: Overvi
   const [requestKind, setRequestKind] = useState<"missed_collection" | "pickup_request" | "service_complaint" | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [watching, setWatching] = useState<string | null>(null);
   const planned = overview.schedule.upcoming[0];
   const routeNext = nextRouteDay(overview.schedule.weekdays);
   const next = planned ? planned.scheduled_date : routeNext ? routeNext.date.toLocaleDateString("en-CA") : null;
@@ -219,13 +220,35 @@ function Dashboard({ overview, reload, setNotice, setError }: { overview: Overvi
   async function pay(invoiceId: string, amount: number) {
     setBusy(true); setError("");
     try {
-      await apiRequest("/api/waste/billing/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invoiceId, amountUgx: amount, provider, payerPhone: payPhone }) });
+      const started = await apiRequest<{ data: { id: string; automatic: boolean } }>("/api/waste/billing/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invoiceId, amountUgx: amount, provider, payerPhone: payPhone }) });
       setPaying(null);
-      announce(`Payment of ${ugx(amount)} started. Approve it on your phone; your collection company confirms it and your receipt appears here.`);
+      if (started.data.automatic) {
+        announce(`Check your phone: approve the payment of ${ugx(amount)} with your mobile money PIN.`);
+        setWatching(started.data.id);
+      } else {
+        announce(`Payment of ${ugx(amount)} recorded. Your collection company confirms it once the money arrives, and your receipt appears here.`);
+      }
       await reload();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "The payment could not be started."); }
     finally { setBusy(false); }
   }
+  // Follows a mobile money payment until the provider gives a final answer (or a few minutes pass).
+  useEffect(() => {
+    if (!watching) return;
+    let stopped = false, polls = 0;
+    const timer = window.setInterval(async () => {
+      polls += 1;
+      try {
+        const { data } = await apiRequest<{ data: { status: string; receipt_number: string | null; failure_reason: string | null; amount_ugx: string } }>(`/api/waste/billing/payments/${watching}`);
+        if (stopped) return;
+        if (data.status === "successful") { setWatching(null); announce(`Paid ${ugx(data.amount_ugx)}. Receipt ${data.receipt_number}. Thank you.`); await reload(); }
+        else if (data.status === "failed") { setWatching(null); setError(`The payment did not go through: ${data.failure_reason || "it was not approved"}. You can try again.`); await reload(); }
+        else if (polls >= 60) { setWatching(null); await reload(); }
+      } catch { /* keep trying; the list refreshes on the next reload */ }
+    }, 3000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watching]);
   async function toggleSms(enabled: boolean) {
     setBusy(true); setError("");
     try {
@@ -272,7 +295,11 @@ function Dashboard({ overview, reload, setNotice, setError }: { overview: Overvi
               <p className="text-sm font-semibold">{ugx(invoice.balance_ugx)}</p>
             </div>
             {waitingFor(invoice.id) ? (
-              <p className="mt-2 rounded-[var(--ui-radius)] bg-amber-50 px-3 py-2 text-sm text-amber-900">Payment of {ugx(waitingFor(invoice.id)!.amount_ugx)} is waiting for your collection company to confirm it.</p>
+              <p className="mt-2 rounded-[var(--ui-radius)] bg-amber-50 px-3 py-2 text-sm text-amber-900">{waitingFor(invoice.id)!.needs_review
+                ? `Your payment of ${ugx(waitingFor(invoice.id)!.amount_ugx)} is being checked by your collection company. You do not need to pay again.`
+                : waitingFor(invoice.id)!.automatic
+                  ? `Payment of ${ugx(waitingFor(invoice.id)!.amount_ugx)} is waiting for you to approve it on your phone.`
+                  : `Payment of ${ugx(waitingFor(invoice.id)!.amount_ugx)} is waiting for your collection company to confirm it.`}</p>
             ) : paying === invoice.id ? (
               <div className="mt-3 space-y-3 rounded-[var(--ui-radius)] bg-slate-50 p-3">
                 <div className="grid grid-cols-2 gap-2">
@@ -295,7 +322,7 @@ function Dashboard({ overview, reload, setNotice, setError }: { overview: Overvi
           <details className="mt-3 border-t border-slate-100 pt-3">
             <summary className="cursor-pointer text-sm font-medium text-slate-700">Payment history</summary>
             <ul className="mt-2 space-y-2">{overview.payments.map((payment) => (
-              <li key={payment.id} className="flex justify-between gap-3 text-sm"><span>{shortDay(payment.created_at)} · {payment.status === "successful" ? (payment.receipt_number || "Paid") : "Waiting for confirmation"}</span><span className="font-medium">{ugx(payment.amount_ugx)}</span></li>
+              <li key={payment.id} className="flex justify-between gap-3 text-sm"><span>{shortDay(payment.created_at)} · {payment.status === "successful" ? (payment.receipt_number || "Paid") : payment.status === "failed" ? "Did not go through" : payment.status === "cancelled" ? "Cancelled" : "Waiting for confirmation"}</span><span className="font-medium">{ugx(payment.amount_ugx)}</span></li>
             ))}</ul>
           </details>
         ) : null}

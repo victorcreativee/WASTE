@@ -195,7 +195,7 @@ export async function initiatePaymentHandler(req: Request, res: Response) {
   return res.status(201).json({
     success: true,
     message: result.providerMessage,
-    data: result.payment,
+    data: { ...result.payment, automatic: result.automatic },
   });
 }
 export async function confirmPaymentHandler(req: Request, res: Response) {

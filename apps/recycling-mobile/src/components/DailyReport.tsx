@@ -45,7 +45,12 @@ function buildReport(data: Workspace, day: string) {
   const todaysLotIds = new Set(lots.map((lot) => String(lot.id)));
   const paidNow = payments.filter((payment) => todaysLotIds.has(String(payment.lot_id)) && spot(payment)).reduce((sum, payment) => sum + num(payment.amount_ugx), 0);
   const float = data.floatTransactions || [];
-  const floatBefore = float.filter((row) => localDay(String(row.transaction_date || "")) < day).reduce((sum, row) => sum + floatSign(row) * num(row.amount_ugx), 0);
+  // The server sends only the latest 100 float entries, newest first, each with the balance over every entry up to it,
+  // so the opening float is the balance on the newest entry before this day rather than a sum of the list.
+  const lastBefore = float.find((row) => localDay(String(row.transaction_date || "")) < day);
+  const floatBefore = lastBefore?.running_balance_ugx !== undefined
+    ? num(lastBefore.running_balance_ugx)
+    : float.filter((row) => localDay(String(row.transaction_date || "")) < day).reduce((sum, row) => sum + floatSign(row) * num(row.amount_ugx), 0);
   const floatToday = float.filter((row) => on(day, row.transaction_date));
   const floatIn = floatToday.filter((row) => row.transaction_type === "given").reduce((sum, row) => sum + num(row.amount_ugx), 0);
   const floatReturned = floatToday.filter((row) => row.transaction_type === "returned").reduce((sum, row) => sum + num(row.amount_ugx), 0);
