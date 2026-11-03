@@ -16,6 +16,12 @@ async function deliver(to:string,fullName:string,token:string){
   await transport.sendMail({from:process.env.NOTIFY_EMAIL_FROM||'Kampala WMS <no-reply@kampalawms.com>',to,subject,text});
   return true;
  }
+ // Over HTTPS, because the droplet's outgoing SMTP ports are blocked.
+ if(provider==='resend'&&process.env.RESEND_API_KEY){
+  const response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{'content-type':'application/json','authorization':`Bearer ${process.env.RESEND_API_KEY}`},body:JSON.stringify({from:process.env.NOTIFY_EMAIL_FROM||'Kampala WMS <no-reply@kampalawms.com>',to:[to],subject,text}),signal:AbortSignal.timeout(10_000)});
+  if(!response.ok)throw new Error(`Resend answered ${response.status}`);
+  return true;
+ }
  if(provider==='webhook'&&process.env.NOTIFY_WEBHOOK_URL){
   const response=await fetch(process.env.NOTIFY_WEBHOOK_URL,{method:'POST',headers:{'content-type':'application/json',...(process.env.NOTIFY_WEBHOOK_SECRET?{'authorization':`Bearer ${process.env.NOTIFY_WEBHOOK_SECRET}`}:{})},body:JSON.stringify({channel:'email',to,subject,text})});
   if(!response.ok)throw new Error(`Email webhook returned ${response.status}`);

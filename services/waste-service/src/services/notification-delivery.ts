@@ -5,10 +5,10 @@ import { env } from "../config/env";
 // Email and SMS delivery for notifications. Providers are chosen by environment so the same code runs in development
 // (log), with any HTTP integration (webhook), or in production (SMTP email, Africa's Talking SMS).
 //
-//   NOTIFY_EMAIL_PROVIDER = log | webhook | smtp | off      (default log)
+//   NOTIFY_EMAIL_PROVIDER = log | webhook | smtp | resend | off      (default log)
 //   NOTIFY_SMS_PROVIDER   = log | webhook | africastalking | off   (default log)
 //   NOTIFY_WEBHOOK_URL, NOTIFY_WEBHOOK_SECRET (HMAC-SHA256 of the body, sent as X-WMS-Signature)
-//   SMTP_URL (smtp[s]://user:pass@host:port), NOTIFY_EMAIL_FROM
+//   SMTP_URL (smtp[s]://user:pass@host:port), RESEND_API_KEY, NOTIFY_EMAIL_FROM
 //   AT_USERNAME, AT_API_KEY, AT_SENDER_ID (optional), AT_BASE_URL (sandbox: https://api.sandbox.africastalking.com)
 
 export type Channel = "email" | "sms";
@@ -77,6 +77,17 @@ async function sendSmtp(message: OutgoingMessage): Promise<SendResult> {
   return { provider: "smtp", messageId: info.messageId };
 }
 
+/** Sends over HTTPS, because the droplet's outgoing SMTP ports are blocked. */
+async function sendResend(message: OutgoingMessage): Promise<SendResult> {
+  if (!process.env.RESEND_API_KEY) throw new SkipDelivery("RESEND_API_KEY is not set");
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+    body: JSON.stringify({ from: process.env.NOTIFY_EMAIL_FROM || "Kampala WMS <no-reply@kampalawms.com>", to: [message.to], subject: message.subject, text: message.text }), signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error(`Resend answered ${response.status}`);
+  return { provider: "resend", messageId: ((await response.json()) as { id?: string }).id };
+}
+
 async function sendAfricasTalking(message: OutgoingMessage): Promise<SendResult> {
   const { AT_USERNAME, AT_API_KEY } = process.env;
   if (!AT_USERNAME || !AT_API_KEY) throw new SkipDelivery("AT_USERNAME and AT_API_KEY are not set");
@@ -109,6 +120,7 @@ export async function send(message: OutgoingMessage): Promise<SendResult> {
       return { provider: "log" };
     case "webhook": return sendWebhook(message);
     case "smtp": if (message.channel === "email") return sendSmtp(message); break;
+    case "resend": if (message.channel === "email") return sendResend(message); break;
     case "africastalking": if (message.channel === "sms") return sendAfricasTalking(message); break;
   }
   throw new SkipDelivery(`Provider "${provider}" cannot send ${message.channel}`);

@@ -94,6 +94,7 @@ async function cleanup() {
   const orgs = (await sql("SELECT id FROM organizations WHERE name LIKE $1", [`%${tag}`])).map(r => r.id);
   const users = (await sql("SELECT id FROM users WHERE email LIKE $1", [`${tag}-%`])).map(r => r.id);
   await sql("DELETE FROM trip_disposal_explanations WHERE organization_id=ANY($1::uuid[])", [orgs]);
+  await sql("DELETE FROM load_certificates WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM weighbridge_transactions WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM collection_routes WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM service_routes WHERE organization_id=ANY($1::uuid[])", [orgs]);

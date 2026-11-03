@@ -42,7 +42,10 @@ async function step(name, fn) { await fn(); passed++; console.log(`  ✓ ${name}
 
 async function setup() {
   const hash = await bcrypt.hash(PASSWORD, 10);
-  userId = (await sql("INSERT INTO users(full_name,email,password_hash,status) VALUES('E2E Session Officer',$1,$2,'active') RETURNING id", [email, hash]))[0].id;
+  userId = (await sql(
+    "INSERT INTO users(full_name,email,password_hash,status,email_verified_at,email_verification_required) VALUES('E2E Session Officer',$1,$2,'active',NOW(),false) RETURNING id",
+    [email, hash],
+  ))[0].id;
   await sql("INSERT INTO user_roles(user_id,role_id) SELECT $1,id FROM roles WHERE name='kcca_admin'", [userId]);
 }
 async function cleanup() {

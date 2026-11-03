@@ -97,6 +97,7 @@ async function cleanup() {
   await sql("DELETE FROM citizen_issues WHERE assigned_organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM collection_jobs WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM collection_routes WHERE organization_id=ANY($1::uuid[])", [orgs]);
+  await sql("DELETE FROM load_certificates WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM weighbridge_transactions WHERE organization_id=ANY($1::uuid[]) OR ticket_number LIKE $2", [orgs, `${tag}-%`]);
   await sql("DELETE FROM organization_permit_applications WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM notifications WHERE recipient_user_id=ANY($1::uuid[])", [users]).catch(() => undefined);

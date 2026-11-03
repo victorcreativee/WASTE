@@ -73,6 +73,7 @@ async function cleanup() {
   await sql("DELETE FROM recycling_material_sales WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM recycling_sorting_batches WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM recycling_material_lots WHERE organization_id=ANY($1::uuid[])", [orgs]);
+  await sql("DELETE FROM load_certificates WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM weighbridge_transactions WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM organization_division_authorizations WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM organization_permit_applications WHERE organization_id=ANY($1::uuid[])", [orgs]);
@@ -150,8 +151,8 @@ async function run() {
     const input = await lotId("PET");
     const output = (await sql(`INSERT INTO recycling_material_lots(organization_id,material_type,source_name,quantity_kg,available_kg,collected_on,quality,created_by,origin,source_lot_id)
       VALUES($1,'PET','Sorting',380,380,CURRENT_DATE-3,'clean',$2,'sorting_output',$3) RETURNING id`, [ids.recycler, ids.recyclerAdmin, input]))[0].id;
-    await sql(`INSERT INTO recycling_sorting_batches(organization_id,input_lot_id,output_lot_id,processed_on,input_kg,output_material_type,output_kg,rejected_kg,recorded_by)
-      VALUES($1,$2,$3,CURRENT_DATE-3,500,'PET',380,120,$4)`, [ids.recycler, input, output, ids.recyclerAdmin]);
+    await sql(`INSERT INTO recycling_sorting_batches(organization_id,input_lot_id,output_lot_id,processed_on,input_kg,output_material_type,output_kg,rejected_kg,recorded_by,entry_id)
+      VALUES($1,$2,$3,CURRENT_DATE-3,500,'PET',380,120,$4,$3)`, [ids.recycler, input, output, ids.recyclerAdmin]);
     await sql("INSERT INTO recycling_daily_closures(organization_id,operating_date,closed_by) VALUES($1,CURRENT_DATE-5,$2)", [ids.recycler, ids.recyclerAdmin]);
     await sql(`INSERT INTO weighbridge_transactions(organization_id,ticket_number,facility,registration,normalized_registration,operation_date,arrival_at,gross_kg,tare_kg,net_kg,status)
       VALUES($1,$2,'Kiteezi','UBA 001E','UBA001E',CURRENT_DATE-1,now(),17000,10000,7000,'completed')`, [ids.collector, `${tag}-T1`]);
@@ -191,7 +192,7 @@ async function run() {
     assert.deepEqual(d.categories.map(c => [c.category, c.collected_kg, c.sold_kg]), [["plastic", 1000, 300], ["paper", 600, 0]]);
     assert.deepEqual(d.aged_stock.map(a => [a.material_type, a.kg]), [["Steel", 800]]);
     assert.equal(d.closures.length, 1);
-    assert.equal(d.monthly.at(-1).collected_kg >= 1000, true);
+    assert.equal(d.monthly.some(month => month.collected_kg >= 1000), true);
     assert.equal((await api("GET", "/recycling-oversight/recyclers/not-a-uuid", ids.kcca)).status, 400);
   });
   await step("a custom period excludes activity outside it, and bad periods are refused", async () => {

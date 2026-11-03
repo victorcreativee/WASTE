@@ -41,6 +41,7 @@ async function cleanup() {
   const users = (await sql("SELECT id FROM users WHERE email LIKE $1", [`${tag}-%`])).map(r => r.id);
   if (ids.org) {
     await sql("DELETE FROM citizen_issues WHERE assigned_organization_id=$1", [ids.org]);
+    await sql("DELETE FROM load_certificates WHERE organization_id=$1", [ids.org]);
     await sql("DELETE FROM weighbridge_transactions WHERE organization_id=$1", [ids.org]);
   }
   await sql("DELETE FROM notifications WHERE recipient_user_id=ANY($1::uuid[])", [users]).catch(() => undefined);

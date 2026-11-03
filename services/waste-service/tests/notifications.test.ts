@@ -37,6 +37,30 @@ test("switched-off channels and unusable numbers are skipped, not retried", asyn
   delete process.env.NOTIFY_SMS_PROVIDER;
 });
 
+test("Resend receives the email with the API key, and a refusal is an error to retry", async () => {
+  const original = globalThis.fetch;
+  const calls: Array<{ url: string; body: string; authorization: string }> = [];
+  Object.assign(process.env, { NOTIFY_EMAIL_PROVIDER: "resend", RESEND_API_KEY: "re_test", NOTIFY_EMAIL_FROM: "Kampala WMS <no-reply@wms.example>" });
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    calls.push({ url: String(url), body: String(init.body), authorization: (init.headers as Record<string, string>).Authorization });
+    return new Response(JSON.stringify({ id: "email_1" }), { status: calls.length === 1 ? 200 : 422 });
+  }) as typeof fetch;
+  try {
+    const message = { channel: "email" as const, to: "a@example.test", subject: "Subject", text: "Hello" };
+    assert.deepEqual(await send(message), { provider: "resend", messageId: "email_1" });
+    assert.equal(calls[0].url, "https://api.resend.com/emails");
+    assert.equal(calls[0].authorization, "Bearer re_test");
+    assert.deepEqual(JSON.parse(calls[0].body), { from: "Kampala WMS <no-reply@wms.example>", to: ["a@example.test"], subject: "Subject", text: "Hello" });
+    await assert.rejects(send(message), error => !isSkip(error));
+    delete process.env.RESEND_API_KEY;
+    await assert.rejects(send(message), error => isSkip(error));
+  } finally {
+    globalThis.fetch = original;
+    delete process.env.NOTIFY_EMAIL_PROVIDER;
+    delete process.env.NOTIFY_EMAIL_FROM;
+  }
+});
+
 test("Africa's Talking receives the normalised number and its response decides success", async () => {
   const original = globalThis.fetch;
   const calls: Array<{ url: string; body: string; apiKey: string }> = [];

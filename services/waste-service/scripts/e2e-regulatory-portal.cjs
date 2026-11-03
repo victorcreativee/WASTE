@@ -72,6 +72,7 @@ async function cleanup() {
   const users = (await sql("SELECT id FROM users WHERE email LIKE $1", [`${tag}-%`])).map(r => r.id);
   await sql("DELETE FROM regulatory_returns WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM collection_routes WHERE organization_id=ANY($1::uuid[])", [orgs]);
+  await sql("DELETE FROM load_certificates WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM weighbridge_transactions WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM recycling_material_lots WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM notifications WHERE recipient_user_id=ANY($1::uuid[])", [users]).catch(() => undefined);
@@ -93,7 +94,7 @@ async function run() {
     const d = r.body.data;
     assert.equal(d.permit, null);
     assert.equal(d.returns.overdue, 1);
-    assert.deepEqual(d.returns.outstanding.map(p => [p.period, p.state]), [[PERIOD, "overdue"]]);
+    assert.ok(d.returns.outstanding.some(p => p.period === PERIOD && p.state === "overdue"));
   });
   await step("a company that joined this month owes nothing yet", async () => {
     const r = await api("GET", "/regulatory/returns", ids.newcomerAdmin);

@@ -52,6 +52,8 @@ async function setup() {
   ids.otherAdmin = await user("E2E Other Admin", "company_admin", ids.other);
   ids.driverUser = await user("E2E Driver", "driver", ids.collector);
   ids.driver = (await sql("INSERT INTO drivers(organization_id,user_id,full_name,status) VALUES($1,$2,'E2E Driver','available') RETURNING id", [ids.collector, ids.driverUser]))[0].id;
+  await sql(`INSERT INTO gps_consents(user_id,organization_id,notice_version,decision,user_agent)
+    SELECT $1,$2,max(version),'granted','KWMS release E2E' FROM gps_privacy_notices`, [ids.driverUser, ids.collector]);
   ids.today = (await sql("SELECT CURRENT_DATE::text AS d"))[0].d;
   ids.division = (await sql("SELECT id FROM kampala_divisions ORDER BY name LIMIT 1"))[0].id;
   const permit = await api("POST", `/regulatory/organizations/${ids.collector}/permits`, ids.kcca, {
@@ -103,6 +105,7 @@ async function cleanup() {
   await sql("DELETE FROM notifications WHERE recipient_user_id=ANY($1::uuid[]) OR organization_id=ANY($2::uuid[])", [users, orgs]);
   await sql("DELETE FROM trip_track_checks WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM vehicle_location_events WHERE organization_id=ANY($1::uuid[])", [orgs]);
+  await sql("DELETE FROM load_certificates WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM weighbridge_transactions WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM collection_routes WHERE organization_id=ANY($1::uuid[])", [orgs]);
   await sql("DELETE FROM service_routes WHERE organization_id=ANY($1::uuid[])", [orgs]);
