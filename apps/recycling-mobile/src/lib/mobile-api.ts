@@ -2,9 +2,9 @@ import NetInfo from "@react-native-community/netinfo";
 import * as Crypto from "expo-crypto";
 import * as SQLite from "expo-sqlite";
 import { refreshAccessToken } from "./auth-session";
-import { localDay } from "./dates";
+import { addDays, localDay } from "./dates";
 
-type Method = "POST" | "PUT" | "PATCH";
+type Method = "POST" | "PUT" | "PATCH" | "DELETE";
 type QueueRow = {
   id: string;
   owner_email: string;
@@ -44,6 +44,9 @@ export type MobileOutboxItem = {
 const dbPromise = SQLite.openDatabaseAsync("kwms-mobile.db");
 let ready: Promise<void> | null = null;
 let activeSync: Promise<number> | null = null;
+let activePreparation: Promise<number> | null = null;
+let lastPreparedOwner = "";
+let lastPreparedAt = 0;
 let state: SyncState = {
   online: true,
   pending: 0,
@@ -104,6 +107,7 @@ async function projectPendingRecyclingChanges(
   data.sales = Array.isArray(data.sales) ? data.sales : [];
   data.partners = Array.isArray(data.partners) ? data.partners : [];
   data.sortingBatches = Array.isArray(data.sortingBatches) ? data.sortingBatches : [];
+  data.stockAdjustments = Array.isArray(data.stockAdjustments) ? data.stockAdjustments : [];
   // The recycling API calls this collection `floatTransactions`. Older mobile
   // builds used `floatMovements`, which made queued movements disappear and
   // left the displayed balance stale until the next successful server refresh.
@@ -252,6 +256,31 @@ async function projectPendingRecyclingChanges(
       data.sortingBatches.unshift({ id: row.id, status: "pending_sync", processed_on: payload.processedOn || localDay(), input_material_type: payload.inputMaterialType || candidates[0]?.material_type || "Material", input_kg: String(Number(payload.outputKg || 0) + Number(payload.rejectedKg || 0)), output_material: payload.outputMaterialType || "Processed material", output_kg: String(payload.outputKg || 0), rejected_kg: String(payload.rejectedKg || 0), processing_cost_ugx: String(Number(payload.workerWagesUgx || 0)+Number(payload.utilitiesUgx || 0)+Number(payload.transportUgx || 0)+Number(payload.consumablesUgx || 0)+Number(payload.otherExpenseUgx || 0)) });
       if (Number(payload.managerFloatUsedUgx || 0) > 0)
         adjustFloat(Number(payload.managerFloatUsedUgx), "spent");
+    }
+
+    if (row.endpoint === "/api/waste/recycling/stock-adjustments") {
+      if (data.stockAdjustments.some((adjustment: any) => adjustment.id === row.id)) continue;
+      const lot = data.lots.find((item: any) => item.id === payload.lotId);
+      const quantity = Number(payload.quantityKg || 0);
+      if (lot) {
+        const available = Number(lot.available_kg ?? lot.available_quantity_kg ?? 0);
+        const next = payload.adjustmentType === "correction_in"
+          ? available + quantity
+          : Math.max(0, available - quantity);
+        lot.available_kg = String(next);
+        lot.available_quantity_kg = String(next);
+        lot.local_sync_status = "pending";
+      }
+      data.stockAdjustments.unshift({
+        id: row.id,
+        lot_id: payload.lotId,
+        adjustment_date: payload.adjustmentDate || localDay(),
+        adjustment_type: payload.adjustmentType,
+        quantity_kg: String(quantity),
+        reason: payload.reason,
+        notes: payload.notes || "",
+        local_sync_status: "pending",
+      });
     }
 
     if (row.endpoint === "/api/waste/recycling/sales") {
@@ -488,7 +517,7 @@ export async function mobileRequest<T>(
   init: RequestInit = {},
 ): Promise<MobileApiResult<T>> {
   const method = String(init.method || "GET").toUpperCase();
-  const mutation = ["POST", "PUT", "PATCH"].includes(method);
+  const mutation = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
   const db = await database();
   const cacheKey = `${ownerEmail.toLowerCase()}:${path}`;
   // Writes carry the key the outbox would use, so a request that reached the server but timed out on the way back is
@@ -496,6 +525,9 @@ export async function mobileRequest<T>(
   const operationId = mutation ? uuid() : "";
   const operationCreatedAt = mutation ? new Date().toISOString() : "";
   try {
+    const connection = await NetInfo.fetch();
+    if (!(connection.isConnected && connection.isInternetReachable !== false))
+      throw new TypeError("Network request failed: this device is offline");
     const request = (accessToken: string) =>
       fetchWithin(
         `${API_BASE}${path}`,
@@ -567,6 +599,62 @@ export async function mobileRequest<T>(
     }
     throw error;
   }
+}
+
+/**
+ * Downloads the recycling company's working set while the device is online.
+ * Every response goes through mobileRequest, so it is stored in the same SQLite
+ * cache the real screens read when the network disappears. Permission-restricted
+ * endpoints are intentionally ignored: each account only keeps data it can read.
+ */
+export function prepareOfflineWorkspace(
+  token: string,
+  ownerEmail: string,
+  force = false,
+): Promise<number> {
+  const normalizedOwner = ownerEmail.toLowerCase();
+  if (activePreparation) return activePreparation;
+  if (
+    !force &&
+    normalizedOwner === lastPreparedOwner &&
+    Date.now() - lastPreparedAt < 30_000
+  ) return Promise.resolve(0);
+
+  activePreparation = (async () => {
+    const connection = await NetInfo.fetch();
+    if (!(connection.isConnected && connection.isInternetReachable !== false)) {
+      publish({ online: false });
+      return 0;
+    }
+    const today = localDay();
+    const monthStart = `${today.slice(0, 7)}-01`;
+    const weekStart = addDays(today, -6);
+    const paths = [
+      "/api/waste/recycling",
+      "/api/waste/finance/expenses",
+      "/api/waste/finance/position",
+      "/api/waste/customers",
+      "/api/waste/trucks",
+      "/api/waste/trips",
+      `/api/waste/recycling/cash-flow?from=${today}&to=${today}`,
+      `/api/waste/recycling/cash-flow?from=${weekStart}&to=${today}`,
+      `/api/waste/recycling/cash-flow?from=${monthStart}&to=${today}`,
+      `/api/waste/reports/organization?from=${monthStart}&to=${today}`,
+      `/api/waste/reports/company?from=${monthStart}&to=${today}`,
+    ];
+    const results = await Promise.allSettled(
+      paths.map((path) => mobileRequest<unknown>(path, token, normalizedOwner)),
+    );
+    const downloaded = results.filter((result) => result.status === "fulfilled").length;
+    if (downloaded > 0) {
+      lastPreparedOwner = normalizedOwner;
+      lastPreparedAt = Date.now();
+    }
+    return downloaded;
+  })().finally(() => {
+    activePreparation = null;
+  });
+  return activePreparation;
 }
 
 /** Sends this phone's waiting work in order. Resolves with how many records reached the server. */
@@ -712,7 +800,10 @@ export function watchConnectivity(
   let wasOnline: boolean | undefined;
   const send = () =>
     void syncMobileOutbox(token, ownerEmail)
-      .then((sent) => { if (sent > 0) onSynced?.(); })
+      .then(async (sent) => {
+        const refreshed = await prepareOfflineWorkspace(token, ownerEmail, sent > 0);
+        if (sent > 0 || refreshed > 0) onSynced?.();
+      })
       .catch(() => undefined);
   // Waiting work is retried on its backoff schedule. This does not trust the online flag: a weak signal can fail a
   // request while the phone still reports a connection, and no network event would follow to clear it.

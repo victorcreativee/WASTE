@@ -24,7 +24,7 @@ import {
   saveSession,
   unlockSavedAccount,
 } from "../lib/auth-session";
-import { initializeMobileStorage } from "../lib/mobile-api";
+import { initializeMobileStorage, prepareOfflineWorkspace } from "../lib/mobile-api";
 import { CompanyTabletWorkspace } from "./CompanyTabletWorkspace";
 import { OperationsWorkspace } from "./OperationsWorkspace";
 import { RecyclingSalesWorkspace } from "./RecyclingSalesWorkspace";
@@ -136,6 +136,11 @@ export function NativeMobileApp() {
         value,
       );
       await initializeMobileStorage(pendingSave.user.email);
+      await prepareOfflineWorkspace(
+        pendingSave.accessToken,
+        pendingSave.user.email,
+        true,
+      );
       setSaved(await getSavedAccount());
       setSession({ token: pendingSave.accessToken, user: pendingSave.user });
       setPendingSave(null);
