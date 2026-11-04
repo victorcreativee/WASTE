@@ -84,6 +84,23 @@ recovery works.
 Perform an off-server restore rehearsal at least monthly and record the date,
 operator, backup timestamp, result and recovery duration.
 
+Install the server schedule once from the production checkout:
+
+```bash
+infrastructure/production/install-operations-cron.sh
+```
+
+It creates a nightly database backup at 02:15 Kampala time, a weekly disposable
+restore rehearsal at 03:30 Kampala time on Sunday, and a read-only operations
+check every five minutes. The operations check verifies every container, all
+public readiness endpoints, backup age/checksum and disk headroom. Configure
+`OPS_ALERT_EMAIL` in the protected production `.env`; email is sent only when
+health changes from passing to failing or from failing back to passing.
+
+This schedule does not replace off-server backup replication. Configure an
+encrypted object-storage or second-server destination before treating disaster
+recovery as complete.
+
 ## Release procedure while real money is active
 
 1. Freeze feature changes for the release candidate.

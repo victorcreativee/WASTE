@@ -30,7 +30,7 @@ done
 
 step "1b. Mobile lint and production-script syntax"
 (cd apps/recycling-mobile && npx eslint . --no-cache) && echo "   ok  apps/recycling-mobile lint"
-for script in infrastructure/production/backup.sh infrastructure/production/verify-backup.sh infrastructure/production/deploy.sh infrastructure/production/migrate.sh; do
+for script in infrastructure/production/backup.sh infrastructure/production/verify-backup.sh infrastructure/production/deploy.sh infrastructure/production/migrate.sh infrastructure/production/operations-check.sh infrastructure/production/install-operations-cron.sh; do
   bash -n "$script" && echo "   ok  $script"
 done
 
