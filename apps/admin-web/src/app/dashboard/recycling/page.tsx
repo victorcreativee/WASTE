@@ -181,6 +181,9 @@ type Summary = {
   dueSoonReceivablesUgx: number;
   saleExpensesUgx: number;
   processingCostUgx: number;
+  tradingProfitUgx: number;
+  operatingExpensesUgx: number;
+  stockLossUgx: number;
   profitLossUgx: number;
   floatBalanceUgx: number;
   officeCashUgx:number;
@@ -1015,7 +1018,7 @@ export default function RecyclingPage() {
       sorting: "Processing batches, recovery, rejected weight and processing cost.",
       stock: "Available quantities, inventory value and verified adjustments.",
       sales: "Dispatches, invoices, customer payments and follow-up.",
-      float: "Office cash, field float, obligations and trading result.",
+      float: "Office cash, field float, obligations and profit.",
       history: "Permanent audit trail of authorized transaction corrections.",
     },
     activeTabLabel = tabs.find(([id]) => id === tab)?.[1] ?? "Workspace";
@@ -1496,6 +1499,8 @@ export default function RecyclingPage() {
                         ["Total purchase cost", data.summary.purchaseCostUgx],
                         ["Processing cost", data.summary.processingCostUgx],
                         ["Selling expenses", data.summary.saleExpensesUgx],
+                        ["Operating expenses", data.summary.operatingExpensesUgx],
+                        ["Stock losses", data.summary.stockLossUgx],
                         ["Manager float", data.summary.floatBalanceUgx],
                         ["Profit / loss", data.summary.profitLossUgx],
                       ].map(([label, value]) => (
@@ -1937,7 +1942,7 @@ export default function RecyclingPage() {
                   <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Sales revenue</p><p className="mt-1 text-lg font-semibold">{money(data.summary.revenueUgx)}</p></div>
                   <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Receivables</p><p className="mt-1 text-lg font-semibold">{money(data.summary.unpaidSalesUgx)}</p></div>
                   <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Quantity sold</p><p className="mt-1 text-lg font-semibold">{data.summary.soldKg.toLocaleString()} kg</p></div>
-                  <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Net trading result</p><p className={`mt-1 text-lg font-semibold ${data.summary.profitLossUgx < 0 ? "text-red-700" : ""}`}>{money(data.summary.profitLossUgx)}</p></div>
+                  <div className="bg-slate-50 p-3"><p className="text-xs text-slate-500">Profit / loss</p><p className={`mt-1 text-lg font-semibold ${data.summary.profitLossUgx < 0 ? "text-red-700" : ""}`}>{money(data.summary.profitLossUgx)}</p></div>
                 </div>
               {filteredSales.length ? (
                 <div className="table-wrap">
@@ -2018,7 +2023,7 @@ export default function RecyclingPage() {
                 </div>
               </section>
               <section className="grid gap-5 lg:grid-cols-2">
-                <div className="border border-slate-200 bg-white p-5"><h3 className="font-semibold">Trading result</h3><div className="mt-3 divide-y text-sm">{[["Sales revenue",data.summary.revenueUgx],["Cost of material sold",-data.summary.costOfGoodsSoldUgx],["Gross profit",data.summary.grossProfitUgx],["Selling expenses",-data.summary.saleExpensesUgx],["Net trading profit / loss",data.summary.profitLossUgx]].map(([label,value])=><div key={String(label)} className="flex justify-between gap-4 py-3"><span>{label}</span><strong className={Number(value)<0?"text-red-700":""}>{money(Number(value))}</strong></div>)}</div></div>
+                <div className="border border-slate-200 bg-white p-5"><h3 className="font-semibold">Profit and loss</h3><div className="mt-3 divide-y text-sm">{[["Sales revenue",data.summary.revenueUgx],["Cost of material sold",0-data.summary.costOfGoodsSoldUgx],["Gross profit",data.summary.grossProfitUgx],["Selling expenses",0-data.summary.saleExpensesUgx],["Trading profit",data.summary.tradingProfitUgx],["Operating expenses",0-data.summary.operatingExpensesUgx],["Stock losses / outward corrections",0-data.summary.stockLossUgx],["Operating profit / loss",data.summary.profitLossUgx]].map(([label,value])=><div key={String(label)} className="flex justify-between gap-4 py-3"><span>{label}</span><strong className={Number(value)<0?"text-red-700":""}>{money(Number(value))}</strong></div>)}</div></div>
                 <div className="border border-slate-200 bg-white p-5"><h3 className="font-semibold">Stock accounting</h3><div className="mt-3 divide-y text-sm"><div className="flex justify-between py-3"><span>Material purchased</span><strong>{money(data.summary.purchaseCostUgx)}</strong></div><div className="flex justify-between py-3"><span>Processing cost recorded</span><strong>{money(data.summary.processingCostUgx)}</strong></div><div className="flex justify-between py-3"><span>Unsold inventory value</span><strong>{money(data.summary.inventoryValueUgx)}</strong></div><div className="flex justify-between py-3"><span>Physical stock</span><strong>{data.summary.availableKg.toLocaleString()} kg</strong></div></div><p className="mt-3 text-xs leading-5 text-slate-500">Buying stock reduces cash but does not become a trading loss immediately. Its cost moves to cost of goods sold only when that material is sold.</p></div>
               </section>
               <section className="border-y border-slate-300 bg-slate-50 p-5"><h3 className="font-semibold">How to record money correctly</h3><div className="mt-4 grid gap-4 text-sm md:grid-cols-4">{[["1. Fund the business","Set the verified opening balance under Finance. Do not use a fake sale to create cash."],["2. Buy material","Choose Paid only when cash actually leaves. Choose Credit when the supplier will be paid later."],["3. Record sales","Record the dispatch first. Mark payment only when the buyer’s money is actually received."],["4. Reconcile daily","Review cash, float, receivables and payables, then close the business day after corrections."]].map(([title,description])=><div key={title}><p className="font-semibold text-[var(--color-action)]">{title}</p><p className="mt-1 leading-6 text-slate-600">{description}</p></div>)}</div></section></>}
