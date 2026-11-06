@@ -1,4 +1,5 @@
-import { companyReport } from '../repositories/company-report.repository';
+import { companyReport, companyWorkbook } from '../repositories/company-report.repository';
+import { recyclingDailyActivity, recyclingDailyWorkbook } from '../repositories/recycling-daily.repository';
 import { reportRangeSchema } from '../validators/report-range.validator';
 import { requireOrganizationScope } from "../middlewares/organization-scope";
 import{Request,Response}from'express';import{cityCollectorReport,organizationReport}from'../repositories/report.repository';const scope=requireOrganizationScope;
@@ -7,3 +8,6 @@ export async function getOrganizationReport(q:Request,s:Response){const{from,to}
 export async function getCityCollectorReport(q:Request,s:Response){const{from,to}=range(q);return s.json({success:true,message:'City collector report fetched',data:await cityCollectorReport(from,to)});}
 
 export async function getCompanyReport(req:Request,res:Response){const {from,to}=reportRangeSchema.parse(req.query);res.setHeader("Cache-Control","no-store");return res.json({success:true,message:"Company report generated",data:await companyReport(scope(req),from,to)});}
+export async function getCompanyWorkbook(req:Request,res:Response){const {from,to}=reportRangeSchema.parse(req.query),{name,file}=await companyWorkbook(scope(req),from,to),slug=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');res.setHeader('Content-Disposition',`attachment; filename="${slug||'company'}-report-${from}-to-${to}.xlsx"`);res.setHeader('Cache-Control','no-store');return res.send(file);}
+export async function getRecyclingDaily(req:Request,res:Response){const {from,to}=reportRangeSchema.parse(req.query);res.setHeader('Cache-Control','no-store');return res.json({success:true,message:'Daily records fetched',data:await recyclingDailyActivity(scope(req),from,to)});}
+export async function getRecyclingDailyWorkbook(req:Request,res:Response){const {from,to}=reportRangeSchema.parse(req.query),file=await recyclingDailyWorkbook(scope(req),from,to);res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');res.setHeader('Content-Disposition',`attachment; filename="daily-records-${from}-to-${to}.xlsx"`);res.setHeader('Cache-Control','no-store');return res.send(file);}

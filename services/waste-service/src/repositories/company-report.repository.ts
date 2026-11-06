@@ -1,5 +1,6 @@
 import { dbPool } from '../config/database';
 import { buildCompanyReport, type CompanyReportRecords } from '../services/company-report';
+import { buildCompanyWorkbook } from '../services/company-workbook';
 type Client = { query: (sql: string, params: unknown[]) => Promise<{ rows: any[] }> };
 /** Every record a company report reads. Expenses are limited to the period; the rest are needed in full to trace costs. */
 export async function companyReportRecords(client: Client, organizationId: string, from: string, to: string): Promise<CompanyReportRecords> {
@@ -26,5 +27,17 @@ export async function companyReport(organizationId: string, from: string, to: st
   await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
   const report=buildCompanyReport(await companyReportRecords(client,organizationId,from,to),from,to);
   await client.query('COMMIT');return report;
+ } catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+}
+/** The Excel workbook of a company report, read from the same kind of snapshot. */
+export async function companyWorkbook(organizationId: string, from: string, to: string) {
+ const client=await dbPool.connect();
+ try {
+  await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  const records=await companyReportRecords(client,organizationId,from,to);
+  const loans=(await client.query(`SELECT l.lender_name,l.received_on::text,l.due_on::text,l.reference,l.amount_ugx::float8 amount_ugx,COALESCE((SELECT SUM(m.amount_ugx) FROM recycling_cash_movements m WHERE m.loan_id=l.id AND m.category='loan_repayment' AND m.movement_date<=$2::date),0)::float8 repaid_ugx FROM recycling_loans l WHERE l.organization_id=$1::uuid AND l.received_on<=$2::date ORDER BY l.received_on,l.id`,[organizationId,to])).rows;
+  const cash=(await client.query(`SELECT movement_date::text,direction,category,amount_ugx::float8 amount_ugx,reference,counterparty,notes FROM recycling_cash_movements WHERE organization_id=$1::uuid AND movement_date BETWEEN $2::date AND $3::date ORDER BY movement_date,created_at,id`,[organizationId,from,to])).rows;
+  await client.query('COMMIT');
+  return {name:String(records.organization.name),file:await buildCompanyWorkbook(buildCompanyReport(records,from,to),records,loans,cash)};
  } catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }

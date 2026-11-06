@@ -1,3 +1,4 @@
+import {archiveMonths,WeighbridgeReport} from "../services/weighbridge-report";
 import { Page, queryPage } from "../utils/pagination";
 import {dbPool} from "../config/database";
 export async function findWeighbridgeTransactions(org:string|null,page?:Page){return queryPage(`SELECT w.*,w.operation_date::text operation_date,r.trip_number,r.status trip_status,t.plate_number,d.full_name linked_driver_name,o.name organization_name FROM weighbridge_transactions w JOIN organizations o ON o.id=w.organization_id LEFT JOIN collection_routes r ON r.id=w.trip_id LEFT JOIN waste_trucks t ON t.id=w.vehicle_id LEFT JOIN drivers d ON d.id=w.driver_id WHERE ($1::uuid IS NULL OR w.organization_id=$1::uuid) ORDER BY w.operation_date DESC,w.created_at DESC,w.id`,[org],page);}
@@ -30,3 +31,24 @@ export async function createWeighbridgeTransaction(userId:string,input:any){
 }
 export async function completeWeighbridgeTransaction(id:string,org:string,userId:string,input:{tareKg:number;departureAt:string}){const client=await dbPool.connect();try{await client.query("BEGIN");const current=(await client.query(`SELECT gross_kg FROM weighbridge_transactions WHERE id=$1::uuid AND organization_id=$2::uuid AND status='open' FOR UPDATE`,[id,org])).rows[0];if(!current)throw Object.assign(new Error("Only an open transaction can be completed"),{statusCode:400});if(input.tareKg>=Number(current.gross_kg))throw Object.assign(new Error("Tare weight must be less than gross weight"),{statusCode:400});const row=(await client.query(`UPDATE weighbridge_transactions SET tare_kg=$4,net_kg=gross_kg-$4,departure_at=$5::timestamptz,status='completed',updated_by=$3::uuid,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid AND organization_id=$2::uuid RETURNING *`,[id,org,userId,input.tareKg,input.departureAt])).rows[0];await syncTrip(client,row,userId);await client.query("COMMIT");return row;}catch(e){await client.query("ROLLBACK");throw e}finally{client.release();}}
 export async function voidWeighbridgeTransaction(id:string,userId:string,reason:string){const client=await dbPool.connect();try{await client.query("BEGIN");const current=(await client.query(`SELECT * FROM weighbridge_transactions WHERE id=$1::uuid AND status<>'voided' FOR UPDATE`,[id])).rows[0];if(!current)throw Object.assign(new Error("This transaction is already voided or does not exist"),{statusCode:400});const row=(await client.query(`UPDATE weighbridge_transactions SET status='voided',void_reason=$2,updated_by=$3::uuid,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid RETURNING *`,[id,reason,userId])).rows[0];if(current.trip_id){await client.query(`UPDATE collection_routes SET weighbridge_ticket_number=NULL,weighbridge_facility=NULL,verified_weight_kg=NULL,weight_verified_at=NULL,weight_verified_by=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid AND organization_id=$2::uuid AND weighbridge_ticket_number=$3`,[current.trip_id,current.organization_id,current.ticket_number]);}await client.query("COMMIT");return row;}catch(e){await client.query("ROLLBACK");throw e}finally{client.release();}}
+
+const KAMPALA_TIME=(column:string)=>`to_char(${column} AT TIME ZONE 'Africa/Kampala','HH24:MI')`;
+/** Everything the weighbridge workbook needs. `org` limits it to one company; null is the whole city. */
+export async function weighbridgeReportData(org:string|null,facilityCode:string,from:string,to:string):Promise<WeighbridgeReport|null>{
+  const facility=(await dbPool.query(`SELECT name FROM disposal_facilities WHERE code=$1`,[facilityCode])).rows[0];
+  if(!facility)return null;
+  const {archiveFrom,archiveTo}=archiveMonths(from,to);
+  const [tickets,vehicles,drivers]=await Promise.all([
+    dbPool.query(`SELECT w.ticket_number,w.operation_date::text operation_date,w.registration,w.origin_area,w.division,w.operator_category,o.name company,w.route_source,COALESCE(w.driver_name,d.full_name) driver_name,w.driver_phone,${KAMPALA_TIME("w.arrival_at")} arrival,w.gross_kg::float8 gross_kg,w.tare_kg::float8 tare_kg,w.net_kg::float8 net_kg,${KAMPALA_TIME("w.departure_at")} departure,w.status
+      FROM weighbridge_transactions w JOIN organizations o ON o.id=w.organization_id LEFT JOIN drivers d ON d.id=w.driver_id
+      WHERE w.status='completed' AND w.facility_code=$1 AND w.operation_date BETWEEN $2::date AND $3::date AND ($4::uuid IS NULL OR w.organization_id=$4::uuid) ORDER BY w.operation_date,w.arrival_at,w.id`,[facilityCode,archiveFrom,archiveTo,org]),
+    dbPool.query(`WITH latest AS (SELECT DISTINCT ON (w.normalized_registration) w.* FROM weighbridge_transactions w WHERE w.status='completed' AND ($1::uuid IS NULL OR w.organization_id=$1::uuid) ORDER BY w.normalized_registration,w.arrival_at DESC),
+        trucks AS (SELECT t.*,UPPER(REGEXP_REPLACE(t.plate_number,'[^A-Za-z0-9]','','g')) normalized FROM waste_trucks t WHERE ($1::uuid IS NULL OR t.organization_id=$1::uuid))
+      SELECT COALESCE(t.plate_number,l.registration) registration,l.origin_area,l.division,l.operator_category,o.name company,l.route_source,l.vehicle_type,l.tare_kg::float8 tare_kg,COALESCE(INITCAP(t.status),'Not registered') status
+      FROM trucks t FULL JOIN latest l ON l.normalized_registration=t.normalized LEFT JOIN organizations o ON o.id=COALESCE(t.organization_id,l.organization_id) ORDER BY 1`,[org]),
+    dbPool.query(`SELECT COALESCE(w.driver_name,d.full_name) name,COALESCE(w.driver_phone,d.phone) phone,o.name company,COALESCE(INITCAP(d.status),'Not linked') status
+      FROM weighbridge_transactions w JOIN organizations o ON o.id=w.organization_id LEFT JOIN drivers d ON d.id=w.driver_id
+      WHERE w.status='completed' AND COALESCE(w.driver_name,d.full_name) IS NOT NULL AND ($1::uuid IS NULL OR w.organization_id=$1::uuid) GROUP BY 1,2,3,4 ORDER BY 1,2`,[org]),
+  ]);
+  return{facilityName:facility.name,from,to,archiveFrom,archiveTo,tickets:tickets.rows,vehicles:vehicles.rows,drivers:drivers.rows};
+}

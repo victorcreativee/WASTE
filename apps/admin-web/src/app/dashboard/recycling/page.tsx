@@ -45,6 +45,9 @@ type Lot = {
   purchase_group_reference: string | null;
 };
 type DeliveryStaff = { id: string; full_name: string; roles: string[] };
+/** The dropdown choice that opens the new material field. */
+const NEW_MATERIAL = "__new__";
+const EMPTY_SORT = { input: "", output: "", sortedKg: "", wasteKg: "" };
 type PurchaseLine = { id: string; materialType: string; allowNewMaterial: boolean; quantityKg: number; unitPurchasePriceUgx: number; quality: string };
 type Sale = {
   id: string;
@@ -360,6 +363,7 @@ export default function RecyclingPage() {
     [expandedMaterial, setExpandedMaterial] = useState(""),
     [sortingInputMode, setSortingInputMode] = useState<"material_total" | "lot">("material_total"),
     [reversingEntry, setReversingEntry] = useState<SortingEntry | null>(null),
+    [sortDraft, setSortDraft] = useState(EMPTY_SORT),
     [repayingLoan, setRepayingLoan] = useState<Loan | null>(null),
     [salesQuery, setSalesQuery] = useState(""),
     [salesStatus, setSalesStatus] = useState("all"),
@@ -453,11 +457,14 @@ export default function RecyclingPage() {
       current.availableKg += Number(item.available_kg);
       return map.set(key, current);
     }, new Map<string, { material: string; availableKg: number }>()).values()].filter((x) => x.availableKg > 0 || x.material === editingSale?.material_type);
+  useEffect(() => { if (form === "sorting") setSortDraft(EMPTY_SORT); }, [form]);
   const stockGroups = [...(data?.lots ?? []).reduce((map, item) => {
       if (Number(item.available_kg) <= 0 || (stockOrigin !== "all" && item.origin !== stockOrigin)) return map;
       const key=item.material_type.trim().toLowerCase(),current=map.get(key)??{material:item.material_type,availableKg:0,originalKg:0,valueUgx:0,lots:[] as Lot[]};
       current.availableKg+=Number(item.available_kg);current.originalKg+=Number(item.quantity_kg);current.valueUgx+=Number(item.available_kg)*Number(item.unit_purchase_price_ugx);current.lots.push(item);map.set(key,current);return map;
     },new Map<string,{material:string;availableKg:number;originalKg:number;valueUgx:number;lots:Lot[]}>()).values()],
+    stockOf = (material: string) => stockGroups.find((group) => group.material.toLowerCase() === material.toLowerCase())?.availableKg ?? 0,
+    sortedKg = Number(sortDraft.sortedKg) || 0, sortTakenKg = sortedKg + (Number(sortDraft.wasteKg) || 0),
     filteredStock = stockGroups.filter((item) => `${item.material} ${item.lots.map((lot)=>`${lot.source_name} ${lot.quality}`).join(" ")}`.toLowerCase().includes(stockQuery.trim().toLowerCase())),
     stockPageSize = 8,
     stockPageCount = Math.max(1, Math.ceil(filteredStock.length / stockPageSize)),
@@ -636,8 +643,8 @@ export default function RecyclingPage() {
       f = new FormData(el);
     const customMaterial = String(f.get("customOutputMaterialType") || "").trim();
     const outputMaterialType = customMaterial || String(f.get("outputMaterialType") || "").trim();
-    if (!outputMaterialType) {
-      setError("Choose an output material from the list or enter another material name.");
+    if (!outputMaterialType || outputMaterialType === NEW_MATERIAL) {
+      setError("Choose the material it was sorted into, or add a new one.");
       return;
     }
     try {
@@ -2307,10 +2314,10 @@ export default function RecyclingPage() {
             <div className="sm:col-span-2"><p className="text-sm font-semibold">Choose how stock is consumed</p><div className="mt-2 grid grid-cols-2 gap-2"><button type="button" onClick={()=>setSortingInputMode("material_total")} className={`border px-3 py-3 text-sm font-semibold ${sortingInputMode==="material_total"?"border-[var(--color-action)] bg-blue-50 text-[var(--color-action)]":"border-slate-300"}`}>Use material total</button><button type="button" onClick={()=>setSortingInputMode("lot")} className={`border px-3 py-3 text-sm font-semibold ${sortingInputMode==="lot"?"border-[var(--color-action)] bg-blue-50 text-[var(--color-action)]":"border-slate-300"}`}>Choose one purchase</button></div><p className="mt-2 text-xs text-slate-500">Material total automatically uses the oldest available lots first and preserves every source in the audit trail.</p></div>
             {sortingInputMode==="material_total"?<label className="text-sm font-semibold sm:col-span-2">
               Material total
-              <select required name="inputMaterialType" className={field}><option value="">Choose material</option>{stockGroups.map((group)=><option key={group.material} value={group.material}>{group.material} · {group.availableKg.toLocaleString()} kg available</option>)}</select>
+              <select required name="inputMaterialType" value={sortDraft.input} onChange={(e)=>setSortDraft((d)=>({...d,input:e.target.value}))} className={field}><option value="">Choose material</option>{stockGroups.map((group)=><option key={group.material} value={group.material}>{group.material} · {group.availableKg.toLocaleString()} kg available</option>)}</select>
             </label>:<label className="text-sm font-semibold sm:col-span-2">
               Input material lot
-              <select required name="inputLotId" className={field}>
+              <select required name="inputLotId" onChange={(e)=>setSortDraft((d)=>({...d,input:data?.lots.find((x)=>x.id===e.target.value)?.material_type??""}))} className={field}>
                 <option value="">Choose purchased stock</option>
                 {data?.lots
                   .filter(
@@ -2337,23 +2344,20 @@ export default function RecyclingPage() {
               />
             </label>
             <label className="text-sm font-semibold">
-              Output material grade
-              <select
-                name="outputMaterialType"
-                defaultValue=""
-                className={field}
-              >
-                <option value="">Choose saleable material grade</option>
+              Sorted into
+              <select required name="outputMaterialType" value={sortDraft.output} onChange={(e)=>setSortDraft((d)=>({...d,output:e.target.value}))} className={field}>
+                <option value="">Choose material</option>
                 {data?.materials.filter((x) => x.active).map((x) => (
-                  <option key={x.id} value={x.name}>{x.name}</option>
+                  <option key={x.id} value={x.name}>{x.name} · {stockOf(x.name).toLocaleString()} kg in stock</option>
                 ))}
+                <option value={NEW_MATERIAL}>Other / Add new material</option>
               </select>
             </label>
-            <label className="text-sm font-semibold">
-              Output grade not listed? Enter its name
-              <input minLength={2} maxLength={80} name="customOutputMaterialType" placeholder="Example: Clear PET flakes" className={field} />
-              <span className="mt-1 block text-xs font-normal text-slate-500">This new grade is saved to the material catalogue automatically.</span>
-            </label>
+            {sortDraft.output===NEW_MATERIAL&&<label className="text-sm font-semibold">
+              New material name
+              <input required minLength={2} maxLength={80} name="customOutputMaterialType" className={field} />
+              <span className="mt-1 block text-xs font-normal text-slate-500">Saved to your material list. A name already on the list is matched to it, so no duplicate is made.</span>
+            </label>}
             <label className="text-sm font-semibold">
               Sorted out (kg)
               <input
@@ -2362,6 +2366,8 @@ export default function RecyclingPage() {
                 min=".01"
                 step=".01"
                 name="outputKg"
+                value={sortDraft.sortedKg}
+                onChange={(e)=>setSortDraft((d)=>({...d,sortedKg:e.target.value}))}
                 className={field}
               />
             </label>
@@ -2372,10 +2378,16 @@ export default function RecyclingPage() {
                 min="0"
                 step=".01"
                 name="rejectedKg"
-                defaultValue="0"
+                value={sortDraft.wasteKg}
+                onChange={(e)=>setSortDraft((d)=>({...d,wasteKg:e.target.value}))}
                 className={field}
               />
             </label>
+            {sortDraft.input&&sortDraft.output&&sortedKg>0&&<div className="sm:col-span-2 border border-slate-200 bg-slate-50 p-3 text-sm">
+              <p className="font-semibold">Stock after saving</p>
+              <p className="mt-1 flex justify-between gap-3"><span>{sortDraft.input}</span><span className="tabular-nums">{stockOf(sortDraft.input).toLocaleString()} → {(stockOf(sortDraft.input)-sortTakenKg).toLocaleString()} kg</span></p>
+              {sortDraft.output!==NEW_MATERIAL?<p className="flex justify-between gap-3"><span>{sortDraft.output}</span><span className="tabular-nums">{stockOf(sortDraft.output).toLocaleString()} → {(stockOf(sortDraft.output)+sortedKg).toLocaleString()} kg</span></p>:<p className="flex justify-between gap-3"><span>New material</span><span className="tabular-nums">0 → {sortedKg.toLocaleString()} kg</span></p>}
+            </div>}
             <div className="sm:col-span-2 border-y border-slate-200 py-4"><h3 className="font-semibold">Processing cost breakdown</h3><p className="mt-1 text-xs text-slate-500">Enter the real costs. The system totals them and adds them to this material batch.</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{[["workerWagesUgx","Worker wages"],["utilitiesUgx","Power / utilities"],["transportUgx","Processing transport"],["consumablesUgx","Bags and consumables"],["otherExpenseUgx","Other processing cost"]].map(([name,label])=><label key={name} className="text-sm font-semibold">{label} (UGX)<input type="number" min="0" name={name} defaultValue="0" className={field}/></label>)}<label className="text-sm font-semibold">Paid from manager float (UGX)<input type="number" min="0" name="managerFloatUsedUgx" defaultValue="0" className={field}/><span className="mt-1 block text-xs font-normal text-slate-500">Cannot exceed the total costs or available float.</span></label></div></div>
             <label className="text-sm font-semibold sm:col-span-2">
               Notes

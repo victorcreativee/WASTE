@@ -112,6 +112,7 @@ const recyclingCompanyNav:NavItem[]=[
   {group:"Supply",label:"Inventory",href:"/dashboard/inventory"},
   {group:"Supply",label:"Procurement",href:"/dashboard/procurement"},
   {group:"Insights",label:"Reports",href:"/dashboard/recycling-reports"},
+  {group:"Insights",label:"Daily records",href:"/dashboard/recycling-daily"},
   {group:"KCCA regulation",label:"Regulatory overview",href:"/dashboard/regulatory"},
   {group:"KCCA regulation",label:"Permit",href:"/dashboard/permit"},
   {group:"KCCA regulation",label:"Compliance cases",href:"/dashboard/compliance"},
@@ -149,9 +150,11 @@ const recyclingFieldManagerNav:NavItem[] = [
   {group:"Field operations",label:"Recycling operations",href:"/dashboard/recycling"},
   {group:"Field operations",label:"Team & attendance",href:"/dashboard/team"},
   {group:"Insights",label:"Operational reports",href:"/dashboard/recycling-reports"},
+  {group:"Insights",label:"Daily records",href:"/dashboard/recycling-daily"},
 ];
 const companyOwnerNav:NavItem[] = [
   {group:"Company insight",label:"Company overview & reports",href:"/dashboard/recycling-reports"},
+  {group:"Company insight",label:"Daily records",href:"/dashboard/recycling-daily"},
   {group:"Company insight",label:"Investor overview",href:"/dashboard/investor"},
 ];
 const companyInvestorNav:NavItem[] = [

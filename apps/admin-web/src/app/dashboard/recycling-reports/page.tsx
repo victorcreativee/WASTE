@@ -1,5 +1,6 @@
 "use client";
 import {CompanyReportPanel} from "@/components/reports/CompanyReportPanel";
+import {ExcelExportButton} from "@/components/reports/ExcelExportButton";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
@@ -111,9 +112,9 @@ export default function RecyclingReportsPage(){
   const buyerSummaryPages=usePagination(buyerSummaries,10);
   const buyerLinePages=usePagination(buyerRows,10);
   return <AppShell><div className="mx-auto max-w-7xl pb-12">
-    <PageHeader eyebrow="Recycling intelligence" title="Reports" description="Choose one report, select a period, and move from summary to transaction detail." action={reportPage!=="financial"?<button disabled={!report} onClick={exportCsv} className="rounded-lg border border-[var(--color-action)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--color-action)] transition hover:bg-blue-50 disabled:opacity-40">Export current data</button>:undefined}/>
+    <PageHeader eyebrow="Recycling intelligence" title="Reports" description="Choose one report, select a period, and move from summary to transaction detail." action={reportPage!=="financial"?<div className="flex flex-wrap gap-2"><ExcelExportButton from={from} to={to} disabled={!report||from>to}/><button disabled={!report} onClick={exportCsv} className="rounded-lg border border-[var(--color-action)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--color-action)] transition hover:bg-blue-50 disabled:opacity-40">Export current data</button></div>:undefined}/>
     <nav className="mt-5 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1" aria-label="Report pages"><div className="flex min-w-max gap-1">{([['overview','Overview'],['suppliers','Suppliers'],['buyers','Buyers & sales'],['materials','Materials'],['expenses','Expenses'],['float','Manager float'],['activity','Daily activity'],['financial','Financial']] as const).map(([key,label])=><button key={key} type="button" onClick={()=>setReportPage(key)} className={`min-h-10 rounded-lg px-4 py-2 text-sm font-semibold transition ${reportPage===key?'bg-slate-950 text-white shadow-sm':'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}>{label}</button>)}</div></nav>
-    {reportPage==="financial"?<CompanyReportPanel/>:<section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    {reportPage==="financial"?<CompanyReportPanel excel/>:<section className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
     <div className="p-4 sm:p-6">
     {error&&<Feedback tone="error">{error}</Feedback>}
     {notice&&<Feedback tone="success">{notice}</Feedback>}

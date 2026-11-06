@@ -31,7 +31,7 @@ test("moving a purchase to 22 October moves the payment and float spent with it"
   const lot = { id, organization_id: org, origin: "purchase", collected_on: "2026-10-21", quantity_kg: "100", available_kg: "100", unit_purchase_price_ugx: "500", worker_wages_ugx: "0", food_ugx: "0", transport_ugx: "0", driver_fee_ugx: "0", other_expense_ugx: "0", purchase_payment_status: "paid" };
   const fake = fakeConnection([
     [/FROM recycling_material_lots WHERE id=\$1::uuid AND organization_id=\$2::uuid AND origin='purchase' FOR UPDATE/, lot],
-    [/FROM recycling_material_catalog/, { name: "PET bottles" }],
+    [/FROM recycling_material_catalog/, { name: "PET bottles", active: true }],
     [/SUM\(amount_ugx\),0\)::bigint paid FROM recycling_purchase_payments/, { paid: "50000" }],
     [/organization_available_to_commit/, { available: "1000000" }],
     [/^UPDATE recycling_material_lots SET material_type/, { ...lot, collected_on: "2026-10-22" }],
@@ -49,7 +49,7 @@ test("a purchase edit that keeps its day leaves payments alone", async (t) => {
   const lot = { id, organization_id: org, origin: "purchase", collected_on: "2026-10-22", quantity_kg: "100", available_kg: "100", unit_purchase_price_ugx: "500", worker_wages_ugx: "0", food_ugx: "0", transport_ugx: "0", driver_fee_ugx: "0", other_expense_ugx: "0", purchase_payment_status: "paid" };
   const fake = fakeConnection([
     [/FOR UPDATE/, lot],
-    [/FROM recycling_material_catalog/, { name: "PET bottles" }],
+    [/FROM recycling_material_catalog/, { name: "PET bottles", active: true }],
     [/bigint paid FROM recycling_purchase_payments/, { paid: "50000" }],
     [/organization_available_to_commit/, { available: "1000000" }],
     [/^UPDATE recycling_material_lots SET material_type/, lot],
