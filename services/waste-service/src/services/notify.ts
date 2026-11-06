@@ -18,6 +18,12 @@ async function tolerant(client: PoolClient, sql: string, params: unknown[]) {
   }
 }
 
+/** Notifies one person. */
+export function notifyUser(client: PoolClient, userId: string, organizationId: string, m: Message) {
+  return tolerant(client, "SELECT notify_user($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8)",
+    [userId, organizationId, m.category, m.severity, m.title, m.body, m.link, m.dedupeKey]);
+}
+
 /** Notifies active members of an organization with one of the roles (company_admin, supervisor, ...). */
 export function notifyOrganization(client: PoolClient, organizationId: string, roles: string[], m: Message) {
   return tolerant(client, "SELECT notify_organization($1::uuid,$2::text[],$3,$4,$5,$6,$7,$8)",

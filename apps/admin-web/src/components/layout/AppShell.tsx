@@ -106,6 +106,7 @@ const recyclingCompanyNav:NavItem[]=[
   {group:"Overview",label:"Materials & sales",href:"/dashboard/recycling"},
   {group:"People",label:"Staff management",href:"/dashboard/team"},
   {group:"Finance",label:"Finance",href:"/dashboard/billing"},
+  {group:"Finance",label:"Investors",href:"/dashboard/investors"},
   {group:"Finance",label:"Payroll",href:"/dashboard/payroll"},
   {group:"Finance",label:"Accounts payable",href:"/dashboard/accounts-payable"},
   {group:"Supply",label:"Inventory",href:"/dashboard/inventory"},
@@ -151,9 +152,10 @@ const recyclingFieldManagerNav:NavItem[] = [
 ];
 const companyOwnerNav:NavItem[] = [
   {group:"Company insight",label:"Company overview & reports",href:"/dashboard/recycling-reports"},
+  {group:"Company insight",label:"Investor overview",href:"/dashboard/investor"},
 ];
 const companyInvestorNav:NavItem[] = [
-  {group:"Investor access",label:"Business overview & reports",href:"/dashboard/recycling-reports"},
+  {group:"Investor access",label:"Investor overview",href:"/dashboard/investor"},
 ];
 
 type CurrentUser = {
@@ -232,7 +234,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     : currentUser?.roles?.includes("recycling_collector") ? "Material Collection"
     : currentUser?.roles?.includes("recycling_sales") ? "Industrial Sales"
     : currentUser?.roles?.includes("recycling_field_manager") ? "Recycling Field Control"
-    : currentUser?.roles?.includes("company_investor") ? "Wallas EcoTrade Investor Portal"
+    : currentUser?.roles?.includes("company_investor") ? "Investor Portal"
     : factoryWorkspace ? "Recycling Factory"
     : recyclingWorkspace ? "Recycling Operations"
     : currentUser?.roles?.includes("company_admin") ? "Waste Collection Operations"

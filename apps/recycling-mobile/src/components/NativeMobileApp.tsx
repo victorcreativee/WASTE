@@ -14,6 +14,7 @@ import {
   TextInput,
   useWindowDimensions,
   View,
+  Linking,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -323,6 +324,7 @@ export function NativeMobileApp() {
 
 function Workspace({ session, onLogout }: { session: Session; onLogout: () => Promise<void> }) {
   const roles = session.user.roles;
+  if (roles.includes("company_investor")) return <InvestorOnWeb onLogout={onLogout} />;
   const recyclingAccess = session.user.permissions?.some((permission) =>
     permission.startsWith("recycling."),
   );
@@ -370,3 +372,12 @@ const s = StyleSheet.create({
   modalIcon: { width: 48, height: 48, borderRadius: radius.pill, backgroundColor: color.actionSoft, alignItems: "center", justifyContent: "center" },
   loading: { flex: 1, backgroundColor: color.page, alignItems: "center", justifyContent: "center", gap: space.md },
 });
+
+/** Investors read one summarised report, which lives on the website. */
+function InvestorOnWeb({ onLogout }: { onLogout: () => Promise<void> }) {
+  return <SafeAreaView style={{ flex: 1, justifyContent: "center", gap: 12, padding: 24 }}>
+    <Banner title="Investor overview" text="Your investor overview is on the Kampala WMS website." />
+    <Button title="Open investor overview" icon="open-outline" onPress={() => void Linking.openURL("https://www.kampalawms.com/dashboard/investor")} />
+    <Button title="Sign out" variant="ghost" onPress={() => void onLogout()} />
+  </SafeAreaView>;
+}

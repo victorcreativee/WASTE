@@ -50,7 +50,7 @@ export default function LoginPage() {
       sessionStorage.setItem("refreshToken",saved.tokens.refreshToken);
       sessionStorage.setItem("currentUser",JSON.stringify({...saved.session.user,roles:saved.session.roles}));
       const roles=saved.session.roles;
-      window.location.href=roles.some(role=>["company_owner","company_investor"].includes(role))?"/dashboard/recycling-reports":roles.includes("weighbridge_operator")?"/dashboard/weighbridge/operations":roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":roles.includes("driver")?"/dashboard/driver-mobile":roles.includes("citizen")?"/dashboard/citizen-issues":roles.includes("organization_applicant")?"/onboarding":roles.includes("company_admin")?"/dashboard/company":"/dashboard";
+      window.location.href=roles.includes("company_investor")?"/dashboard/investor":roles.includes("company_owner")?"/dashboard/recycling-reports":roles.includes("weighbridge_operator")?"/dashboard/weighbridge/operations":roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":roles.includes("driver")?"/dashboard/driver-mobile":roles.includes("citizen")?"/dashboard/citizen-issues":roles.includes("organization_applicant")?"/onboarding":roles.includes("company_admin")?"/dashboard/company":"/dashboard";
     }).catch(()=>undefined);
     const savedBridge=window.kwmsDesktop as typeof window.kwmsDesktop&{getSavedAccount?:()=>Promise<{saved:boolean;email:string;fullName?:string;biometricAvailable:boolean;pinConfigured:boolean}>};
     setDevicePinSupported(Boolean(savedBridge?.getSavedAccount));
@@ -61,7 +61,7 @@ export default function LoginPage() {
     sessionStorage.setItem("accessToken","offline-local-session");
     sessionStorage.removeItem("refreshToken");
     sessionStorage.setItem("currentUser",JSON.stringify({...session.user,roles:session.roles,offline:true}));
-    window.location.href=session.roles.some(role=>["company_owner","company_investor"].includes(role))?"/dashboard/recycling-reports":session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":session.roles.includes("company_admin")?"/dashboard/company":"/dashboard";
+    window.location.href=session.roles.includes("company_investor")?"/dashboard/investor":session.roles.includes("company_owner")?"/dashboard/recycling-reports":session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":session.roles.includes("company_admin")?"/dashboard/company":"/dashboard";
   }
 
   async function unlockSaved(biometric:boolean){
@@ -99,7 +99,7 @@ export default function LoginPage() {
             const mobileOrgType=mobileRoles.some(role=>["company_admin","supervisor"].includes(role))?await organizationTypeOfSession():"";
             const isRecyclingCompany=mobileOrgType==="recycling_company"&&mobileRoles.includes("company_admin");
             if(mobileOrgType==="processing_plant"){window.location.href="/dashboard/factory";return;}
-            window.location.href=mobileRoles.some(role=>["company_owner","company_investor"].includes(role))?"/dashboard/recycling-reports":mobileRoles.includes("weighbridge_operator")?"/dashboard/weighbridge/operations":mobileRoles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))||isRecyclingCompany?"/dashboard/recycling":mobileRoles.includes("driver")?"/dashboard/driver-mobile":mobileRoles.includes("citizen")?"/dashboard/citizen-issues":mobileRoles.includes("organization_applicant")?"/onboarding":mobileRoles.includes("company_admin")?"/dashboard/company":"/dashboard";
+            window.location.href=mobileRoles.includes("company_investor")?"/dashboard/investor":mobileRoles.includes("company_owner")?"/dashboard/recycling-reports":mobileRoles.includes("weighbridge_operator")?"/dashboard/weighbridge/operations":mobileRoles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))||isRecyclingCompany?"/dashboard/recycling":mobileRoles.includes("driver")?"/dashboard/driver-mobile":mobileRoles.includes("citizen")?"/dashboard/citizen-issues":mobileRoles.includes("organization_applicant")?"/onboarding":mobileRoles.includes("company_admin")?"/dashboard/company":"/dashboard";
           }
           return;
         }catch(desktopError){
@@ -109,7 +109,7 @@ export default function LoginPage() {
           sessionStorage.setItem("accessToken","offline-local-session");
           sessionStorage.removeItem("refreshToken");
           sessionStorage.setItem("currentUser",JSON.stringify({...session.user,roles:session.roles,offline:true}));
-          window.location.href=session.roles.some(role=>["company_owner","company_investor"].includes(role))?"/dashboard/recycling-reports":session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":session.roles.includes("company_admin")?"/dashboard/company":"/dashboard";
+          window.location.href=session.roles.includes("company_investor")?"/dashboard/investor":session.roles.includes("company_owner")?"/dashboard/recycling-reports":session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":session.roles.includes("company_admin")?"/dashboard/company":"/dashboard";
           return;
         }
       }
@@ -147,7 +147,7 @@ export default function LoginPage() {
       const destination = organizationType === "processing_plant"
         ? "/dashboard/factory"
         : isReadOnlyStakeholder
-        ? "/dashboard/recycling-reports"
+        ? response.data.roles.some((role) => role.name === "company_investor") ? "/dashboard/investor" : "/dashboard/recycling-reports"
         : isWeighbridgeWorker
         ? "/dashboard/weighbridge/operations"
         : isRecyclingCollector || isRecyclingWorker
@@ -170,7 +170,7 @@ export default function LoginPage() {
           sessionStorage.setItem("accessToken","offline-local-session");
           sessionStorage.removeItem("refreshToken");
           sessionStorage.setItem("currentUser",JSON.stringify({...session.user,roles:session.roles,offline:true}));
-          window.location.href=session.roles.some(role=>["company_owner","company_investor"].includes(role))?"/dashboard/recycling-reports":session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":"/dashboard";
+          window.location.href=session.roles.includes("company_investor")?"/dashboard/investor":session.roles.includes("company_owner")?"/dashboard/recycling-reports":session.roles.includes("driver")?"/dashboard/driver-mobile":session.roles.some(role=>["recycling_collector","recycling_sales","recycling_field_manager"].includes(role))?"/dashboard/recycling":"/dashboard";
           return;
         }catch(offlineError){setError(offlineError instanceof Error?offlineError.message:"Offline sign-in failed");}
       }else setError(message);

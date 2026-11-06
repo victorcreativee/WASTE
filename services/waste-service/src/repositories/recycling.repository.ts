@@ -3,16 +3,16 @@ import {purchaseAllocationReference} from '../utils/purchase-allocation-referenc
 import {dbPool} from '../config/database';
 import {dateOnly} from '../utils/date-only';
 import {assertRecyclingBusinessDayOpen,assertRecyclingBusinessDaysOpen} from '../services/recycling-business-day';
-const financeError=(message:string)=>Object.assign(new Error(message),{statusCode:409});
+export const financeError=(message:string)=>Object.assign(new Error(message),{statusCode:409});
 type Queryable={query:(sql:string,params?:unknown[])=>Promise<{rows:any[]}>};
 /** Cash the business holds, split into what the office holds and the float the manager holds. */
-async function financeState(q:Queryable,org:string){
+export async function financeState(q:Queryable,org:string){
  const row=(await q.query(`SELECT EXISTS(SELECT 1 FROM organization_finance_settings WHERE organization_id=$1::uuid) configured,organization_cash_position($1::uuid)::bigint cash,COALESCE((SELECT SUM(CASE WHEN transaction_type='given' THEN amount_ugx ELSE -amount_ugx END) FROM recycling_manager_float_transactions WHERE organization_id=$1::uuid),0)::bigint float_balance`,[org])).rows[0];
  const cash=Number(row.cash),floatBalance=Number(row.float_balance);
  return{configured:Boolean(row.configured),cash,floatBalance,officeCash:cash-floatBalance};
 }
 /** Office cash, once the opening balance that cash is counted from has been set. */
-async function configuredOfficeCash(q:Queryable,org:string){
+export async function configuredOfficeCash(q:Queryable,org:string){
  const state=await financeState(q,org);
  if(!state.configured)throw financeError('Set the verified opening balance before recording cash movements.');
  return state.officeCash;

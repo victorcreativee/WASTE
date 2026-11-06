@@ -316,7 +316,7 @@ export function CompanyTabletWorkspace({
   // Field managers spend from accountable float. Company administrators post verified, already-spent daily costs.
   const expenseFromFloat = user.roles.includes("recycling_field_manager");
   // The server limits money in and out to people who manage company or field money.
-  const canSeeCompanyReport = user.roles.some((role) => ["company_admin", "company_owner", "company_investor", "recycling_field_manager"].includes(role)) || Boolean(user.permissions?.includes("reports.organization.read"));
+  const canSeeCompanyReport = user.roles.some((role) => ["company_admin", "company_owner", "recycling_field_manager"].includes(role)) || Boolean(user.permissions?.includes("reports.organization.read"));
   const canSeeMoneyFlow = user.roles.some((role) => ["recycling_field_manager", "company_admin"].includes(role));
   const canManageInventory =
     user.roles.some((role) => ["company_admin", "recycling_field_manager"].includes(role)) ||

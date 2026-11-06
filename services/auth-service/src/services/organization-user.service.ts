@@ -69,12 +69,6 @@ export async function createOrganizationUser(organizationId: string, input: Crea
         VALUES($1::uuid,'Investor / guest','company_investor')
         ON CONFLICT(organization_id,legacy_role_name) DO UPDATE SET name=EXCLUDED.name
         RETURNING id
-       ),grants AS (
-        INSERT INTO organization_role_permissions(organization_id,role_id,permission_code)
-        SELECT $1::uuid,investor_role.id,permission.code FROM investor_role
-        JOIN organization_permission_catalog permission ON permission.code IN (
-         'reports.organization.read','finance.read','inventory.read','recycling.read')
-        ON CONFLICT(role_id,permission_code) DO NOTHING
        )
        INSERT INTO organization_membership_roles(organization_id,membership_id,role_id)
        SELECT $1::uuid,membership.id,investor_role.id FROM membership,investor_role ON CONFLICT DO NOTHING`,
