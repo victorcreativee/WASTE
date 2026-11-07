@@ -1,4 +1,5 @@
 import * as Location from "expo-location";
+import { costField, qualityGrades, qualityLabel, type RecyclingSettings } from "../lib/recycling-settings";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -57,6 +58,7 @@ const lotCost = (lot: Lot) => Number(lot.total_cost_ugx ?? Number(lot.quantity_k
 const owed = (lot: Lot) => ["credit", "partially_paid"].includes(lot.purchase_payment_status);
 const lotBalance = (lot: Lot) => Number(lot.balance_ugx ?? (owed(lot) ? lotCost(lot) : 0));
 type Workspace = {
+  settings?: RecyclingSettings;
   organization: { name: string };
   operations: { operatingDate: string; isClosed: boolean };
   materials: Material[];
@@ -91,6 +93,7 @@ export function RecyclingPurchaseWorkspace({
   const tablet = width >= 760;
   const [screen, setScreen] = useState<Screen>("today");
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const cost = (key: string, fallback: string) => costField(workspace?.settings, "purchase", key, fallback);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -107,7 +110,10 @@ export function RecyclingPurchaseWorkspace({
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
   const [transport, setTransport] = useState("0");
-  const [quality, setQuality] = useState("mixed");
+  const [qualityChoice, setQuality] = useState("mixed");
+  // A new purchase starts on "mixed"; when the office has turned that grade off, the first grade still on is used.
+  const grades = qualityGrades(workspace?.settings);
+  const quality = qualityChoice === "mixed" && grades.length && !grades.some((o) => o.code === "mixed") ? grades[0].code : qualityChoice;
   const [payment, setPayment] = useState("paid");
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
@@ -507,7 +513,7 @@ export function RecyclingPurchaseWorkspace({
             { icon: "document-text-outline", label: "Day report", onPress: () => setScreen("report"), tone: "neutral" },
           ]} />
           <SectionHeader title="Today’s purchases" action={purchases.length ? { label: "See all", onPress: () => setScreen("history") } : undefined} />
-          {todayLots.slice(0, 8).map((lot) => <PurchaseRow key={lot.id} lot={lot} />)}
+          {todayLots.slice(0, 8).map((lot) => <PurchaseRow settings={workspace?.settings} key={lot.id} lot={lot} />)}
           {!todayLots.length ? <EmptyState icon="scale-outline" title="No purchases yet today" text="Each kilogram you buy appears here, even without internet."
             action={{ label: "Record a purchase", onPress: () => setScreen("buy") }} /> : null}
         </> : null}
@@ -526,7 +532,7 @@ export function RecyclingPurchaseWorkspace({
           <Card>
             <Text style={type.heading}>Material</Text>
             {purchaseLines.map((line, index) => <ListRow key={line.id} icon="cube-outline" title={line.materialType}
-              subtitle={`${line.quantityKg.toLocaleString("en-GB")} kg · ${ugx(line.unitPurchasePriceUgx)}/kg · ${line.quality}`}
+              subtitle={`${line.quantityKg.toLocaleString("en-GB")} kg · ${ugx(line.unitPurchasePriceUgx)}/kg · ${qualityLabel(workspace?.settings, line.quality)}`}
               value={ugx(line.quantityKg * line.unitPurchasePriceUgx)} detail={`Item ${index + 1}`}
               onPress={() => setPurchaseLines((current) => current.filter((item) => item.id !== line.id))} />)}
             <Chips value={customMaterial ? "" : material} onChange={(value) => { setMaterial(value); setCustomMaterial(""); }}
@@ -568,7 +574,7 @@ export function RecyclingPurchaseWorkspace({
               <Field label="Price per kg" style={page.column}><MoneyInput value={price} onChangeText={setPrice} /></Field>
             </View>
             <Field label="Quality">
-              <Chips value={quality} onChange={setQuality} options={["sorted", "clean", "mixed", "contaminated"].map((value) => ({ value, label: value.charAt(0).toUpperCase() + value.slice(1) }))} />
+              <Chips value={quality} onChange={setQuality} options={qualityGrades(workspace?.settings, quality).map((o) => ({ value: o.code, label: o.label }))} />
             </Field>
           </Card>
 
@@ -593,17 +599,13 @@ export function RecyclingPurchaseWorkspace({
 
           <Card>
             <Text style={type.heading}>Costs of this purchase</Text>
-            <Field label="Transport (UGX)"><MoneyInput value={transport === "0" ? "" : transport} onChangeText={(value) => setTransport(value || "0")} /></Field>
+            {cost("transportUgx", "Transport").visible ? <Field label={`${cost("transportUgx", "Transport").label} (UGX)`}><MoneyInput value={transport === "0" ? "" : transport} onChangeText={(value) => setTransport(value || "0")} /></Field> : null}
             {showCosts ? <>
-              <View style={page.columns}>
-                <Field label="Worker wages" style={page.column}><MoneyInput value={costs.wages} onChangeText={(wages) => setCosts((current) => ({ ...current, wages }))} /></Field>
-                <Field label="Food" style={page.column}><MoneyInput value={costs.food} onChangeText={(food) => setCosts((current) => ({ ...current, food }))} /></Field>
+              <View style={[page.columns, { flexWrap: "wrap" }]}>
+                {([["workerWagesUgx", "Worker wages", "wages"], ["foodUgx", "Food", "food"], ["driverFeeUgx", "Driver fee", "driver"], ["otherExpenseUgx", "Other costs", "other"]] as const).filter(([key, fallback]) => cost(key, fallback).visible).map(([key, fallback, name]) =>
+                  <Field key={key} label={cost(key, fallback).label} style={{ ...page.column, minWidth: "45%" }}><MoneyInput value={costs[name]} onChangeText={(value) => setCosts((current) => ({ ...current, [name]: value }))} /></Field>)}
               </View>
-              <View style={page.columns}>
-                <Field label="Driver fee" style={page.column}><MoneyInput value={costs.driver} onChangeText={(driver) => setCosts((current) => ({ ...current, driver }))} /></Field>
-                <Field label="Other costs" style={page.column}><MoneyInput value={costs.other} onChangeText={(other) => setCosts((current) => ({ ...current, other }))} /></Field>
-              </View>
-            </> : <Button variant="ghost" icon="add-outline" title="Add wages, food, driver or other costs" onPress={() => setShowCosts(true)} />}
+            </> : <Button variant="ghost" icon="add-outline" title="Add other costs" onPress={() => setShowCosts(true)} />}
             <Field label="Notes (optional)"><Input value={notes} onChangeText={setNotes} multiline placeholder="Anything the office should know" /></Field>
           </Card>
 
@@ -650,7 +652,7 @@ export function RecyclingPurchaseWorkspace({
           </Card> : null}
           <Input value={query} onChangeText={setQuery} placeholder="Search material, supplier or payment" />
           {filtered.map((lot) => <View key={lot.id}>
-            <PurchaseRow lot={lot} onPress={canPaySuppliers && owed(lot) && lot.status !== "pending_sync" ? () => startPayment(lot) : undefined} />
+            <PurchaseRow settings={workspace?.settings} lot={lot} onPress={canPaySuppliers && owed(lot) && lot.status !== "pending_sync" ? () => startPayment(lot) : undefined} />
             {user.roles.includes("recycling_field_manager") && lot.status !== "pending_sync" ? <Button variant="ghost" icon="create-outline" title={`Edit ${lot.material_type}`} onPress={() => startEdit(lot)} /> : null}
           </View>)}
           {!filtered.length ? <EmptyState icon="search-outline" title={historyFilter === "owed" ? "Nothing owed" : "No matching purchases"}
@@ -672,11 +674,11 @@ export function RecyclingPurchaseWorkspace({
   );
 }
 
-function PurchaseRow({ lot, onPress }: { lot: Lot; onPress?: () => void }) {
+function PurchaseRow({ lot, onPress, settings }: { lot: Lot; onPress?: () => void; settings?: RecyclingSettings }) {
   const pending = lot.status === "pending_sync";
   const cost = lotCost(lot);
   return <ListRow icon="cube-outline" iconTone={pending ? "warning" : "action"} title={lot.material_type}
-    subtitle={`${lot.source_name} · ${lot.quality} · ${new Date(lot.collected_on).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}
+    subtitle={`${lot.source_name} · ${qualityLabel(settings, lot.quality)} · ${new Date(lot.collected_on).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}
     value={`${Number(lot.quantity_kg).toLocaleString("en-GB")} kg`} detail={cost ? ugx(cost) : undefined}
     badge={pending ? { label: "Waiting to sync", tone: "warning" }
       : lot.purchase_payment_status === "credit" ? { label: "Owed", tone: "warning" }

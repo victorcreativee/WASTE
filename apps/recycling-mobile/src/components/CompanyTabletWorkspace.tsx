@@ -1,4 +1,5 @@
 import { StatusBar } from "expo-status-bar";
+import { costField, expenseCategories, lossReasons, type RecyclingSettings } from "../lib/recycling-settings";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -78,7 +79,6 @@ function isActive(item: RecordMap) {
 
 const num = (value: unknown) => Number(value || 0);
 const FLOAT_KIND: Record<string, string> = { given: "Issued by the office", spent: "Spent", returned: "Returned to the office" };
-const EXPENSE_CATEGORIES = [["food", "Food"], ["transport", "Transport"], ["daily_wages", "Daily wages"], ["worker_credit", "Worker credit"], ["fuel", "Fuel"], ["maintenance", "Maintenance"], ["equipment", "Equipment"], ["utilities", "Utilities"], ["disposal_fees", "Disposal fees"], ["office", "Office"], ["other", "Other"]] as const;
 const newExpenseLine = (): DailyExpenseLine => ({ id: `${Date.now()}-${Math.random()}`, category: "other", description: "", vendor: "", amountUgx: "" });
 
 const DASHBOARD_ENDPOINTS = [
@@ -126,6 +126,7 @@ export function CompanyTabletWorkspace({
     floatTransactions: [] as RecordMap[],
     recyclingOperations: {} as RecordMap,
     recyclingMaterials: [] as RecordMap[],
+    recyclingSettings: {} as RecyclingSettings,
     sortingBatches: [] as RecordMap[],
     stockAdjustments: [] as RecordMap[],
     dailyClosures: [] as RecordMap[],
@@ -144,6 +145,7 @@ export function CompanyTabletWorkspace({
   const [entryDate, setEntryDate] = useState("");
   const [floatPage, setFloatPage] = useState(1);
   const [adjustment, setAdjustment] = useState({ lotId: "", type: "loss", quantityKg: "", reason: "", notes: "" });
+  const sortCost = (key: string, fallback: string) => costField(data.recyclingSettings, "sorting", key, fallback);
   const [closeNotes, setCloseNotes] = useState("");
   const [countedOfficeCash, setCountedOfficeCash] = useState("");
   const [countedManagerFloat, setCountedManagerFloat] = useState("");
@@ -153,6 +155,9 @@ export function CompanyTabletWorkspace({
   const [operationSection, setOperationSection] = useState<OperationSection>("processing");
   const [expenseReference, setExpenseReference] = useState("");
   const [expenseLines, setExpenseLines] = useState<DailyExpenseLine[]>([newExpenseLine()]);
+  // Expense lines start on "food"; when the office has turned that off, the first category still on is used.
+  const allowedCategories = expenseCategories(data.recyclingSettings).map((o) => o.code);
+  const lineCategory = (category: string) => allowedCategories.includes(category) || !allowedCategories.length ? category : allowedCategories.includes("food") ? "food" : allowedCategories[0];
   const [savingExpense, setSavingExpense] = useState(false);
 
   // Applies one response per DASHBOARD_ENDPOINTS entry; undefined leaves that part of the screen as it was.
@@ -188,6 +193,7 @@ export function CompanyTabletWorkspace({
         next.sortingBatches = records(recycling?.sortingBatches);
         next.stockAdjustments = records(recycling?.stockAdjustments);
         next.dailyClosures = records(recycling?.dailyClosures);
+        next.recyclingSettings = (objectData(recycling?.settings) || {}) as RecyclingSettings;
       });
       return next;
     });
@@ -343,7 +349,7 @@ export function CompanyTabletWorkspace({
       setSavingExpense(true);
       const result = await mobileRequest<RecordMap>("/api/waste/finance/expenses/daily-batch", token, user.email, {
             method: "POST",
-            body: JSON.stringify({ expenseDate: entryDay, reference: expenseReference.trim(), fundingSource: expenseFromFloat ? "manager_float" : "office_cash", lines: lines.map((line) => ({ category: line.category, description: line.description.trim(), vendor: line.vendor.trim() || undefined, amountUgx: line.amountUgx })) }),
+            body: JSON.stringify({ expenseDate: entryDay, reference: expenseReference.trim(), fundingSource: expenseFromFloat ? "manager_float" : "office_cash", lines: lines.map((line) => ({ category: lineCategory(line.category), description: line.description.trim(), vendor: line.vendor.trim() || undefined, amountUgx: line.amountUgx })) }),
           });
       setExpenseReference("");
       setExpenseLines([newExpenseLine()]);
@@ -614,15 +620,15 @@ export function CompanyTabletWorkspace({
                     <Text style={styles.inputLabel}>Processing costs (UGX)</Text>
                     {expenseFromFloat ? <Text style={styles.muted}>Paid from the manager float · {ugx(floatBalance)} available.</Text> : null}
                     <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
-                      <View style={styles.field}><Text style={styles.inputLabel}>Worker wages</Text><TextInput accessibilityLabel="Worker wages" value={sorting.wages} onChangeText={(value) => setSorting((current) => ({ ...current, wages: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
-                      <View style={styles.field}><Text style={styles.inputLabel}>Power and water</Text><TextInput accessibilityLabel="Power and water" value={sorting.utilities} onChangeText={(value) => setSorting((current) => ({ ...current, utilities: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
+                      {sortCost("workerWagesUgx", "Worker wages").visible ? <View style={styles.field}><Text style={styles.inputLabel}>{sortCost("workerWagesUgx", "Worker wages").label}</Text><TextInput accessibilityLabel={sortCost("workerWagesUgx", "Worker wages").label} value={sorting.wages} onChangeText={(value) => setSorting((current) => ({ ...current, wages: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View> : null}
+                      {sortCost("utilitiesUgx", "Power / utilities").visible ? <View style={styles.field}><Text style={styles.inputLabel}>{sortCost("utilitiesUgx", "Power / utilities").label}</Text><TextInput accessibilityLabel={sortCost("utilitiesUgx", "Power / utilities").label} value={sorting.utilities} onChangeText={(value) => setSorting((current) => ({ ...current, utilities: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View> : null}
                     </View>
                     <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
-                      <View style={styles.field}><Text style={styles.inputLabel}>Transport</Text><TextInput accessibilityLabel="Transport" value={sorting.transport} onChangeText={(value) => setSorting((current) => ({ ...current, transport: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
-                      <View style={styles.field}><Text style={styles.inputLabel}>Bags and supplies</Text><TextInput accessibilityLabel="Bags and supplies" value={sorting.consumables} onChangeText={(value) => setSorting((current) => ({ ...current, consumables: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
+                      {sortCost("transportUgx", "Processing transport").visible ? <View style={styles.field}><Text style={styles.inputLabel}>{sortCost("transportUgx", "Processing transport").label}</Text><TextInput accessibilityLabel={sortCost("transportUgx", "Processing transport").label} value={sorting.transport} onChangeText={(value) => setSorting((current) => ({ ...current, transport: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View> : null}
+                      {sortCost("consumablesUgx", "Bags and consumables").visible ? <View style={styles.field}><Text style={styles.inputLabel}>{sortCost("consumablesUgx", "Bags and consumables").label}</Text><TextInput accessibilityLabel={sortCost("consumablesUgx", "Bags and consumables").label} value={sorting.consumables} onChangeText={(value) => setSorting((current) => ({ ...current, consumables: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View> : null}
                     </View>
                     <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}>
-                      <View style={styles.field}><Text style={styles.inputLabel}>Other costs</Text><TextInput accessibilityLabel="Other costs" value={sorting.other} onChangeText={(value) => setSorting((current) => ({ ...current, other: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>
+                      {sortCost("otherExpenseUgx", "Other processing cost").visible ? <View style={styles.field}><Text style={styles.inputLabel}>{sortCost("otherExpenseUgx", "Other processing cost").label}</Text><TextInput accessibilityLabel={sortCost("otherExpenseUgx", "Other processing cost").label} value={sorting.other} onChangeText={(value) => setSorting((current) => ({ ...current, other: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View> : null}
                       {expenseFromFloat ? null : <View style={styles.field}><Text style={styles.inputLabel}>Paid from manager float</Text><TextInput accessibilityLabel="Paid from manager float" value={sorting.float} onChangeText={(value) => setSorting((current) => ({ ...current, float: value.replace(/[^\d]/g, "") }))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View>}
                     </View>
                     <Text style={styles.inputLabel}>Notes (optional)</Text><TextInput accessibilityLabel="Notes (optional)" value={sorting.notes} onChangeText={(value) => setSorting((current) => ({ ...current, notes: value }))} style={styles.input} />
@@ -641,7 +647,7 @@ export function CompanyTabletWorkspace({
                     <Text style={styles.inputLabel}>Adjustment type</Text>
                     <View style={styles.choices}>{[["loss", "Loss"], ["correction_in", "Correction in"], ["correction_out", "Correction out"]].map(([value, label]) => <Pressable key={value} onPress={() => setAdjustment((current) => ({ ...current, type: value }))} accessibilityRole="radio" accessibilityState={{ checked: adjustment.type === value }} style={[styles.choice, adjustment.type === value && styles.choiceActive]}><Text style={[styles.choiceText, adjustment.type === value && styles.choiceTextActive]}>{label}</Text></Pressable>)}</View>
                     <Text style={styles.inputLabel}>Quantity (kg)</Text><TextInput accessibilityLabel="Quantity (kg)" value={adjustment.quantityKg} onChangeText={(value) => setAdjustment((current) => ({ ...current, quantityKg: value }))} keyboardType="decimal-pad" style={styles.input} />
-                    <Text style={styles.inputLabel}>Reason</Text><TextInput accessibilityLabel="Reason" value={adjustment.reason} onChangeText={(value) => setAdjustment((current) => ({ ...current, reason: value }))} placeholder="Required audit reason" style={styles.input} />
+                    <Text style={styles.inputLabel}>Reason</Text>{lossReasons(data.recyclingSettings).length ? <View style={styles.choices}>{lossReasons(data.recyclingSettings).map((reason) => <Pressable key={reason} onPress={() => setAdjustment((current) => ({ ...current, reason }))} accessibilityRole="radio" accessibilityState={{ checked: adjustment.reason === reason }} style={[styles.choice, adjustment.reason === reason && styles.choiceActive]}><Text style={[styles.choiceText, adjustment.reason === reason && styles.choiceTextActive]}>{reason}</Text></Pressable>)}</View> : null}<TextInput accessibilityLabel="Reason" value={adjustment.reason} onChangeText={(value) => setAdjustment((current) => ({ ...current, reason: value }))} placeholder="Required audit reason" style={styles.input} />
                     <Text style={styles.inputLabel}>Notes (optional)</Text><TextInput accessibilityLabel="Notes (optional)" value={adjustment.notes} onChangeText={(value) => setAdjustment((current) => ({ ...current, notes: value }))} style={styles.input} />
                     <Pressable disabled={savingOperation || entryClosed} onPress={() => void saveAdjustment()} style={[styles.primaryButton, (savingOperation || entryClosed) && styles.disabled]}><Text style={styles.primaryButtonText}>{entryClosed ? "This day is closed" : savingOperation ? "Saving…" : "Save adjustment"}</Text></Pressable>
                   </View>
@@ -662,7 +668,7 @@ export function CompanyTabletWorkspace({
                   {expenseLines.map((line, index) => <View key={line.id} style={styles.expenseLine}>
                     <View style={styles.expenseLineHeader}><Text style={styles.rowTitle}>Expense {index + 1}</Text>{expenseLines.length > 1 ? <Pressable onPress={() => setExpenseLines((current) => current.filter((item) => item.id !== line.id))}><Text style={styles.removeText}>Remove</Text></Pressable> : null}</View>
                     <Text style={styles.inputLabel}>Type</Text>
-                    <View style={styles.choices}>{EXPENSE_CATEGORIES.map(([value,label]) => <Pressable key={value} onPress={() => setExpenseLines((current) => current.map((item) => item.id === line.id ? { ...item, category: value } : item))} accessibilityRole="radio" accessibilityState={{ checked: line.category === value }} style={[styles.choice, line.category === value && styles.choiceActive]}><Text style={[styles.choiceText, line.category === value && styles.choiceTextActive]}>{label}</Text></Pressable>)}</View>
+                    <View style={styles.choices}>{expenseCategories(data.recyclingSettings).map(({ code: value, label }) => <Pressable key={value} onPress={() => setExpenseLines((current) => current.map((item) => item.id === line.id ? { ...item, category: value } : item))} accessibilityRole="radio" accessibilityState={{ checked: lineCategory(line.category) === value }} style={[styles.choice, lineCategory(line.category) === value && styles.choiceActive]}><Text style={[styles.choiceText, lineCategory(line.category) === value && styles.choiceTextActive]}>{label}</Text></Pressable>)}</View>
                     <Text style={styles.inputLabel}>Description</Text><TextInput value={line.description} onChangeText={(value) => setExpenseLines((current) => current.map((item) => item.id === line.id ? { ...item, description: value } : item))} placeholder="Example: Lunch for sorting team" style={styles.input} />
                     <View style={[styles.fieldRow, tablet && styles.fieldRowTablet]}><View style={styles.field}><Text style={styles.inputLabel}>Amount (UGX)</Text><TextInput value={line.amountUgx} onChangeText={(value) => setExpenseLines((current) => current.map((item) => item.id === line.id ? { ...item, amountUgx: value.replace(/[^\d]/g, "") } : item))} keyboardType="number-pad" placeholder="0" style={styles.input} /></View><View style={styles.field}><Text style={styles.inputLabel}>Person / worker / provider</Text><TextInput value={line.vendor} onChangeText={(value) => setExpenseLines((current) => current.map((item) => item.id === line.id ? { ...item, vendor: value } : item))} placeholder="Who received the money?" style={styles.input} /></View></View>
                   </View>)}

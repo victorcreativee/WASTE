@@ -1,4 +1,5 @@
 import { StatusBar } from "expo-status-bar";
+import { costField, type RecyclingSettings } from "../lib/recycling-settings";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -53,6 +54,7 @@ type Sale = {
   sold_on: string;
 };
 type Workspace = {
+  settings?: RecyclingSettings;
   organization: { name: string };
   operations: { operatingDate: string; isClosed: boolean; soldTodayKg: number };
   lots: Lot[];
@@ -112,6 +114,7 @@ export function RecyclingSalesWorkspace({
     [loading, setLoading] = useState(true),
     [refreshing, setRefreshing] = useState(false),
     [error, setError] = useState("");
+  const cost = (key: string, fallback: string) => costField(workspace?.settings, "sale", key, fallback);
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
   const [partnerForm, setPartnerForm] = useState({ name: "", contactPerson: "", phone: "", email: "" });
@@ -507,14 +510,13 @@ export function RecyclingSalesWorkspace({
             <Card>
               <Text style={type.heading}>Costs of this sale</Text>
               {paidNow === "now" ? <Text style={type.small}>Paid from the money the buyer pays now.</Text> : paysFromFloat ? <Text style={type.small}>Paid from the manager float · {ugx(Number(workspace?.summary?.floatBalanceUgx ?? 0))} available.</Text> : null}
-              <Field label="Transport (UGX)"><MoneyInput value={transport === "0" ? "" : transport} onChangeText={(value) => setTransport(value || "0")} /></Field>
+              {cost("transportUgx", "Transport").visible ? <Field label={`${cost("transportUgx", "Transport").label} (UGX)`}><MoneyInput value={transport === "0" ? "" : transport} onChangeText={(value) => setTransport(value || "0")} /></Field> : null}
               {showSaleCosts ? <>
-                <View style={page.columns}>
-                  <Field label="Loading wages" style={page.column}><MoneyInput value={saleCosts.wages} onChangeText={(wages) => setSaleCosts((current) => ({ ...current, wages }))} /></Field>
-                  <Field label="Food" style={page.column}><MoneyInput value={saleCosts.food} onChangeText={(food) => setSaleCosts((current) => ({ ...current, food }))} /></Field>
+                <View style={[page.columns, { flexWrap: "wrap" }]}>
+                  {([["workerWagesUgx", "Loading wages", "wages"], ["foodUgx", "Food", "food"], ["otherExpenseUgx", "Other costs", "other"]] as const).filter(([key, fallback]) => cost(key, fallback).visible).map(([key, fallback, name]) =>
+                    <Field key={key} label={cost(key, fallback).label} style={{ ...page.column, minWidth: "45%" }}><MoneyInput value={saleCosts[name]} onChangeText={(value) => setSaleCosts((current) => ({ ...current, [name]: value }))} /></Field>)}
                 </View>
-                <Field label="Other costs"><MoneyInput value={saleCosts.other} onChangeText={(other) => setSaleCosts((current) => ({ ...current, other }))} /></Field>
-              </> : <Button variant="ghost" icon="add-outline" title="Add wages, food or other costs" onPress={() => setShowSaleCosts(true)} />}
+              </> : <Button variant="ghost" icon="add-outline" title="Add other costs" onPress={() => setShowSaleCosts(true)} />}
               <Field label="Delivery note (optional)"><Input value={notes} onChangeText={setNotes} multiline placeholder="Truck, driver, anything the office should know" /></Field>
             </Card>
             <Card style={{ backgroundColor: color.actionSoft }}>
