@@ -1,6 +1,7 @@
 import { z } from "zod";
 export const createExpenseSchema=z.object({
- category:z.enum(['fuel','maintenance','payroll','equipment','utilities','disposal_fees','office','other','food','transport','worker_credit','daily_wages']),
+ // The list comes from each company's settings; the repository checks the value is turned on.
+ category:z.string().regex(/^[a-z0-9_]{2,30}$/,'Choose an expense category from the list'),
  description:z.string().trim().min(3).max(240),vendor:z.string().trim().max(160).optional(),
  amountUgx:z.number().int().positive(),expenseDate:z.string().date(),reference:z.string().trim().max(120).optional(),
 });

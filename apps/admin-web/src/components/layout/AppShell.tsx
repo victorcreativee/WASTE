@@ -120,6 +120,7 @@ const recyclingCompanyNav:NavItem[]=[
   {group:"KCCA regulation",label:"Penalty notices",href:"/dashboard/penalty-notices"},
   {group:"Administration",label:"Access & permissions",href:"/dashboard/access"},
   {group:"Administration",label:"Subscription",href:"/dashboard/subscription"},
+  {group:"Administration",label:"Recycling settings",href:"/dashboard/recycling-settings"},
   {group:"Administration",label:"Company settings",href:"/dashboard/company-settings"},
 ];
 const factoryNav:NavItem[]=[

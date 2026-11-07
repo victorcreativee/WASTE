@@ -8,6 +8,7 @@ import {
 } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { apiRequest } from "@/lib/api";
+import { activeOptions, optionLabel, type SettingOption } from "@/lib/recycling-settings";
 import { Feedback, Modal, PageHeader, Status } from "@/components/ui/System";
 import { Pagination, usePagination } from "@/components/ui/Pagination";
 import { FundingShortfall } from "@/components/ui/FundingShortfall";
@@ -140,6 +141,7 @@ function money(v: string | number) {
   return `UGX ${new Intl.NumberFormat("en-UG", { maximumFractionDigits: 0 }).format(Number(v))}`;
 }
 
+const DEFAULT_EXPENSE_CATEGORIES:SettingOption[]=[["food","Food"],["transport","Worker transport"],["daily_wages","Daily worker wages"],["worker_credit","Worker credit / advance"],["fuel","Fuel"],["maintenance","Maintenance"],["payroll","Payroll"],["equipment","Equipment"],["utilities","Utilities"],["disposal_fees","Disposal fees"],["office","Office"],["other","Other"]].map(([code,label])=>({code,label,active:true}));
 export default function BillingPage() {
   const roleSnapshot = useSyncExternalStore(
     subscribe,
@@ -1739,6 +1741,10 @@ function ExpenseWorkspace({
   const [expenseDate,setExpenseDate]=useState(()=>new Date().toISOString().slice(0,10));
   const [batchReference,setBatchReference]=useState("");
   const [dailyLines,setDailyLines]=useState<DailyExpenseDraft[]>([{id:"1",category:"food",description:"",vendor:"",amountUgx:""}]);
+  // Expense categories come from the company's settings; the fixed list is used until they load or when there are none.
+  const [categories,setCategories]=useState<SettingOption[]>(DEFAULT_EXPENSE_CATEGORIES);
+  useEffect(()=>{apiRequest<{data:{expenseCategories:SettingOption[]}}>("/api/waste/recycling/settings").then(r=>{if(r.data?.expenseCategories?.length)setCategories(r.data.expenseCategories)}).catch(()=>undefined)},[]);
+  const choices=activeOptions(categories),firstChoice=choices.find(c=>c.code==="food")?.code??choices[0]?.code??"other";
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return data.expenses.filter(
@@ -1755,7 +1761,7 @@ function ExpenseWorkspace({
     if (await onCreate(e)) setOpen(false);
   }
   function updateLine(id:string,key:keyof Omit<DailyExpenseDraft,"id">,value:string){setDailyLines(current=>current.map(line=>line.id===id?{...line,[key]:value}:line))}
-  async function submitDaily(e:FormEvent<HTMLFormElement>){e.preventDefault();const saved=await onCreateDaily({expenseDate,reference:batchReference||undefined,lines:dailyLines.map(line=>({category:line.category,description:line.description.trim(),vendor:line.vendor.trim()||undefined,amountUgx:Number(line.amountUgx)}))});if(saved){setOpen(false);setBatchReference("");setDailyLines([{id:crypto.randomUUID(),category:"food",description:"",vendor:"",amountUgx:""}]);}}
+  async function submitDaily(e:FormEvent<HTMLFormElement>){e.preventDefault();const saved=await onCreateDaily({expenseDate,reference:batchReference||undefined,lines:dailyLines.map(line=>({category:line.category,description:line.description.trim(),vendor:line.vendor.trim()||undefined,amountUgx:Number(line.amountUgx)}))});if(saved){setOpen(false);setBatchReference("");setDailyLines([{id:crypto.randomUUID(),category:firstChoice,description:"",vendor:"",amountUgx:""}]);}}
   return (
     <div className="py-8">
       <section className="grid border-y border-slate-300 md:grid-cols-3">
@@ -1780,8 +1786,8 @@ function ExpenseWorkspace({
       >
         {isRecycling?<form onSubmit={submitDaily} className="space-y-4">
           <div className="grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2"><label className="text-sm font-bold">Business date<input type="date" required value={expenseDate} onChange={event=>setExpenseDate(event.target.value)} className="mt-1 w-full border bg-white p-3"/></label><label className="text-sm font-bold">Daily voucher / batch reference<input maxLength={120} value={batchReference} onChange={event=>setBatchReference(event.target.value)} placeholder="Optional; generated automatically" className="mt-1 w-full border bg-white p-3"/></label></div>
-          <div className="space-y-3">{dailyLines.map((line,index)=><section key={line.id} className="rounded-lg border border-slate-200 p-3"><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold">Expense {index+1}</h3>{dailyLines.length>1&&<button type="button" onClick={()=>setDailyLines(current=>current.filter(item=>item.id!==line.id))} className="text-xs font-semibold text-red-700">Remove</button>}</div><div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-bold">Expense type<select required value={line.category} onChange={event=>updateLine(line.id,"category",event.target.value)} className="mt-1 w-full border p-3"><option value="food">Food</option><option value="transport">Worker transport</option><option value="worker_credit">Worker credit / advance</option><option value="daily_wages">Daily worker wages</option><option value="fuel">Fuel</option><option value="maintenance">Maintenance</option><option value="utilities">Utilities</option><option value="office">Office</option><option value="other">Other daily expense</option></select></label><label className="text-sm font-bold">Amount (UGX)<input type="number" min="1" step="1" required value={line.amountUgx} onChange={event=>updateLine(line.id,"amountUgx",event.target.value)} className="mt-1 w-full border p-3"/></label><label className="text-sm font-bold sm:col-span-2">What was paid for?<input required minLength={3} maxLength={240} value={line.description} onChange={event=>updateLine(line.id,"description",event.target.value)} className="mt-1 w-full border p-3"/></label><label className="text-sm font-bold sm:col-span-2">Person, worker or provider<input required maxLength={160} value={line.vendor} onChange={event=>updateLine(line.id,"vendor",event.target.value)} placeholder="Who received the money?" className="mt-1 w-full border p-3"/></label></div></section>)}</div>
-          <button type="button" onClick={()=>setDailyLines(current=>[...current,{id:crypto.randomUUID(),category:"food",description:"",vendor:"",amountUgx:""}])} className="w-full border border-dashed border-[var(--color-action)] px-4 py-3 text-sm font-semibold text-[var(--color-action)]">+ Add another expense</button>
+          <div className="space-y-3">{dailyLines.map((line,index)=><section key={line.id} className="rounded-lg border border-slate-200 p-3"><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold">Expense {index+1}</h3>{dailyLines.length>1&&<button type="button" onClick={()=>setDailyLines(current=>current.filter(item=>item.id!==line.id))} className="text-xs font-semibold text-red-700">Remove</button>}</div><div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-bold">Expense type<select required value={line.category} onChange={event=>updateLine(line.id,"category",event.target.value)} className="mt-1 w-full border p-3">{choices.map(c=><option key={c.code} value={c.code}>{c.label}</option>)}</select></label><label className="text-sm font-bold">Amount (UGX)<input type="number" min="1" step="1" required value={line.amountUgx} onChange={event=>updateLine(line.id,"amountUgx",event.target.value)} className="mt-1 w-full border p-3"/></label><label className="text-sm font-bold sm:col-span-2">What was paid for?<input required minLength={3} maxLength={240} value={line.description} onChange={event=>updateLine(line.id,"description",event.target.value)} className="mt-1 w-full border p-3"/></label><label className="text-sm font-bold sm:col-span-2">Person, worker or provider<input required maxLength={160} value={line.vendor} onChange={event=>updateLine(line.id,"vendor",event.target.value)} placeholder="Who received the money?" className="mt-1 w-full border p-3"/></label></div></section>)}</div>
+          <button type="button" onClick={()=>setDailyLines(current=>[...current,{id:crypto.randomUUID(),category:firstChoice,description:"",vendor:"",amountUgx:""}])} className="w-full border border-dashed border-[var(--color-action)] px-4 py-3 text-sm font-semibold text-[var(--color-action)]">+ Add another expense</button>
           <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4"><p className="text-sm"><strong>{dailyLines.length}</strong> entries · <strong>{money(dailyLines.reduce((sum,line)=>sum+Number(line.amountUgx||0),0))}</strong></p><div className="flex gap-3"><button type="button" onClick={()=>setOpen(false)} className="border px-4 py-2.5">Cancel</button><button disabled={saving} className="bg-[var(--color-action)] px-5 py-2.5 text-white disabled:opacity-50">{saving?"Saving the day…":"Save all as paid"}</button></div></div>
         </form>:<form onSubmit={submit}>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -1798,18 +1804,7 @@ function ExpenseWorkspace({
             <label className="text-sm font-bold">
               Category
               <select name="category" className="mt-1 w-full border p-3">
-                <option value="fuel">Fuel</option>
-                <option value="maintenance">Maintenance</option>
-                <option value="payroll">Payroll</option>
-                <option value="equipment">Equipment</option>
-                <option value="utilities">Utilities</option>
-                <option value="disposal_fees">Disposal fees</option>
-                <option value="office">Office</option>
-                <option value="food">Food</option>
-                <option value="transport">Worker transport</option>
-                <option value="worker_credit">Worker credit / advance</option>
-                <option value="daily_wages">Daily worker wages</option>
-                <option value="other">Other</option>
+                {choices.map(c=><option key={c.code} value={c.code}>{c.label}</option>)}
               </select>
             </label>
             <Field
@@ -1920,7 +1915,7 @@ function ExpenseWorkspace({
                         <p className="table-secondary">{x.expense_number}</p>
                       </td>
                       <td>{x.description}</td>
-                      <td className="capitalize">{label(x.category)}</td>
+                      <td className="capitalize">{categories.some(c=>c.code===x.category)?optionLabel(categories,x.category):label(x.category)}</td>
                       <td>
                         {x.vendor || "—"}
                         <p className="table-secondary">

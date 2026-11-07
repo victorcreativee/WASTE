@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createExpenseSchema, dailyExpenseBatchSchema } from "../src/validators/expense.validator";
+import { resolveSettings } from "../src/services/recycling-settings";
 
 const baseExpense = {
   description: "Field team operating expense",
@@ -15,8 +16,9 @@ test("daily operating expense categories are accepted", () => {
   }
 });
 
-test("unknown expense categories remain rejected", () => {
-  assert.throws(() => createExpenseSchema.parse({ ...baseExpense, category: "personal_spending" }));
+test("malformed expense categories are rejected; whether a category is turned on is checked against company settings", () => {
+  assert.throws(() => createExpenseSchema.parse({ ...baseExpense, category: "Personal spending!" }));
+  assert.equal(resolveSettings({}).expenseCategories.some(o => o.code === "personal_spending"), false);
 });
 
 test("one daily expense sheet preserves each category, amount and person", () => {

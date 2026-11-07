@@ -12,3 +12,14 @@ test('report includes every sale, including more than the workspace feed limit',
 test('empty periods and sub-kilogram lots have correct zero and cost calculations',()=>{const f=fixture();f.lots=[{id:'tiny',origin:'purchase',quantity_kg:0.5,available_kg:0.25,unit_purchase_price_ugx:200,collected_on:'2026-10-01'}];f.sales=[];f.sorting=[];assert.equal(buildCompanyReport(f,'2026-10-01','2026-10-31').summary.stockValueUgx,50);});
 test('stock losses are charged once and unresolved costs produce a visible warning',()=>{const f=fixture();f.adjustments=[{lot_id:'a',quantity_kg:2,adjustment_type:'loss',adjustment_date:'2026-10-07'}];assert.equal(buildCompanyReport(f,'2026-10-01','2026-10-31').summary.operatingProfitUgx,450);f.sales[0].lot_id='missing';assert(buildCompanyReport(f,'2026-10-01','2026-10-31').warnings.length);});
 test('date range rejects invalid dates, reversed periods and excessively large periods',()=>{assert(reportRangeSchema.safeParse({from:'2026-02-30',to:'2026-03-01'}).success===false);assert(!reportRangeSchema.safeParse({from:'2026-10-05',to:'2026-10-01'}).success);assert(!reportRangeSchema.safeParse({from:'2020-01-01',to:'2026-01-01'}).success);});
+test('moved stock keeps the cost per kg of the lot it came from, so moving material does not change profit or stock value',()=>{
+ const f:CompanyReportRecords={organization:{id:'org',name:'Test'},lots:[
+  {id:'p',origin:'purchase',material_type:'Soft',quantity_kg:100,available_kg:70,unit_purchase_price_ugx:300,collected_on:'2026-10-01'},
+  {id:'t',origin:'transfer',source_lot_id:'p',material_type:'Soft black',quantity_kg:30,available_kg:10,unit_purchase_price_ugx:0,collected_on:'2026-10-02'}],
+  sales:[{id:'s',lot_id:'t',buyer_name:'B',quantity_kg:20,unit_price_ugx:1000,sold_on:'2026-10-03'}],sorting:[],adjustments:[],expenses:[],purchasePayments:[],salePayments:[],float:[]};
+ const r=buildCompanyReport(f,'2026-10-01','2026-10-31');
+ assert.equal(r.summary.costOfGoodsUgx,6000);
+ assert.equal(r.summary.stockValueUgx,24000);
+ assert.equal(r.summary.purchases,1,'a move is not a purchase');
+ assert.deepEqual(r.warnings,[]);
+});

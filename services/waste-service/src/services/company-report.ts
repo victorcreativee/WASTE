@@ -18,8 +18,9 @@ export function buildCompanyReport(records: CompanyReportRecords, from: string, 
   if(n(lot.quantity_kg)<=0){warnings.add('Some material quantities are invalid. Review the stock records.');return 0;}
   seen.add(id);
   const batch=batches.get(id);
-  const cost=lot.origin==='purchase'?purchaseCost(lot)/n(lot.quantity_kg):batch&&n(batch.output_kg)>0?(unitCost(batch.input_lot_id,seen)*n(batch.input_kg)+n(batch.processing_cost_ugx))/n(batch.output_kg):0;
-  if(lot.origin!=='purchase'&&!batch)warnings.add('Some material costs could not be traced. Profit and stock value are estimates.');
+  // Moved stock keeps the cost per kg of the lot it was moved from.
+  const cost=lot.origin==='purchase'?purchaseCost(lot)/n(lot.quantity_kg):lot.origin==='transfer'?(lot.source_lot_id&&lots.has(lot.source_lot_id)?unitCost(lot.source_lot_id,seen):0):batch&&n(batch.output_kg)>0?(unitCost(batch.input_lot_id,seen)*n(batch.input_kg)+n(batch.processing_cost_ugx))/n(batch.output_kg):0;
+  if((lot.origin==='sorting_output'&&!batch)||(lot.origin==='transfer'&&!lots.has(lot.source_lot_id)))warnings.add('Some material costs could not be traced. Profit and stock value are estimates.');
   costs.set(id,cost);return cost;
  };
  const payments = (rows: Row[],key: string) => {const totals=new Map<string,number>();for(const row of rows.filter(p=>p.paid_on<=to))totals.set(row[key],(totals.get(row[key])||0)+n(row.amount_ugx));return totals;};

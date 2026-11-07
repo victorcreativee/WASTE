@@ -10,6 +10,8 @@ import {
   Status,
 } from "@/components/ui/System";
 import { apiRequest } from "@/lib/api";
+import { activeOptions, costField, type RecyclingSettings } from "@/lib/recycling-settings";
+import { CorrectionRecord, CorrectionsPanel, isCorrection, type CorrectionEdit } from "@/components/recycling/RecyclingCorrections";
 import { Pager, usePagination } from "@/components/ui/Pagination";
 type Lot = {
   id: string;
@@ -23,7 +25,7 @@ type Lot = {
   collected_on: string;
   quality: string;
   status: string;
-  origin: "purchase" | "sorting_output";
+  origin: "purchase" | "sorting_output" | "transfer";
   purchase_payment_status: "paid" | "credit" | "partially_paid";
   purchase_payment_reference: string | null;
   purchase_paid_on: string | null;
@@ -249,7 +251,7 @@ type DailyClosure = {
 };
 type TransactionEdit = {
   id: string;
-  transaction_type: "purchase" | "sale";
+  transaction_type: "purchase" | "sale" | "sorting_reversal" | "material_transfer" | "material_transfer_reversal" | "cash_correction" | "entry_cancelled" | "settings_change" | "material_rename";
   transaction_id: string;
   before_state: Record<string, unknown>;
   after_state: Record<string, unknown>;
@@ -258,6 +260,7 @@ type TransactionEdit = {
 };
 type Data = {
   organization: { name: string; type: string };
+  settings?: RecyclingSettings;
   summary: Summary;
   operations: Operations;
   dailyClosures: DailyClosure[];
@@ -487,7 +490,7 @@ export default function RecyclingPage() {
     loansPage = usePagination(data?.loans ?? []),
     cashPage = usePagination(data?.cashMovements ?? []),
     floatPage = usePagination(data?.floatTransactions ?? []),
-    editsPage = usePagination(data?.transactionEdits ?? []),
+    editsPage = usePagination((data?.transactionEdits ?? []).filter((edit) => !["settings_change", "material_rename"].includes(edit.transaction_type))),
     openLoans = (data?.loans ?? []).filter((loan) => Number(loan.outstanding_ugx) > 0);
   async function submitPurchase(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1648,13 +1651,26 @@ export default function RecyclingPage() {
                   }
                 />
               ))}
+            {tab === "history" && companyAdminMode && (
+              <div className="mt-5">
+                <CorrectionsPanel
+                  stock={Object.values(data.lots.reduce<Record<string, { material: string; availableKg: number }>>((all, lot) => { const item = all[lot.material_type] ?? { material: lot.material_type, availableKg: 0 }; item.availableKg = Math.round((item.availableKg + Number(lot.available_kg)) * 1000) / 1000; all[lot.material_type] = item; return all; }, {})).sort((a, b) => a.material.localeCompare(b.material))}
+                  materials={data.materials.filter((m) => m.active !== false).map((m) => m.name).sort((a, b) => a.localeCompare(b))}
+                  today={data.operations.operatingDate}
+                  officeCashUgx={data.summary.officeCashUgx}
+                  floatBalanceUgx={data.summary.floatBalanceUgx}
+                  onDone={(message) => { setNotice(message); void load(); }}
+                />
+              </div>
+            )}
             {tab === "history" &&
               ((data.transactionEdits ?? []).length ? (
                 <div className="mt-5 space-y-4">
                   <div className="border-l-2 border-[var(--color-action)] bg-blue-50 p-4 text-sm text-slate-700">
-                    Every purchase and sale correction is kept here. Original and corrected values remain visible for accountability; closed operating days must be reopened before a correction.
+                    Every correction is kept here: purchase and sale edits, reversed sorting, material moves, cash corrections and cancelled entries. Original and corrected values remain visible for accountability; closed operating days must be reopened before a correction.
                   </div>
                   {editsPage.paged.map((edit) => {
+                    if (isCorrection(edit)) return <CorrectionRecord key={edit.id} edit={edit as CorrectionEdit} canUndo={companyAdminMode && !data.transactionEdits.some((other) => other.transaction_type === "material_transfer_reversal" && other.transaction_id === edit.transaction_id)} onDone={(message) => { setNotice(message); void load(); }} />;
                     const changes = auditChanges(edit);
                     return (
                       <article key={edit.id} className="border border-slate-200 bg-white p-4 sm:p-5">
@@ -1862,7 +1878,7 @@ export default function RecyclingPage() {
                           </tr>
                         )];
                         if(expanded)rows.push(<tr key={`${x.material}-details`}><td colSpan={6} className="!p-0"><div className="bg-slate-50 p-4"><h3 className="font-semibold">{x.material} movement history</h3><p className="mt-1 text-xs text-slate-500">Purchases, processing, sales and stock corrections that created the current balance.</p><div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                          {x.lots.map((lot)=><div key={lot.id} className="border border-slate-200 bg-white p-3 text-sm"><div className="flex justify-between gap-3"><p className="font-semibold">{lot.origin==="sorting_output"?"Processing output":"Purchase received"}</p><span className="font-semibold text-[var(--color-action)]">+{Number(lot.quantity_kg).toLocaleString()} kg</span></div><p className="mt-1 text-xs text-slate-500">{new Date(lot.collected_on).toLocaleDateString("en-GB")} · {lot.source_name}</p><p className="mt-2">Remaining {Number(lot.available_kg).toLocaleString()} kg</p></div>)}
+                          {x.lots.map((lot)=><div key={lot.id} className="border border-slate-200 bg-white p-3 text-sm"><div className="flex justify-between gap-3"><p className="font-semibold">{lot.origin==="transfer"?"Moved in (correction)":lot.origin==="sorting_output"?"Processing output":"Purchase received"}</p><span className="font-semibold text-[var(--color-action)]">+{Number(lot.quantity_kg).toLocaleString()} kg</span></div><p className="mt-1 text-xs text-slate-500">{new Date(lot.collected_on).toLocaleDateString("en-GB")} · {lot.source_name}</p><p className="mt-2">Remaining {Number(lot.available_kg).toLocaleString()} kg</p></div>)}
                           {(data?.sortingBatches??[]).filter((row)=>row.input_material_type===x.material).map((row)=><div key={`sort-${row.id}`} className="border border-slate-200 bg-white p-3 text-sm"><div className="flex justify-between gap-3"><p className="font-semibold">Sent to processing</p><span className="font-semibold text-amber-700">−{Number(row.input_kg).toLocaleString()} kg</span></div><p className="mt-1 text-xs text-slate-500">{new Date(row.processed_on).toLocaleDateString("en-GB")} · output {row.output_material}</p></div>)}
                           {(data?.sales??[]).filter((row)=>row.material_type===x.material).map((row)=><div key={`sale-${row.id}`} className="border border-slate-200 bg-white p-3 text-sm"><div className="flex justify-between gap-3"><p className="font-semibold">Sold to {row.buyer_name}</p><span className="font-semibold text-red-700">−{Number(row.quantity_kg).toLocaleString()} kg</span></div><p className="mt-1 text-xs text-slate-500">{new Date(row.sold_on).toLocaleDateString("en-GB")} · {money(row.total_ugx)}</p></div>)}
                           {(data?.stockAdjustments??[]).filter((row)=>row.material_type===x.material).map((row)=><div key={`adjust-${row.id}`} className="border border-slate-200 bg-white p-3 text-sm"><div className="flex justify-between gap-3"><p className="font-semibold">Stock correction</p><span className={`font-semibold ${row.adjustment_type==="correction_in"?"text-green-700":"text-red-700"}`}>{row.adjustment_type==="correction_in"?"+":"−"}{Number(row.quantity_kg).toLocaleString()} kg</span></div><p className="mt-1 text-xs text-slate-500">{new Date(row.adjustment_date).toLocaleDateString("en-GB")} · {row.reason}</p></div>)}
@@ -2229,11 +2245,8 @@ export default function RecyclingPage() {
             </label>
             <label className="text-sm font-semibold">
               Material condition
-              <select name="quality" defaultValue={editingPurchase?.quality || "mixed"} className={field}>
-                <option value="mixed">Mixed</option>
-                <option value="sorted">Sorted</option>
-                <option value="clean">Clean</option>
-                <option value="contaminated">Contaminated</option>
+              <select name="quality" defaultValue={editingPurchase?.quality || (activeOptions(data?.settings?.qualityGrades).some((o) => o.code === "mixed") ? "mixed" : activeOptions(data?.settings?.qualityGrades)[0]?.code)} className={field}>
+                {(data?.settings ? activeOptions(data.settings.qualityGrades, editingPurchase?.quality) : [{ code: "mixed", label: "Mixed" }, { code: "sorted", label: "Sorted" }, { code: "clean", label: "Clean" }, { code: "contaminated", label: "Contaminated" }]).map((o) => <option key={o.code} value={o.code}>{o.label}</option>)}
               </select>
             </label>
             {!editingPurchase && <button type="button" onClick={(event) => addPurchaseLine(event.currentTarget.form)} className="border border-[var(--color-action)] px-4 py-3 text-sm font-semibold text-[var(--color-action)] sm:col-span-2">{purchaseLines.length ? "+ Add another material" : "Add material to this delivery"}</button>}
@@ -2265,20 +2278,17 @@ export default function RecyclingPage() {
               Payment reference (optional)
               <input name="purchasePaymentReference" className={field} />
             </label>}
-            {expenseFields.map(([name, label]) => (
+            {expenseFields.map(([name, fallback]) => {
+              const setting = costField(data?.settings, "purchase", name, fallback), value = editingPurchase ? String(editingPurchase[name === "workerWagesUgx" ? "worker_wages_ugx" : name === "foodUgx" ? "food_ugx" : name === "transportUgx" ? "transport_ugx" : "other_expense_ugx"]) : "0";
+              return setting.visible ? (
               <label key={name} className="text-sm font-semibold">
-                {label} (UGX)
-                <input
-                  type="number"
-                  min="0"
-                  name={name}
-                  defaultValue={editingPurchase ? String(editingPurchase[name === "workerWagesUgx" ? "worker_wages_ugx" : name === "foodUgx" ? "food_ugx" : name === "transportUgx" ? "transport_ugx" : "other_expense_ugx"]) : "0"}
-                  className={field}
-                />
+                {setting.label} (UGX)
+                <input type="number" min="0" name={name} defaultValue={value} className={field} />
               </label>
-            ))}
-            <label className="text-sm font-semibold">
-              Driver fee (UGX)
+              ) : <input key={name} type="hidden" name={name} defaultValue={value} />;
+            })}
+            {costField(data?.settings, "purchase", "driverFeeUgx", "Driver fee").visible ? <label className="text-sm font-semibold">
+              {costField(data?.settings, "purchase", "driverFeeUgx", "Driver fee").label} (UGX)
               <input
                 type="number"
                 min="0"
@@ -2286,7 +2296,7 @@ export default function RecyclingPage() {
                 defaultValue={editingPurchase?.driver_fee_ugx || "0"}
                 className={field}
               />
-            </label>
+            </label> : <input type="hidden" name="driverFeeUgx" defaultValue={editingPurchase?.driver_fee_ugx || "0"} />}
             {!editingPurchase && <label className="text-sm font-semibold">
               Paid from manager float (UGX)
               <input
@@ -2393,7 +2403,7 @@ export default function RecyclingPage() {
               <p className="mt-1 flex justify-between gap-3"><span>{sortDraft.input}</span><span className="tabular-nums">{stockOf(sortDraft.input).toLocaleString()} → {(stockOf(sortDraft.input)-sortTakenKg).toLocaleString()} kg</span></p>
               {sortDraft.output!==NEW_MATERIAL?<p className="flex justify-between gap-3"><span>{sortDraft.output}</span><span className="tabular-nums">{stockOf(sortDraft.output).toLocaleString()} → {(stockOf(sortDraft.output)+sortedKg).toLocaleString()} kg</span></p>:<p className="flex justify-between gap-3"><span>New material</span><span className="tabular-nums">0 → {sortedKg.toLocaleString()} kg</span></p>}
             </div>}
-            <div className="sm:col-span-2 border-y border-slate-200 py-4"><h3 className="font-semibold">Processing cost breakdown</h3><p className="mt-1 text-xs text-slate-500">Enter the real costs. The system totals them and adds them to this material batch.</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{[["workerWagesUgx","Worker wages"],["utilitiesUgx","Power / utilities"],["transportUgx","Processing transport"],["consumablesUgx","Bags and consumables"],["otherExpenseUgx","Other processing cost"]].map(([name,label])=><label key={name} className="text-sm font-semibold">{label} (UGX)<input type="number" min="0" name={name} defaultValue="0" className={field}/></label>)}<label className="text-sm font-semibold">Paid from manager float (UGX)<input type="number" min="0" name="managerFloatUsedUgx" defaultValue="0" className={field}/><span className="mt-1 block text-xs font-normal text-slate-500">Cannot exceed the total costs or available float.</span></label></div></div>
+            <div className="sm:col-span-2 border-y border-slate-200 py-4"><h3 className="font-semibold">Processing cost breakdown</h3><p className="mt-1 text-xs text-slate-500">Enter the real costs. The system totals them and adds them to this material batch.</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{[["workerWagesUgx","Worker wages"],["utilitiesUgx","Power / utilities"],["transportUgx","Processing transport"],["consumablesUgx","Bags and consumables"],["otherExpenseUgx","Other processing cost"]].map(([name,fallback])=>{const setting=costField(data?.settings,"sorting",name,fallback);return setting.visible?<label key={name} className="text-sm font-semibold">{setting.label} (UGX)<input type="number" min="0" name={name} defaultValue="0" className={field}/></label>:<input key={name} type="hidden" name={name} defaultValue="0"/>})}<label className="text-sm font-semibold">Paid from manager float (UGX)<input type="number" min="0" name="managerFloatUsedUgx" defaultValue="0" className={field}/><span className="mt-1 block text-xs font-normal text-slate-500">Cannot exceed the total costs or available float.</span></label></div></div>
             <label className="text-sm font-semibold sm:col-span-2">
               Notes
               <textarea name="notes" rows={2} className={field} />
@@ -2461,7 +2471,8 @@ export default function RecyclingPage() {
             </label>
             <label className="text-sm font-semibold">
               Reason
-              <input required minLength={3} name="reason" placeholder="Example: Contaminated during storage" className={field} />
+              <input required minLength={3} name="reason" list="loss-reasons" placeholder="Choose or type a reason" className={field} />
+              <datalist id="loss-reasons">{(data?.settings?.lossReasons ?? []).map((reason) => <option key={reason} value={reason} />)}</datalist>
             </label>
             <label className="text-sm font-semibold sm:col-span-2">
               Additional notes (optional)
@@ -2563,18 +2574,15 @@ export default function RecyclingPage() {
               Payment reference (optional)
               <input name="paymentReference" minLength={2} maxLength={120} placeholder="Receipt or transfer number" className={field} />
             </label>}
-            {expenseFields.map(([name, label]) => (
+            {expenseFields.map(([name, fallback]) => {
+              const setting = costField(data?.settings, "sale", name, fallback), value = editingSale ? String(editingSale[name === "workerWagesUgx" ? "worker_wages_ugx" : name === "foodUgx" ? "food_ugx" : name === "transportUgx" ? "transport_ugx" : "other_expense_ugx"]) : "0";
+              return setting.visible ? (
               <label key={name} className="text-sm font-semibold">
-                {label} (UGX)
-                <input
-                  type="number"
-                  min="0"
-                  name={name}
-                  defaultValue={editingSale ? String(editingSale[name === "workerWagesUgx" ? "worker_wages_ugx" : name === "foodUgx" ? "food_ugx" : name === "transportUgx" ? "transport_ugx" : "other_expense_ugx"]) : "0"}
-                  className={field}
-                />
+                {setting.label} (UGX)
+                <input type="number" min="0" name={name} defaultValue={value} className={field} />
               </label>
-            ))}
+              ) : <input key={name} type="hidden" name={name} defaultValue={value} />;
+            })}
             <label className="text-sm font-semibold sm:col-span-2">
               Notes
               <textarea name="notes" rows={2} defaultValue={editingSale?.notes || ""} className={field} />

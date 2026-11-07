@@ -1,3 +1,4 @@
+import {assertOption} from './recycling-settings.repository';
 import { dbPool } from '../config/database';
 import { assertRecyclingBusinessDayOpen } from '../services/recycling-business-day';
 export async function findExpenses(organizationId:string|null){
@@ -36,6 +37,7 @@ export async function createExpense(organizationId:string,userId:string,data:any
  try{
   await client.query('BEGIN');
   await assertRecyclingBusinessDayOpen(client,organizationId,data.expenseDate,'recording this expense');
+  await assertOption(client,organizationId,'expenseCategories',data.category);
   const r=await client.query(`INSERT INTO organization_expenses(organization_id,expense_number,category,description,vendor,amount_ugx,expense_date,reference,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,[organizationId,number,data.category,data.description,data.vendor??null,data.amountUgx,data.expenseDate,data.reference??null,userId]);
   await client.query('COMMIT');return r.rows[0];
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
@@ -45,6 +47,7 @@ export async function createPaidDailyExpenseBatch(organizationId:string,userId:s
  try{
   await client.query('BEGIN');
   await assertRecyclingBusinessDayOpen(client,organizationId,data.expenseDate,'recording these daily expenses');
+  for(const line of data.lines)await assertOption(client,organizationId,'expenseCategories',line.category);
   await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`finance:${organizationId}`]);
   const total=data.lines.reduce((sum:number,line:any)=>sum+line.amountUgx,0);
   const available=data.fundingSource==='manager_float'

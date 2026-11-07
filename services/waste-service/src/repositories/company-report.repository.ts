@@ -9,7 +9,7 @@ export async function companyReportRecords(client: Client, organizationId: strin
  if(!organization)throw Object.assign(new Error('Organization not found'),{statusCode:404});
  return {
   organization,
-  lots:await rows(`SELECT id,material_type,source_name,origin,quantity_kg,available_kg,unit_purchase_price_ugx,worker_wages_ugx,food_ugx,transport_ugx,driver_fee_ugx,other_expense_ugx,purchase_group_reference,collected_on::text FROM recycling_material_lots WHERE organization_id=$1::uuid ORDER BY collected_on,id`),
+  lots:await rows(`SELECT id,material_type,source_name,origin,quantity_kg,available_kg,unit_purchase_price_ugx,worker_wages_ugx,food_ugx,transport_ugx,driver_fee_ugx,other_expense_ugx,purchase_group_reference,source_lot_id,collected_on::text FROM recycling_material_lots WHERE organization_id=$1::uuid ORDER BY collected_on,id`),
   sales:await rows(`SELECT id,lot_id,buyer_name,quantity_kg,delivered_kg,unit_price_ugx,worker_wages_ugx,food_ugx,transport_ugx,other_expense_ugx,sold_on::text FROM recycling_material_sales WHERE organization_id=$1::uuid ORDER BY sold_on,id`),
   saleLots:await rows('SELECT sale_id,lot_id,delivered_kg FROM recycling_sale_lots WHERE organization_id=$1::uuid'),
   sorting:await rows('SELECT input_lot_id,output_lot_id,input_kg,output_kg,rejected_kg,processing_cost_ugx,processed_on::text FROM recycling_sorting_batches WHERE organization_id=$1::uuid'),
