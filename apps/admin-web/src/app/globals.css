@@ -210,6 +210,11 @@ main button:not(:disabled):active { transform: translateY(1px); }
 .nav-link:hover { background: #f2f4f7; color: var(--color-text); }
 .nav-link[aria-current="page"] { background: var(--color-action-soft); color: var(--color-action); font-weight: 600; }
 .nav-link[aria-current="page"] .nav-dot { background: var(--color-action); }
+/* Shown from a menu click until the next page is on screen. */
+.nav-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; overflow: hidden; background: var(--color-action-soft); }
+.nav-progress::after { content: ""; position: absolute; inset: 0 auto 0 0; width: 35%; background: var(--color-action); animation: nav-progress 1s ease-in-out infinite; }
+@keyframes nav-progress { from { transform: translateX(-100%) } to { transform: translateX(290%) } }
+@media (prefers-reduced-motion: reduce) { .nav-progress::after { animation: none; width: 100%; opacity: .6; } }
 .nav-dot { width: 4px; height: 4px; flex: none; border-radius: 0; background: var(--color-border-strong); transition: background-color .12s; }
 
 /* ---------- Live fleet map (intentionally dark control-room surface) ---------- */

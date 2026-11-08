@@ -169,6 +169,23 @@ type CurrentUser = {
   roles?: string[];
 };
 
+// Every page renders its own AppShell, so the shell mounts again on each navigation. What the server said about the
+// organization is kept here (and in sessionStorage for a reload), so a new page shows the right menu at once instead of
+// the default menu until the answers come back. It is refreshed in the background on every page.
+type ShellContext = { user: string; organizationType: string; permissions: string[] | null; packageAccess: { organization_type: string; package_name: string; feature_codes: string[] } | null };
+const SHELL_KEY = "kwmsShellContext";
+let shellContext: ShellContext | null = null;
+function readShellContext(user: string): ShellContext | null {
+  if (shellContext?.user === user) return shellContext;
+  try { const saved = JSON.parse(sessionStorage.getItem(SHELL_KEY) || "null") as ShellContext | null; if (saved?.user === user) return (shellContext = saved); } catch { /* storage unavailable */ }
+  return null;
+}
+function saveShellContext(user: string, change: Partial<ShellContext>) {
+  const base = shellContext?.user === user ? shellContext : { user, organizationType: "", permissions: null, packageAccess: null };
+  shellContext = { ...base, ...change };
+  try { sessionStorage.setItem(SHELL_KEY, JSON.stringify(shellContext)); } catch { /* storage unavailable */ }
+}
+
 function storedUserSnapshot() {
   return sessionStorage.getItem("currentUser") || "";
 }
@@ -192,18 +209,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return null;
     }
   }, [storedUser]);
-  const [accessUser,setAccessUser]=useState<{user:string;permissions:string[]}|null>(null);
-  const [organizationType,setOrganizationType]=useState("");
+  // The kept answers fill the menu on the first render. During hydration the user is not read yet, so the menu does
+  // not depend on them and the server and client renders still match.
+  const [cached]=useState(()=>typeof window==="undefined"?null:readShellContext(storedUserSnapshot()));
+  const [accessUser,setAccessUser]=useState<{user:string;permissions:string[]}|null>(cached?.permissions?{user:cached.user,permissions:cached.permissions}:null);
+  const [organizationType,setOrganizationType]=useState(cached?.organizationType??"");
   const [menuOpen,setMenuOpen]=useState(false);
-  const [packageAccess,setPackageAccess]=useState<{organization_type:string;package_name:string;feature_codes:string[]}|null>(null);
+  const [pendingHref,setPendingHref]=useState<string|null>(null);
+  const [packageAccess,setPackageAccess]=useState<ShellContext["packageAccess"]>(cached?.packageAccess??null);
   useEffect(()=>{
     let cancelled=false;
     if(!currentUser?.roles?.some(r=>["company_admin","company_owner","company_investor","supervisor","driver","iot_operator","recycling_collector","recycling_sales","recycling_field_manager"].includes(r)))return;
+    const saved=readShellContext(storedUser);
     apiRequest<{data:{permissions:string[]}}>("/api/auth/organization-access/me").then(result=>{
-      if(!cancelled)setAccessUser({user:storedUser,permissions:result.data.permissions});
-    }).catch(()=>{if(!cancelled)setAccessUser(null);});
-    apiRequest<{data:{type:string}|null}>("/api/waste/organization-context").then(result=>{if(!cancelled)setOrganizationType(result.data?.type||"")}).catch(()=>{if(!cancelled)setOrganizationType("")});
-    apiRequest<{data:{organization_type:string;package_name:string;feature_codes:string[]}}>("/api/waste/regulatory/organization-package").then(result=>{if(!cancelled)setPackageAccess(result.data)}).catch(()=>{if(!cancelled)setPackageAccess(null)});
+      if(cancelled)return;setAccessUser({user:storedUser,permissions:result.data.permissions});saveShellContext(storedUser,{permissions:result.data.permissions});
+    }).catch(()=>{if(!cancelled&&!saved)setAccessUser(null);});
+    apiRequest<{data:{type:string}|null}>("/api/waste/organization-context").then(result=>{if(cancelled)return;const type=result.data?.type||"";setOrganizationType(type);saveShellContext(storedUser,{organizationType:type})}).catch(()=>{if(!cancelled&&!saved)setOrganizationType("")});
+    apiRequest<{data:{organization_type:string;package_name:string;feature_codes:string[]}}>("/api/waste/regulatory/organization-package").then(result=>{if(cancelled)return;setPackageAccess(result.data);saveShellContext(storedUser,{packageAccess:result.data})}).catch(()=>{if(!cancelled&&!saved)setPackageAccess(null)});
     return()=>{cancelled=true;};
   },[currentUser,storedUser,pathname]);
   const recyclingWorkspace=organizationType==="recycling_company";
@@ -263,7 +285,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navigation=(idSuffix:string)=><nav aria-label="Primary navigation" className="space-y-5 text-sm">
     {navGroups.map(group=><div key={`${group.name}-${idSuffix}`}>
       <p className="px-2.5 pb-1.5 text-[11px] font-semibold uppercase tracking-[.06em] text-slate-400">{group.name}</p>
-      <div className="space-y-px">{group.items.map(item=>{const isActive=item.href===activeNavItem?.href;return <Link key={item.label} href={item.href} aria-current={isActive?"page":undefined} onClick={()=>setMenuOpen(false)} className="nav-link"><span aria-hidden="true" className="nav-dot"/><span className="truncate">{item.label}</span></Link>})}</div>
+      <div className="space-y-px">{group.items.map(item=>{const isActive=pendingHref?item.href===pendingHref:item.href===activeNavItem?.href;return <Link key={item.label} href={item.href} aria-current={isActive?"page":undefined} onClick={event=>{setMenuOpen(false);if(item.href!==pathname&&!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&!event.altKey&&event.button===0)setPendingHref(item.href)}} className="nav-link"><span aria-hidden="true" className="nav-dot"/><span className="truncate">{item.label}</span></Link>})}</div>
     </div>)}
   </nav>;
 
@@ -294,6 +316,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <main className="lg:pl-64">
         <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white">
+          {pendingHref&&<div role="progressbar" aria-label="Opening page" className="nav-progress" />}
           <div className="flex h-16 items-center justify-between gap-4 px-4 md:px-8">
             <div className="flex min-w-0 items-center gap-3">
               <button onClick={()=>setMenuOpen(true)} aria-label="Open menu" className="-ml-1 flex h-10 w-10 shrink-0 items-center justify-center text-slate-600 hover:bg-slate-100 lg:hidden"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
@@ -307,7 +330,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <section className="px-4 py-6 md:px-8 md:py-8">{children}{pathname==="/dashboard/weighbridge"&&<WeighbridgeReconciliation roles={currentUser?.roles||[]}/>}</section>
+        <section aria-busy={pendingHref?true:undefined} className={`px-4 py-6 transition-opacity duration-150 md:px-8 md:py-8 ${pendingHref?"pointer-events-none opacity-50":""}`}>{children}{pathname==="/dashboard/weighbridge"&&<WeighbridgeReconciliation roles={currentUser?.roles||[]}/>}</section>
       </main>
     </div>
   );
