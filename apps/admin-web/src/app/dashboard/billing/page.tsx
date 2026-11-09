@@ -224,10 +224,11 @@ export default function BillingPage() {
     setOverview(o.data);
     if (!isCustomer) {
       if (hasOrganizationContext) {
-        const context = await apiRequest<{ data: { organization: { type: string } } }>(
-          "/api/waste/recycling",
+        // The general organization context works for every company type; the recycling workspace refuses others.
+        const context = await apiRequest<{ data: { type: string } | null }>(
+          "/api/waste/organization-context",
         );
-        setOrganizationType(context.data.organization.type);
+        setOrganizationType(context.data?.type ?? "");
       }
       const x = await apiRequest<Response<Expenses>>(
         "/api/waste/finance/expenses",
