@@ -3,7 +3,7 @@ import type { PoolClient } from "pg";
 // Thin wrappers over the SQL notification functions (migration 098). Call them inside the transaction that records the
 // event, so a notification exists exactly when the event does. Before 098 is applied they do nothing.
 
-export type Category = "permit" | "renewal" | "returns" | "compliance" | "custody" | "disposal" | "dumping" | "penalties" | "billing" | "system";
+export type Category = "permit" | "renewal" | "returns" | "compliance" | "custody" | "disposal" | "dumping" | "penalties" | "billing" | "system" | "operations";
 export type Severity = "info" | "warning" | "critical";
 type Message = { category: Category; severity: Severity; title: string; body: string; link: string; dedupeKey: string };
 

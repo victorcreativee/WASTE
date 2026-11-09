@@ -27,7 +27,7 @@ export default function CleanupOrdersPage(){
   const o=overview;
 
   return <AppShell><div className="mx-auto max-w-[1400px] space-y-6">
-    <PageHeader eyebrow="KCCA regulation" title="Dumping cleanups" description="Cleanups KCCA has ordered from your company, and dumping sites KCCA attributes to you. Clear each site by its deadline and report it with a photo."
+    <PageHeader eyebrow="KCCA regulation" title="Dumping cleanups" description="Sites to clear by the deadline, with a photo."
       action={<button onClick={()=>setReporting(true)} className="border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Report dumping</button>}/>
     {error&&<Feedback tone="error">{error}</Feedback>}{notice&&<Feedback tone="success">{notice}</Feedback>}
     {o?.repeat_offender&&<Feedback tone="warning">KCCA has attributed {o.attributed_recent} dumping sites to your company in the last {o.rules.repeat_window_days} days. From {o.rules.repeat_offences} a company is treated as a repeat offender.</Feedback>}

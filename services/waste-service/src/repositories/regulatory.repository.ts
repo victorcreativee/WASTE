@@ -50,6 +50,8 @@ export async function reviewAccountApplication(id:string,userId:string,data:any)
    await c.query('SELECT start_subscription_trial($1::uuid,$2::uuid)',[organizationId,application.requested_package_id]);
    if(application.package_code==='collector_custom')for(const featureCode of application.package_feature_codes||[])await c.query(`INSERT INTO organization_package_feature_overrides(organization_id,feature_code,enabled) VALUES($1::uuid,$2,true) ON CONFLICT(organization_id,feature_code) DO UPDATE SET enabled=true,updated_at=CURRENT_TIMESTAMP`,[organizationId,featureCode]);
    if(application.permit_application_id)await c.query('UPDATE organization_permit_applications SET organization_id=$2,updated_at=CURRENT_TIMESTAMP WHERE id=$1',[application.permit_application_id,organizationId]);
+   // A new collector can't plan any work until KCCA assigns its divisions, so KCCA is told straight away.
+   if(application.company_type==='waste_collection_company')await notifyRole(c,'kcca_admin',{category:'permit',severity:'info',title:`Assign divisions: ${application.company_name}`,body:'This licensed collector now has a workspace. Assign the divisions it may serve so it can set up zones and routes.',link:'/dashboard/organizations',dedupeKey:`assign-divisions:${organizationId}`});
    await c.query(`UPDATE organization_account_applications SET status='approved',organization_id=$2,review_notes=$3,reviewed_by=$4,reviewed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=$1`,[id,organizationId,data.notes,userId]);
    if(application.applicant_user_id){
     const roles=await c.query("SELECT id,name FROM roles WHERE name IN ('organization_applicant','company_admin')");

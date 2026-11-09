@@ -20,6 +20,7 @@ const CATEGORY:Record<string,{label:string;hint:string}>={
   dumping:{label:"Illegal dumping",hint:"Reports, cleanup orders, deadlines and KCCA checks"},
   penalties:{label:"Penalties",hint:"Penalty notices, appeal decisions, payments and deadlines"},
   billing:{label:"Subscription and billing",hint:"Invoices, payments, trial and plan changes"},
+  operations:{label:"Trip alerts",hint:"Trips not started, stuck, blocked or running long"},
   system:{label:"System",hint:"Platform announcements"},
 };
 

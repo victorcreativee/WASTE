@@ -158,7 +158,7 @@ export default function PayablesPage() {
         <PageHeader
           eyebrow="Finance"
           title="Accounts payable"
-          description="Record supplier bills, see what is due and maintain a reliable payment history."
+          description="Supplier bills and payments."
           action={
             <button
               onClick={() => setForm("bill")}
@@ -201,7 +201,7 @@ export default function PayablesPage() {
           ))}
         </nav>
         {form === "bill" && (
-          <Modal open title="Record supplier bill" description="Link a received order where possible so supplier and payable values remain traceable." onClose={() => setForm("none")}>
+          <Modal open title="Record supplier bill" description="Link the received order where you can." onClose={() => setForm("none")}>
           <form onSubmit={submitBill}>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field
@@ -252,7 +252,7 @@ export default function PayablesPage() {
               />
               <Field name="dueOn" label="Due date" type="date" defaultValue={today()} required />
             </div>
-            {billDraft.purchaseOrderId && <p className="mt-3 text-xs text-slate-500">This bill replaces the selected order’s existing commitment; it does not reserve the same money twice.</p>}
+            {billDraft.purchaseOrderId && <p className="mt-3 text-xs text-slate-500">Replaces the order’s commitment; money isn’t reserved twice.</p>}
             <FundingShortfall amount={Number(billDraft.amountUgx)} available={billFunding} action="approval" />
             <div className="mt-6 flex justify-end gap-3 border-t pt-4"><button type="button" onClick={()=>setForm("none")} className="border px-4">Cancel</button><button disabled={saving || !data.funding || Number(billDraft.amountUgx)>billFunding} className="bg-[var(--color-action)] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving?"Saving...":"Save bill"}</button></div>
           </form>
@@ -279,7 +279,7 @@ export default function PayablesPage() {
               </label>
               <Field name="reference" label="Receipt or transaction reference" required />
               <Field name="paidOn" label="Payment date" type="date" defaultValue={today()} max={today()} required />
-              <p className="text-xs text-slate-500 sm:col-span-2">Use the actual payment date. Dates before your opening balance or after today are not accepted.</p>
+              <p className="text-xs text-slate-500 sm:col-span-2">Use the actual payment date.</p>
               <Field name="notes" label="Notes" />
             </div>
             <div id="supplier-payment-funding" aria-live="polite">{data.funding && <FundingShortfall amount={Number(paymentAmount)} available={Number(data.funding.cash_position_ugx)} action="payment" />}</div>

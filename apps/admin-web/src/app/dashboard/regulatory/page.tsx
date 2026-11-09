@@ -39,7 +39,7 @@ export default function RegulatoryOverviewPage(){
   }
 
   return <AppShell><div className="mx-auto max-w-5xl space-y-6">
-    <PageHeader eyebrow="KCCA regulation" title="Regulatory overview" description="Your obligations to KCCA in one place. This part of the platform is available to every licensed company, whatever your subscription."/>
+    <PageHeader eyebrow="KCCA regulation" title="Regulatory overview" description="What you owe KCCA. Free on every plan."/>
     {error&&<Feedback tone="error">{error}</Feedback>}
     {data&&(actions.length?<Feedback tone="warning"><p className="font-semibold">Needs your attention</p><ul className="mt-1 list-disc pl-4 font-normal">{actions.map(a=><li key={a}>{a}</li>)}</ul></Feedback>:<Feedback tone="success">You are up to date with KCCA: permit in force, no overdue returns and no overdue compliance cases.</Feedback>)}
 
@@ -54,7 +54,7 @@ export default function RegulatoryOverviewPage(){
 
       <Panel title="Monthly returns" href="/dashboard/returns" action="Open returns">
         {data.returns.outstanding.length?<ul className="divide-y divide-slate-100 text-sm">{data.returns.outstanding.slice(0,4).map(r=><li key={r.period} className="flex items-center justify-between py-2 first:pt-0"><span>{monthName(r.period)}<span className="block text-xs text-slate-500">Due {shortDate(r.due_on)}</span></span><span className={RETURN_STATE[r.state].className}>{RETURN_STATE[r.state].label}</span></li>)}</ul>
-          :<p className="text-sm text-slate-600">No returns outstanding. The next one is due on the 15th of next month.</p>}
+          :<p className="text-sm text-slate-600">No returns due. Next one is due on the 15th.</p>}
       </Panel>
 
       <Panel title="Compliance cases" href="/dashboard/compliance" action="Open cases">

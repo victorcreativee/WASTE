@@ -30,19 +30,19 @@ export default function TrackersPage(){
 
   return <AppShell><div className="mx-auto max-w-[1400px] space-y-6">
     <PageHeader eyebrow="Service delivery" title="GPS trackers"
-      description="Trackers fitted to trucks send positions alongside the driver's phone, so a trip stays tracked when the phone loses signal or battery. Positions are kept only while the truck is on a trip, until its load is weighed, and only when the trip's driver has agreed to location sharing."
+      description="Truck trackers keep a trip tracked when the driver’s phone drops."
       action={companyAdmin&&data?.trucksWithoutTracker.length?<button onClick={()=>setCreating(true)} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">Register tracker</button>:undefined}/>
     {error&&<Feedback tone="error">{error}</Feedback>}{notice&&<Feedback tone="success">{notice}</Feedback>}
 
     <section className="rounded-[var(--ui-radius-lg)] border border-slate-200 bg-white p-4 text-sm">
       <p className="font-semibold text-slate-900">Setting up a tracker</p>
-      <p className="mt-1 text-slate-600">Configure the tracker, or the Traccar Client app on a phone fixed in the cab, to send positions over HTTP in the OsmAnd protocol:</p>
+      <p className="mt-1 text-slate-600">Send positions over HTTP in the OsmAnd protocol (tracker or Traccar Client app):</p>
       <dl className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-[10rem_1fr]">
         <dt className="text-slate-500">Server URL</dt><dd className="break-all font-mono text-[12.5px] text-slate-800">{url}</dd>
         <dt className="text-slate-500">Device identifier</dt><dd>The device key shown when the tracker is registered (<span className="font-mono text-[12.5px]">kwt_…</span>)</dd>
         <dt className="text-slate-500">Interval</dt><dd>Every 30 to 60 seconds. Positions stored while offline are accepted for 24 hours.</dd>
       </dl>
-      <p className="mt-3 text-xs text-slate-500">Trackers that only speak their own protocol (Teltonika, Concox) need a gateway such as a Traccar server that forwards positions in this format.</p>
+      <p className="mt-3 text-xs text-slate-500">Teltonika or Concox trackers need a gateway such as a Traccar server.</p>
     </section>
 
     <section>
@@ -66,7 +66,7 @@ export default function TrackersPage(){
     </section>
 
     {companyAdmin&&data&&<CreateDialog open={creating} trucks={data.trucksWithoutTracker} onClose={()=>setCreating(false)} onCreated={async issued=>{setCreating(false);setIssued(issued);setError("");await load()}}/>}
-    <Modal open={Boolean(issued)} title="Copy the device key now" description="This is the only time the key is shown. Enter it as the tracker's device identifier. If it is lost, retire the tracker and register it again." onClose={()=>setIssued(null)}>
+    <Modal open={Boolean(issued)} title="Copy the device key now" description="Shown once. Enter it as the tracker’s device ID." onClose={()=>setIssued(null)}>
       {issued&&<div className="grid gap-3 text-sm">
         <p className="font-medium text-slate-900">{issued.label} · {issued.plate}</p>
         <code className="block break-all border border-slate-300 bg-slate-50 px-3 py-2.5 font-mono text-[13px]">{issued.key}</code>
@@ -90,7 +90,7 @@ function CreateDialog({open,trucks,onClose,onCreated}:{open:boolean;trucks:Truck
       await onCreated({key:r.data.key,label:r.data.label,plate:r.data.plate_number});
     }catch(e){setError(e instanceof Error?e.message:"Could not register the tracker")}finally{setSaving(false)}
   }
-  return <Modal open={open} title="Register a tracker" description="One working tracker per truck. The device key is shown once, after registering." onClose={()=>!saving&&onClose()}>
+  return <Modal open={open} title="Register a tracker" description="One tracker per truck. The key is shown once." onClose={()=>!saving&&onClose()}>
     <form key={String(open)} onSubmit={e=>{e.preventDefault();void submit(new FormData(e.currentTarget))}} className="grid gap-4 text-sm">
       <label className="font-medium">Truck<select name="truckId" required className={field}>{trucks.map(t=><option key={t.id} value={t.id}>{t.plate_number}</option>)}</select></label>
       <label className="font-medium">Name<input name="label" required minLength={2} maxLength={80} className={field} placeholder="Teltonika FMB920"/></label>

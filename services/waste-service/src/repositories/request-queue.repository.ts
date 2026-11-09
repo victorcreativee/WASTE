@@ -9,6 +9,10 @@ const QUEUES = [
     sql: `SELECT created_at AS at FROM organization_account_applications WHERE status IN('submitted','under_review')` },
   { key: "permit_applications", label: "Permit applications", action: "Review documents", href: "/dashboard/permits", roles: ["kcca_admin", "system_admin"],
     sql: `SELECT COALESCE(submitted_at,created_at) AS at FROM organization_permit_applications WHERE status IN('submitted','under_review')` },
+  // A collector with a current permit but no division cannot create zones, routes or trips until KCCA assigns one.
+  { key: "divisions_to_assign", label: "Collectors waiting for divisions", action: "Assign divisions", href: "/dashboard/organizations", roles: ["kcca_admin"],
+    sql: `SELECT COALESCE(p.approved_at,o.created_at) AS at FROM organizations o JOIN LATERAL (SELECT max(COALESCE(pa.reviewed_at,pa.updated_at)) approved_at FROM organization_permit_applications pa WHERE pa.organization_id=o.id AND pa.status='approved' AND pa.valid_until>=CURRENT_DATE) p ON p.approved_at IS NOT NULL
+      WHERE o.type='waste_collection_company' AND o.is_active AND NOT EXISTS(SELECT 1 FROM organization_division_authorizations a WHERE a.organization_id=o.id AND a.status='active')` },
   { key: "permit_renewals", label: "Permit renewal requests", action: "Decide renewals", href: "/dashboard/permits", roles: ["kcca_admin", "system_admin"],
     sql: `SELECT created_at AS at FROM permit_renewal_requests WHERE status='submitted'` },
   { key: "monthly_returns", label: "Monthly returns to review", action: "Open returns register", href: "/dashboard/returns-register", roles: ["kcca_admin"],

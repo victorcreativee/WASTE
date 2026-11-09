@@ -4,6 +4,7 @@ import {
   getMyCustomerServiceHandler,
   upsertMyCustomerServiceHandler,
   updateCustomerServiceStatusHandler,
+  changeCustomerZoneHandler,
 } from "../controllers/customer-service.controller";
 import { requireRoles } from "../middlewares/auth.middleware";
 import { requireOrganizationPermission } from "../middlewares/organization-permission.middleware";
@@ -17,6 +18,7 @@ const run = (handler: (req: Request, res: Response) => Promise<unknown>) =>
 router.get("/customer-service/me", requireRoles("citizen"), run(getMyCustomerServiceHandler));
 router.put("/customer-service/me", requireRoles("citizen"), run(upsertMyCustomerServiceHandler));
 router.get("/customers", requireOrganizationPermission("customers.read"), run(getCustomersHandler));
+router.patch("/customers/:customerId/zone", requireOrganizationPermission("customers.manage"), run(changeCustomerZoneHandler));
 router.patch("/customers/:customerId/status", requireOrganizationPermission("customers.manage"), run(updateCustomerServiceStatusHandler));
 
 export default router;

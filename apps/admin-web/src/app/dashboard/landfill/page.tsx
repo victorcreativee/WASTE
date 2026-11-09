@@ -60,7 +60,7 @@ export default function LandfillPage(){
 
   return <AppShell><div className="mx-auto max-w-[1400px] space-y-6">
     <PageHeader eyebrow={cityWide?"City oversight":"KCCA regulation"} title="Landfill and carbon"
-      description="Every load weighed at a KCCA facility gets a load certificate. KCCA records what the load contained at the tipping face; with the methane factors KCCA publishes, the platform keeps a monthly baseline of waste landfilled and diverted, and its methane potential, for NEMA reporting and carbon verifiers."
+      description="Load certificates and the monthly landfill and methane baseline."
       action={(kcca||systemAdmin||companyAdmin)?<button onClick={()=>void file(`/api/waste/landfill/baseline/export?from=${from}&to=${to}`,`kwms-carbon-baseline-${from}-to-${to}.csv`)} className="border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800">Download baseline (CSV)</button>:undefined}/>
     {error&&<Feedback tone="error">{error}</Feedback>}{notice&&<Feedback tone="success">{notice}</Feedback>}
 
@@ -87,7 +87,7 @@ export default function LandfillPage(){
             <tbody>{overview.months.map(m=><tr key={m.month}><td className="table-primary">{monthLabel(m.month)}</td><td className="text-right tabular-nums">{t(m.landfilled_t)}</td>
               <td className="text-right tabular-nums">{t(m.diverted_t)}</td><td className="text-right tabular-nums">{pct(Number(m.diverted_t),Number(m.diverted_t)+Number(m.landfilled_t))}</td>
               <td className="text-right tabular-nums">{t(m.landfilled_co2e_t)}</td></tr>)}</tbody>
-          </table></div>:<EmptyState title="Nothing weighed in these months" description="Completed weighbridge tickets appear here after the daily calculation."/>}
+          </table></div>:<EmptyState title="Nothing weighed in these months" description="Weighed loads appear after the daily run."/>}
         </div>
         <div>
           <h2 className="mb-3 text-lg font-semibold text-slate-950">By waste stream</h2>
@@ -143,7 +143,7 @@ export default function LandfillPage(){
     {factors&&<section>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div><h2 className="text-lg font-semibold text-slate-950">Methane factors · version {factors.current.version}</h2>
-          <p className="max-w-3xl text-sm text-slate-600">Methane potential of one tonne = DOC × DOCf × MCF × F × 16/12 × (1 − OX), times the warming potential of methane for tCO₂e. These are planning estimates for a baseline, not verified emission reductions; a carbon standard applies its own methodology and audit.</p></div>
+          <p className="max-w-3xl text-sm text-slate-600">Methane per tonne = DOC × DOCf × MCF × F × 16/12 × (1 − OX) × methane GWP. Planning estimates, not verified reductions.</p></div>
         {kcca&&<button onClick={()=>setPublishing(true)} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">Publish new version</button>}
       </div>
       <div className="grid gap-6 xl:grid-cols-[1fr_1.2fr]">
@@ -216,7 +216,7 @@ function FactorsDialog({open,factors,onClose,onDone}:{open:boolean;factors:Facto
     try{await onDone((await apiRequest<{message:string}>("/api/waste/landfill/factors",{method:"POST",body:JSON.stringify(body)})).message)}
     catch(e){setError(e instanceof Error?e.message:"Could not publish the factors")}finally{setSaving(false)}
   }
-  return <Modal open={open} title={`Publish methane factors version ${c.version+1}`} description="Published versions cannot be changed. The whole baseline is recalculated with the new version as soon as it is published." onClose={()=>!saving&&onClose()}>
+  return <Modal open={open} title={`Publish methane factors version ${c.version+1}`} description="Publishing recalculates the whole baseline." onClose={()=>!saving&&onClose()}>
     <form key={`${open}-${c.version}`} onSubmit={e=>{e.preventDefault();void submit(new FormData(e.currentTarget))}} className="grid gap-4 text-sm">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {[["docf","DOCf",c.docf],["mcf","MCF",c.mcf],["methaneFraction","F",c.methane_fraction],["oxidation","OX",c.oxidation],["gwpCh4","GWP of methane",c.gwp_ch4]].map(([name,label,value])=>

@@ -144,7 +144,7 @@ function PointDialog({id,editable,onClose,onChanged}:{id:string|null;editable:bo
       </form>}
 
       {editable&&<div className="grid gap-3 border border-slate-200 p-4">
-        <div><p className="font-semibold text-slate-900">Verify on site</p><p className="text-slate-600">At the point&apos;s gate or bin, take a GPS fix with this phone. It must be accurate to 50 m; the fix becomes the point&apos;s position.</p></div>
+        <div><p className="font-semibold text-slate-900">Verify on site</p><p className="text-slate-600">Take a GPS fix at the gate or bin (within 50 m).</p></div>
         {!fix?<button type="button" disabled={locating} onClick={locate} className="w-fit border border-slate-300 px-4 py-2.5 font-semibold text-slate-800 disabled:opacity-50">{locating?"Finding position…":"Take GPS fix here"}</button>
           :<div className="grid gap-3">
             <p className={fix.accuracy>50?"font-semibold text-[var(--color-warning)]":"text-slate-800"}>{fix.latitude.toFixed(6)}, {fix.longitude.toFixed(6)} · accurate to {n(fix.accuracy)} m{fix.accuracy>50?" — too rough; move outdoors and take another":""}</p>

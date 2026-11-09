@@ -148,7 +148,7 @@ export default function ContractsPage() {
         <PageHeader
           eyebrow="Customer operations"
           title="Contracts & service levels"
-          description="Assign a controlled service package to a customer, review the agreement, then activate billing."
+          description="Service packages agreed with customers."
           action={data.plans.length ? (
             <button
               onClick={() => openContract()}
@@ -182,7 +182,7 @@ export default function ContractsPage() {
         <section className="mt-8 grid border-y sm:grid-cols-3">
           {[["Customers available",data.customers.length],["Service packages",data.plans.length],["Drafts awaiting activation",data.contracts.filter(c=>c.status==="draft").length]].map(([title,count])=><div key={String(title)} className="border-b py-4 pr-5 sm:border-b-0 sm:border-r"><p className="text-sm font-semibold text-slate-500">{title}</p><p className="mt-1 text-2xl font-semibold">{count}</p></div>)}
         </section>
-        <Modal open={open} onClose={()=>!saving&&setOpen(false)} title="Create customer contract" description="Step 1: choose the customer. Step 2: apply a matching service package. Step 3: save the draft and activate it after review.">
+        <Modal open={open} onClose={()=>!saving&&setOpen(false)} title="Create customer contract" description="Choose a customer and package, save, then activate.">
           <form onSubmit={submit}>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-semibold">

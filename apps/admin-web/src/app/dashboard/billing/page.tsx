@@ -546,10 +546,6 @@ export default function BillingPage() {
       setSaving(false);
     }
   }
-  const outstanding = useMemo(
-    () => overview.invoices.reduce((sum, i) => sum + Number(i.balance_ugx), 0),
-    [overview.invoices],
-  );
   const isRecycling = organizationType === "recycling_company";
   const dueSubscriptions = useMemo(() => {
     const today = new Date();
@@ -620,17 +616,17 @@ export default function BillingPage() {
           )}
         {error&&<Feedback tone="error">{error}</Feedback>}
         {message&&<Feedback tone="success">{message}</Feedback>}
-        {!loading&&!isRecycling&&isCompanyAdmin&&plans.length===0&&<section className="mt-8 border-y border-slate-300 py-6"><p className="text-xs font-semibold uppercase tracking-[.14em] text-[var(--color-action)]">Required before contracts</p><div className="mt-2 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h2 className="text-xl font-semibold">Create your first service package</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">A package defines the price, billing period, included collections and response target. Contracts can only use a package created here.</p></div><button onClick={openCreatePlan} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">Create service package</button></div></section>}
+        {!loading&&!isRecycling&&isCompanyAdmin&&plans.length===0&&<section className="mt-8 border-y border-slate-300 py-6"><p className="text-xs font-semibold uppercase tracking-[.14em] text-[var(--color-action)]">Required before contracts</p><div className="mt-2 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h2 className="text-xl font-semibold">Create your first service package</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">Contracts can only use packages made here.</p></div><button onClick={openCreatePlan} className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">Create service package</button></div></section>}
         {hasOrganizationContext && (
           <Modal
             open={balanceOpen}
             title="Opening cash balance"
-            description="This is the starting cash and bank balance, not a top-up. Once money, costs, or accountable float are recorded, it is locked to preserve financial history."
+            description="Starting cash and bank balance. Locks once money is recorded."
             onClose={() => setBalanceOpen(false)}
           >
             <form onSubmit={saveOpeningBalance}>
               {error && <p role="alert" className="mb-4 border-l-2 border-red-600 pl-3 text-sm text-red-800">{error}</p>}
-              {position.opening_balance_locked && <p className="mb-4 border-l-2 border-slate-400 pl-3 text-sm text-slate-600">Locked: financial activity or accountable float has already been recorded. Do not replace the opening balance to add funds or hide a deficit. A reviewed accounting adjustment is required.</p>}
+              {position.opening_balance_locked && <p className="mb-4 border-l-2 border-slate-400 pl-3 text-sm text-slate-600">Locked after money was recorded. Use an accounting adjustment instead.</p>}
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="text-sm font-bold">
                   Opening balance (UGX)
@@ -738,7 +734,8 @@ export default function BillingPage() {
             )}
             {financeTab === "income" && !isRecycling && (
               <>
-                <section className="grid gap-px border-y border-slate-300 bg-slate-300 sm:grid-cols-3 mt-8">
+                {/* Money owed by customers is "Customer receivables" above; it is not repeated here. */}
+                <section className="grid gap-px border-y border-slate-300 bg-slate-300 sm:grid-cols-2 mt-8">
                   {[
                     [
                       "Active subscriptions",
@@ -746,7 +743,6 @@ export default function BillingPage() {
                         (s) => s.status === "active",
                       ).length,
                     ],
-                    ["Outstanding balance", money(outstanding)],
                     [
                       "Pending payments",
                       overview.payments.filter((p) => p.status === "pending")
@@ -837,7 +833,7 @@ export default function BillingPage() {
                           ? "Edit service package"
                           : "Create service package"
                       }
-                      description="Define the controlled price and service level used by contracts and invoices."
+                      description="Price and service level used by contracts."
                       onClose={resetPlanForm}
                     >
                       <form onSubmit={createPlan}>

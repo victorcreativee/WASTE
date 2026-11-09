@@ -7,8 +7,9 @@ import {
   findCustomers,
   upsertCustomerService,
   updateCustomerServiceStatus,
+  changeCustomerZone,
 } from "../repositories/customer-service.repository";
-import { updateCustomerServiceStatusSchema, upsertCustomerServiceSchema } from "../validators/customer-service.validator";
+import { changeCustomerZoneSchema, updateCustomerServiceStatusSchema, upsertCustomerServiceSchema } from "../validators/customer-service.validator";
 
 function identity(req: Request) { return (req as AuthenticatedRequest).auth!; }
 
@@ -35,4 +36,12 @@ export async function updateCustomerServiceStatusHandler(req: Request, res: Resp
   const customer = await updateCustomerServiceStatus(req.params.customerId as string, auth.organizationId, input.status, auth.userId);
   if (!customer) return res.status(404).json({ success: false, message: "Customer was not found in your organization" });
   return res.status(200).json({ success: true, message: `Customer service ${input.status}`, data: customer });
+}
+
+export async function changeCustomerZoneHandler(req: Request, res: Response) {
+  const auth = identity(req);
+  if (!auth.organizationId) return res.status(403).json({ success: false, message: "Your account is not linked to an organization" });
+  const input = changeCustomerZoneSchema.parse(req.body);
+  const result = await changeCustomerZone(req.params.customerId as string, auth.organizationId, input.zoneId, auth.userId);
+  return res.status(200).json({ success: true, message: `Customer moved to ${result.zone_name}`, data: result });
 }

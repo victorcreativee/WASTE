@@ -34,7 +34,7 @@ export default function DisposalRecordsPage(){
   const s=summary;
 
   return <AppShell><div className="mx-auto max-w-[1400px] space-y-6">
-    <PageHeader eyebrow="KCCA regulation" title="Disposal records" description={`Every completed trip should be weighed at a KCCA weighbridge within ${s?.rules.graceHours??48} hours. Link tickets to their trips, and explain any trip that had no ticket.`}
+    <PageHeader eyebrow="KCCA regulation" title="Disposal records" description={`Weigh each trip at KCCA within ${s?.rules.graceHours??48} hours. Explain any trip without a ticket.`}
       action={<select aria-label="Period" value={period} onChange={e=>{setPeriod(e.target.value);tripList.setPage(1);ticketList.setPage(1)}} className="border border-slate-300 bg-white px-3 py-2 text-sm">{PERIODS.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>}/>
     {error&&<Feedback tone="error">{error}</Feedback>}{notice&&<Feedback tone="success">{notice}</Feedback>}
 
@@ -50,7 +50,7 @@ export default function DisposalRecordsPage(){
       </div>
 
       {view==="gps"?<>
-        <p className="mb-3 text-sm text-slate-600">KCCA compares each trip's GPS track with the disposal facilities and the weighbridge ticket once the trip's 6-hour disposal leg is over. Drivers should keep location sharing on until the truck is weighed.</p>
+        <p className="mb-3 text-sm text-slate-600">KCCA checks each trip’s GPS track against its ticket. Keep location on until weighed.</p>
         {trackList.error&&<Feedback tone="error">{trackList.error}</Feedback>}
         {trackList.rows.length?<div className="table-wrap"><table className="w-full min-w-[820px] text-left">
           <thead><tr><th>Trip</th><th>Truck</th><th>Result</th><th>Ticket</th><th/></tr></thead>

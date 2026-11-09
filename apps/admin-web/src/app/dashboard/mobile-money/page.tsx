@@ -41,7 +41,7 @@ export default function MobileMoneyPage(){
   const openPage=usePagination(rec?.open??[]),daysPage=usePagination(rec?.days??[]);
 
   return <AppShell><div className="mx-auto max-w-[1400px] space-y-6">
-    <PageHeader eyebrow="Commercial" title="Mobile money" description="Households pay bills from their phones into your own MTN MoMo and Airtel Money accounts. Each payment is confirmed with the provider before the bill is marked paid; anything that does not add up is set aside here for you to settle."/>
+    <PageHeader eyebrow="Commercial" title="Mobile money" description="MTN and Airtel payments into your accounts."/>
     {error&&<Feedback tone="error">{error}</Feedback>}{notice&&<Feedback tone="success">{notice}</Feedback>}
     {accounts?.simulator&&<Feedback tone="warning">Simulated payments are on for this server: providers you have not connected take test payments that are approved after a few seconds (numbers ending in 0 decline). No money moves.</Feedback>}
 
@@ -62,7 +62,7 @@ export default function MobileMoneyPage(){
 
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><h2 className="text-lg font-semibold text-slate-900">Reconciliation</h2><p className="text-sm text-slate-600">Match these against your MTN and Airtel statements. Download the statement to tick off each transaction.</p></div>
+        <div><h2 className="text-lg font-semibold text-slate-900">Reconciliation</h2><p className="text-sm text-slate-600">Match against your MTN and Airtel statements.</p></div>
         <div className="flex flex-wrap items-end gap-2 text-sm">
           <label className="text-xs font-medium text-slate-600">From<input type="date" value={range.from} onChange={e=>setRange({...range,from:e.target.value})} className="mt-1 block border border-slate-300 px-3 py-2"/></label>
           <label className="text-xs font-medium text-slate-600">To<input type="date" value={range.to} onChange={e=>setRange({...range,to:e.target.value})} className="mt-1 block border border-slate-300 px-3 py-2"/></label>
@@ -125,7 +125,7 @@ function ConnectDialog({provider,callbackUrl,onClose,onDone}:{provider:Provider;
         <label className="font-medium text-slate-700">Client secret<input name="clientSecret" type="password" required autoComplete="new-password" className={field}/></label>
         <p className="text-xs leading-5 text-slate-500">{callbackUrl?<>Set the app&rsquo;s callback URL in the Airtel portal to <span className="font-mono text-slate-700">{callbackUrl}</span>. Payments are also confirmed without it.</>:"Payments are confirmed by checking with Airtel; a callback URL is optional."}</p>
       </>}
-      <p className="text-xs text-slate-500">Credentials are encrypted and never shown again. We check them with the provider when you save.</p>
+      <p className="text-xs text-slate-500">Stored encrypted and checked on save.</p>
       <div className="flex justify-end gap-2"><button type="button" onClick={onClose} className="border border-slate-300 px-4 py-2 text-slate-700">Cancel</button><button disabled={busy} className="bg-[var(--color-action)] px-4 py-2 font-semibold text-white disabled:opacity-60">{busy?"Checking with the provider…":"Save and check"}</button></div>
     </form>
   </Modal>;

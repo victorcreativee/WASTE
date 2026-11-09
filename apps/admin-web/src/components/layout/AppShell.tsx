@@ -39,68 +39,67 @@ const cityNav:NavItem[] = [
   {group:"City oversight",label:"Compliance cases",href:"/dashboard/compliance"},
 ];
 const systemNav:NavItem[]=[{group:"Platform",label:"Platform overview",href:"/dashboard"},{group:"Platform",label:"Company applications",href:"/dashboard/account-applications"},{group:"Platform",label:"Account verification",href:"/dashboard/account-verification"},{group:"Platform",label:"Platform packages",href:"/dashboard/platform-packages"},{group:"Platform",label:"Platform users",href:"/dashboard/platform-users"},{group:"Platform",label:"Weighbridge workers",href:"/dashboard/weighbridge-workers"},{group:"Platform",label:"Organizations",href:"/dashboard/organizations"},{group:"Platform",label:"Subscriptions",href:"/dashboard/subscriptions"},{group:"Reference",label:"Recycling oversight",href:"/dashboard/recycling-oversight"},{group:"Reference",label:"Disposal verification",href:"/dashboard/disposal-oversight"},{group:"Reference",label:"Constituencies",href:"/dashboard/constituencies"},{group:"Reference",label:"Waste point registry",href:"/dashboard/registry"},{group:"Reference",label:"GPS data completeness",href:"/dashboard/fleet-quality"},{group:"Reference",label:"Landfill and carbon",href:"/dashboard/landfill"},{group:"Reference",label:"Collection receipts",href:"/dashboard/receipt-audit"},{group:"Reference",label:"Collection tariffs",href:"/dashboard/tariffs"},{group:"Reference",label:"Audit log",href:"/dashboard/audit-log"},{group:"Reference",label:"GPS data protection",href:"/dashboard/gps-privacy"},{group:"Reference",label:"API keys",href:"/dashboard/api-keys"},{group:"Reference",label:"Illegal dumping",href:"/dashboard/dumping"},{group:"Reference",label:"Penalties",href:"/dashboard/penalties"},{group:"Reference",label:"City reports",href:"/dashboard/city-report"},{group:"Reference",label:"KCCA permit register",href:"/dashboard/permits"},{group:"Reference",label:"Collector performance",href:"/dashboard/city-reports"}];
-type NavItem={label:string;href:string;group?:string;packageFeature?:string};
+type NavItem={label:string;href:string;group?:string;section?:string;packageFeature?:string;hidden?:boolean};
+const kccaSection:NavItem[]=[
+  {group:"Company",section:"KCCA",label:"Overview",href:"/dashboard/regulatory"},
+  {group:"Company",section:"KCCA",label:"Permit",href:"/dashboard/permit"},
+  {group:"Company",section:"KCCA",label:"Returns",href:"/dashboard/returns"},
+  {group:"Company",section:"KCCA",label:"Receipts",href:"/dashboard/receipts"},
+  {group:"Company",section:"KCCA",label:"Disposal",href:"/dashboard/disposal"},
+  {group:"Company",section:"KCCA",label:"Landfill & carbon",href:"/dashboard/landfill"},
+  {group:"Company",section:"KCCA",label:"Compliance",href:"/dashboard/compliance"},
+  {group:"Company",section:"KCCA",label:"Cleanups",href:"/dashboard/cleanup-orders"},
+  {group:"Company",section:"KCCA",label:"Penalties",href:"/dashboard/penalty-notices"},
+];
+// Waste collection pages are grouped into sections: the menu shows one link per section and the section's pages
+// become tabs at the top of the page, so the menu stays short while every page is still one click away.
 const companyNav:NavItem[] = [
-  {group:"Overview",label:"Organization overview",href:"/dashboard/company"},
-  {group:"Service delivery",label:"Today’s operations",href:"/dashboard/waste",packageFeature:"core_operations"},
-  {group:"Service delivery",label:"Service areas & routes",href:"/dashboard/service-areas",packageFeature:"service_areas"},
-  {group:"Service delivery",label:"Fleet control",href:"/dashboard/fleet",packageFeature:"fleet"},
-  {group:"Service delivery",label:"GPS and driver records",href:"/dashboard/fleet-quality",packageFeature:"fleet"},
-  {group:"Service delivery",label:"GPS trackers",href:"/dashboard/trackers",packageFeature:"fleet"},
-  {group:"Service delivery",label:"Trips & drivers",href:"/dashboard/driver-mobile",packageFeature:"core_operations"},
-  {group:"Service delivery",label:"Daily tonnage",href:"/dashboard/tonnage",packageFeature:"tonnage"},
-  {group:"Service delivery",label:"Service issues",href:"/dashboard/citizen-issues",packageFeature:"service_issues"},
-  {group:"People & customers",label:"Customer management",href:"/dashboard/customer-service",packageFeature:"customers"},
-  {group:"People & customers",label:"Waste point registry",href:"/dashboard/registry"},
-  {group:"People & customers",label:"Staff management",href:"/dashboard/team",packageFeature:"core_operations"},
-  {group:"Commercial",label:"Contracts & service levels",href:"/dashboard/contracts",packageFeature:"contracts"},
-  {group:"Commercial",label:"Income & billing",href:"/dashboard/billing",packageFeature:"billing"},
-  {group:"Commercial",label:"Arrears",href:"/dashboard/arrears",packageFeature:"billing"},
-  {group:"Commercial",label:"Mobile money",href:"/dashboard/mobile-money",packageFeature:"billing"},
-  {group:"Finance",label:"Payroll",href:"/dashboard/payroll",packageFeature:"finance"},
-  {group:"Finance",label:"Accounts payable",href:"/dashboard/accounts-payable",packageFeature:"finance"},
-  {group:"Supply",label:"Inventory",href:"/dashboard/inventory",packageFeature:"inventory"},
-  {group:"Supply",label:"Procurement",href:"/dashboard/procurement",packageFeature:"procurement"},
-  {group:"Insights",label:"Reports",href:"/dashboard/reports",packageFeature:"reports"},
-  {group:"KCCA regulation",label:"Regulatory overview",href:"/dashboard/regulatory"},
-  {group:"KCCA regulation",label:"Permit",href:"/dashboard/permit"},
-  {group:"KCCA regulation",label:"Compliance cases",href:"/dashboard/compliance"},
-  {group:"KCCA regulation",label:"Monthly returns",href:"/dashboard/returns"},
-  {group:"KCCA regulation",label:"Disposal records",href:"/dashboard/disposal"},
-  {group:"KCCA regulation",label:"Landfill and carbon",href:"/dashboard/landfill"},
-  {group:"KCCA regulation",label:"Collection receipts",href:"/dashboard/receipts"},
-  {group:"KCCA regulation",label:"Dumping cleanups",href:"/dashboard/cleanup-orders"},
-  {group:"KCCA regulation",label:"Penalty notices",href:"/dashboard/penalty-notices"},
-  {group:"Administration",label:"Access & permissions",href:"/dashboard/access",packageFeature:"access"},
-  {group:"Administration",label:"Audit log",href:"/dashboard/audit-log"},
-  {group:"Administration",label:"GPS data protection",href:"/dashboard/gps-privacy"},
-  {group:"Administration",label:"API keys",href:"/dashboard/api-keys"},
-  {group:"Administration",label:"Subscription",href:"/dashboard/subscription"},
-  {group:"Administration",label:"Company settings",href:"/dashboard/company-settings"},
+  {group:"Work",label:"Overview",href:"/dashboard/company"},
+  {group:"Work",section:"Operations",label:"Today",href:"/dashboard/waste",packageFeature:"core_operations"},
+  {group:"Work",section:"Operations",label:"Trip details",href:"/dashboard/driver-mobile",packageFeature:"core_operations",hidden:true},
+  {group:"Work",section:"Operations",label:"Areas & routes",href:"/dashboard/service-areas",packageFeature:"service_areas"},
+  {group:"Work",section:"Operations",label:"Tonnage",href:"/dashboard/tonnage",packageFeature:"tonnage"},
+  {group:"Work",section:"Operations",label:"Service issues",href:"/dashboard/citizen-issues",packageFeature:"service_issues"},
+  {group:"Work",section:"Fleet",label:"Vehicles",href:"/dashboard/fleet",packageFeature:"fleet"},
+  {group:"Work",section:"Fleet",label:"GPS trackers",href:"/dashboard/trackers",packageFeature:"fleet"},
+  {group:"Work",section:"Fleet",label:"GPS records",href:"/dashboard/fleet-quality",packageFeature:"fleet"},
+  {group:"Work",section:"Fleet",label:"GPS privacy",href:"/dashboard/gps-privacy"},
+  {group:"Work",section:"Customers",label:"Customers",href:"/dashboard/customer-service",packageFeature:"customers"},
+  {group:"Work",section:"Customers",label:"Waste points",href:"/dashboard/registry"},
+  {group:"Work",section:"Customers",label:"Contracts",href:"/dashboard/contracts",packageFeature:"contracts"},
+  {group:"Work",section:"Staff",label:"Staff",href:"/dashboard/team",packageFeature:"core_operations"},
+  {group:"Work",section:"Staff",label:"Access",href:"/dashboard/access",packageFeature:"access"},
+  {group:"Money",section:"Billing",label:"Billing",href:"/dashboard/billing",packageFeature:"billing"},
+  {group:"Money",section:"Billing",label:"Arrears",href:"/dashboard/arrears",packageFeature:"billing"},
+  {group:"Money",section:"Billing",label:"Mobile money",href:"/dashboard/mobile-money",packageFeature:"billing"},
+  {group:"Money",section:"Finance",label:"Payroll",href:"/dashboard/payroll",packageFeature:"finance"},
+  {group:"Money",section:"Finance",label:"Payables",href:"/dashboard/accounts-payable",packageFeature:"finance"},
+  {group:"Money",section:"Supply",label:"Inventory",href:"/dashboard/inventory",packageFeature:"inventory"},
+  {group:"Money",section:"Supply",label:"Procurement",href:"/dashboard/procurement",packageFeature:"procurement"},
+  {group:"Money",label:"Reports",href:"/dashboard/reports",packageFeature:"reports"},
+  ...kccaSection,
+  {group:"Company",section:"Settings",label:"Company",href:"/dashboard/company-settings"},
+  {group:"Company",section:"Settings",label:"Subscription",href:"/dashboard/subscription"},
+  {group:"Company",section:"Settings",label:"API keys",href:"/dashboard/api-keys"},
+  {group:"Company",section:"Settings",label:"Audit log",href:"/dashboard/audit-log"},
 ];
 const supervisorNav:NavItem[] = [
-  {group:"Overview",label:"Operations overview",href:"/dashboard"},
-  {group:"Operations",label:"Daily operations",href:"/dashboard/waste"},
-  {group:"Operations",label:"Service areas",href:"/dashboard/service-areas"},
-  {group:"Operations",label:"Fleet control",href:"/dashboard/fleet"},
-  {group:"Operations",label:"GPS and driver records",href:"/dashboard/fleet-quality"},
-  {group:"Operations",label:"GPS trackers",href:"/dashboard/trackers"},
-  {group:"Operations",label:"Trip monitoring",href:"/dashboard/driver-mobile"},
-  {group:"Operations",label:"Daily tonnage",href:"/dashboard/tonnage"},
-  {group:"Operations",label:"Service issues",href:"/dashboard/citizen-issues"},
-  {group:"Customers",label:"Customer management",href:"/dashboard/customer-service"},
-  {group:"Customers",label:"Waste point registry",href:"/dashboard/registry"},
-  {group:"People",label:"Staff management",href:"/dashboard/team"},
-  {group:"Customers",label:"Billing monitor",href:"/dashboard/billing"},
-  {group:"Resources",label:"Inventory",href:"/dashboard/inventory"},
-  {group:"Insights",label:"Reports",href:"/dashboard/recycling-reports"},
-  {group:"KCCA regulation",label:"Regulatory overview",href:"/dashboard/regulatory"},
-  {group:"KCCA regulation",label:"Permit",href:"/dashboard/permit"},
-  {group:"KCCA regulation",label:"Monthly returns",href:"/dashboard/returns"},
-  {group:"KCCA regulation",label:"Disposal records",href:"/dashboard/disposal"},
-  {group:"KCCA regulation",label:"Landfill and carbon",href:"/dashboard/landfill"},
-  {group:"KCCA regulation",label:"Collection receipts",href:"/dashboard/receipts"},
-  {group:"KCCA regulation",label:"Dumping cleanups",href:"/dashboard/cleanup-orders"},
+  {group:"Work",label:"Overview",href:"/dashboard"},
+  {group:"Work",section:"Operations",label:"Today",href:"/dashboard/waste"},
+  {group:"Work",section:"Operations",label:"Trip details",href:"/dashboard/driver-mobile",hidden:true},
+  {group:"Work",section:"Operations",label:"Areas & routes",href:"/dashboard/service-areas"},
+  {group:"Work",section:"Operations",label:"Tonnage",href:"/dashboard/tonnage"},
+  {group:"Work",section:"Operations",label:"Service issues",href:"/dashboard/citizen-issues"},
+  {group:"Work",section:"Fleet",label:"Vehicles",href:"/dashboard/fleet"},
+  {group:"Work",section:"Fleet",label:"GPS trackers",href:"/dashboard/trackers"},
+  {group:"Work",section:"Fleet",label:"GPS records",href:"/dashboard/fleet-quality"},
+  {group:"Work",section:"Customers",label:"Customers",href:"/dashboard/customer-service"},
+  {group:"Work",section:"Customers",label:"Waste points",href:"/dashboard/registry"},
+  {group:"Work",section:"Customers",label:"Billing",href:"/dashboard/billing"},
+  {group:"Work",label:"Staff",href:"/dashboard/team"},
+  {group:"Work",label:"Inventory",href:"/dashboard/inventory"},
+  {group:"Work",label:"Reports",href:"/dashboard/recycling-reports"},
+  ...kccaSection.filter(item=>!["/dashboard/compliance","/dashboard/penalty-notices"].includes(item.href)),
 ];
 const recyclingCompanyNav:NavItem[]=[
   {group:"Overview",label:"Materials & sales",href:"/dashboard/recycling"},
@@ -256,6 +255,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return groups;
   },[]);
   const activeNavItem=[...visibleNavItems].sort((a,b)=>b.href.length-a.href.length).find(item=>pathname===item.href||pathname.startsWith(`${item.href}/`));
+  const sectionTabs=activeNavItem?.section?visibleNavItems.filter(item=>item.section===activeNavItem.section&&(!item.hidden||item.href===activeNavItem.href)):[];
   const productName = currentUser?.roles?.includes("weighbridge_operator") ? "KCCA Weighbridge"
     : currentUser?.roles?.includes("recycling_collector") ? "Material Collection"
     : currentUser?.roles?.includes("recycling_sales") ? "Industrial Sales"
@@ -285,7 +285,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navigation=(idSuffix:string)=><nav aria-label="Primary navigation" className="space-y-5 text-sm">
     {navGroups.map(group=><div key={`${group.name}-${idSuffix}`}>
       <p className="px-2.5 pb-1.5 text-[11px] font-semibold uppercase tracking-[.06em] text-slate-400">{group.name}</p>
-      <div className="space-y-px">{group.items.map(item=>{const isActive=pendingHref?item.href===pendingHref:item.href===activeNavItem?.href;return <Link key={item.label} href={item.href} aria-current={isActive?"page":undefined} onClick={event=>{setMenuOpen(false);if(item.href!==pathname&&!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&!event.altKey&&event.button===0)setPendingHref(item.href)}} className="nav-link"><span aria-hidden="true" className="nav-dot"/><span className="truncate">{item.label}</span></Link>})}</div>
+      <div className="space-y-px">{group.items.filter((item,index)=>!item.section||group.items.findIndex(other=>other.section===item.section)===index).map(entry=>{const item=entry.section?{...entry,label:entry.section}:entry,sectionItems=entry.section?group.items.filter(other=>other.section===entry.section):[entry];const isActive=pendingHref?sectionItems.some(other=>other.href===pendingHref):sectionItems.some(other=>other.href===activeNavItem?.href);return <Link key={item.label} href={item.href} aria-current={isActive?"page":undefined} onClick={event=>{setMenuOpen(false);if(item.href!==pathname&&!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&!event.altKey&&event.button===0)setPendingHref(item.href)}} className="nav-link"><span aria-hidden="true" className="nav-dot"/><span className="truncate">{item.label}</span></Link>})}</div>
     </div>)}
   </nav>;
 
@@ -320,7 +320,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex h-16 items-center justify-between gap-4 px-4 md:px-8">
             <div className="flex min-w-0 items-center gap-3">
               <button onClick={()=>setMenuOpen(true)} aria-label="Open menu" className="-ml-1 flex h-10 w-10 shrink-0 items-center justify-center text-slate-600 hover:bg-slate-100 lg:hidden"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-              <nav aria-label="Breadcrumb" className="min-w-0"><ol className="flex min-w-0 items-center gap-2 text-sm"><li className="hidden truncate text-slate-500 sm:block">{workspaceLabel}</li><li aria-hidden="true" className="hidden text-slate-300 sm:block">/</li><li className="truncate font-semibold text-slate-900">{activeNavItem?.label||productName}</li></ol></nav>
+              <nav aria-label="Breadcrumb" className="min-w-0"><ol className="flex min-w-0 items-center gap-2 text-sm"><li className="hidden truncate text-slate-500 sm:block">{workspaceLabel}</li><li aria-hidden="true" className="hidden text-slate-300 sm:block">/</li>{activeNavItem?.section&&activeNavItem.section!==activeNavItem.label&&<><li className="hidden truncate text-slate-500 sm:block">{activeNavItem.section}</li><li aria-hidden="true" className="hidden text-slate-300 sm:block">/</li></>}<li className="truncate font-semibold text-slate-900">{activeNavItem?.label||productName}</li></ol></nav>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <DesktopSyncCenter />
@@ -330,7 +330,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <section aria-busy={pendingHref?true:undefined} className={`px-4 py-6 transition-opacity duration-150 md:px-8 md:py-8 ${pendingHref?"pointer-events-none opacity-50":""}`}>{children}{pathname==="/dashboard/weighbridge"&&<WeighbridgeReconciliation roles={currentUser?.roles||[]}/>}</section>
+        <section aria-busy={pendingHref?true:undefined} className={`px-4 py-6 transition-opacity duration-150 md:px-8 md:py-8 ${pendingHref?"pointer-events-none opacity-50":""}`}>{sectionTabs.length>1&&<nav aria-label={`${activeNavItem?.section} pages`} className="section-tabs">{sectionTabs.map(item=><Link key={item.href} href={item.href} aria-current={item.href===activeNavItem?.href?"page":undefined} onClick={event=>{if(item.href!==pathname&&!event.metaKey&&!event.ctrlKey&&!event.shiftKey&&!event.altKey&&event.button===0)setPendingHref(item.href)}}>{item.label}</Link>)}</nav>}{children}{pathname==="/dashboard/weighbridge"&&<WeighbridgeReconciliation roles={currentUser?.roles||[]}/>}</section>
       </main>
     </div>
   );

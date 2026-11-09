@@ -138,7 +138,7 @@ export default function ProcurementPage() {
         <PageHeader
           eyebrow="Procurement"
           title="Suppliers and purchase orders"
-          description="Turn approved supply needs into accountable orders and follow delivery through receipt."
+          description="Purchase orders from request to delivery."
           action={
             <button
               onClick={() => setForm("order")}
@@ -299,7 +299,7 @@ export default function ProcurementPage() {
             ) : (
               <EmptyState
                 title="No purchase orders"
-                description="Create an order from an approved request or for a standalone purchase."
+                description="From an approved request or on its own."
                 action={
                   <button
                     onClick={() => setForm("order")}

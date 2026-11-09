@@ -43,7 +43,7 @@ export default function GpsPrivacyPage(){
 
   return <AppShell><div className="mx-auto max-w-[1400px] space-y-6">
     <PageHeader eyebrow={regulator?"Regulation":"Administration"} title="GPS data protection"
-      description="Drivers' positions are collected only during trips and only after the driver agrees to the location notice. Individual positions are deleted after the retention period KCCA sets, under Uganda's Data Protection and Privacy Act 2019; a trip under investigation can be put on hold so its positions are kept."/>
+      description="Driver positions are kept only during trips, with consent, for the period KCCA sets."/>
     {error&&<Feedback tone="error">{error}</Feedback>}{notice&&<Feedback tone="success">{notice}</Feedback>}
 
     {d&&<>
@@ -65,20 +65,20 @@ export default function GpsPrivacyPage(){
       <section>
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
           <div><h2 className="text-lg font-semibold text-slate-950">{d.drivers?"Drivers":"Consent by operator"}</h2>
-            <p className="text-sm text-slate-600">A driver who has not agreed to the current notice cannot share location; their trips show no live position and no disposal track.</p></div>
+            <p className="text-sm text-slate-600">Without agreement, the driver’s trips have no live position.</p></div>
         </div>
         {d.drivers?(d.drivers.length?<div className="table-wrap"><table className="w-full min-w-[640px] text-left">
           <thead><tr><th>Driver</th><th>Location notice</th><th>Answered</th></tr></thead>
           <tbody>{d.drivers.map(x=><tr key={x.id}><td><p className="table-primary">{x.full_name}</p><p className="table-secondary">{x.phone??""}{x.status==="inactive"?" · inactive":""}</p></td>
             <td className={STATES[x.state][1]}>{STATES[x.state][0]}{x.notice_version&&x.state!=="outdated"?<span className="text-slate-500"> · version {x.notice_version}</span>:null}</td>
             <td>{x.decided_at?dateTime(x.decided_at):"—"}</td></tr>)}</tbody>
-        </table></div>:<EmptyState title="No drivers with app accounts" description="Drivers answer the notice the first time they open the driver app."/>)
+        </table></div>:<EmptyState title="No drivers with app accounts" description="Drivers answer when they first open the app."/>)
         :d.consents.length?<div className="table-wrap"><table className="w-full min-w-[640px] text-left">
           <thead><tr><th>Operator</th><th className="text-right">Drivers</th><th className="text-right">Agreed</th><th className="text-right">Not answered</th><th className="text-right">Declined or withdrawn</th></tr></thead>
           <tbody>{d.consents.map(c=><tr key={c.organization_id}><td className="table-primary">{c.organization_name}</td><td className="text-right tabular-nums">{c.drivers}</td>
             <td className="text-right tabular-nums">{c.granted}</td><td className={`text-right tabular-nums ${c.waiting?"text-[var(--color-warning)]":""}`}>{c.waiting}</td>
             <td className={`text-right tabular-nums ${c.refused?"text-[var(--color-danger)]":""}`}>{c.refused}</td></tr>)}</tbody>
-        </table></div>:<EmptyState title="No drivers yet" description="Operators' drivers appear here once they have app accounts."/>}
+        </table></div>:<EmptyState title="No drivers yet" description="Drivers appear once they have app accounts."/>}
       </section>
 
       <section>
@@ -148,7 +148,7 @@ const Actions=({busy,label,onClose}:{busy:boolean;label:string;onClose:()=>void}
 
 function RetentionDialog({open,days,onClose,onDone}:{open:boolean;days:number;onClose:()=>void;onDone:(m:string)=>void}){
   const {busy,error,submit}=useSubmit(onDone);
-  return <Modal open={open} title="Retention period" description="How long individual GPS positions are kept for every operator. Positions older than this are deleted at the next daily run, except trips on hold. Shortening it deletes data that cannot be recovered." onClose={onClose}>
+  return <Modal open={open} title="Retention period" description="How long positions are kept. Shortening deletes data for good." onClose={onClose}>
     <form key={String(open)} onSubmit={e=>{e.preventDefault();void submit("/api/waste/privacy/gps/retention","PUT",{rawPointDays:Number(new FormData(e.currentTarget).get("days"))})}} className="grid gap-4 text-sm">
       {error&&<Feedback tone="error">{error}</Feedback>}
       <label className="font-medium text-slate-700">Days<input name="days" type="number" min={30} max={730} required defaultValue={days} className={field}/><span className="mt-1 block text-xs font-normal text-slate-500">Between 30 days and 2 years.</span></label>
@@ -159,7 +159,7 @@ function RetentionDialog({open,days,onClose,onDone}:{open:boolean;days:number;on
 
 function NoticeDialog({open,current,onClose,onDone}:{open:boolean;current:Overview["notice"];onClose:()=>void;onDone:(m:string)=>void}){
   const {busy,error,submit}=useSubmit(onDone);
-  return <Modal open={open} title={`Publish notice version ${current.version+1}`} description="Every driver must read and agree to the new version before their location is shared again. Drivers are notified." onClose={onClose}>
+  return <Modal open={open} title={`Publish notice version ${current.version+1}`} description="Drivers must agree again before sharing location." onClose={onClose}>
     <form key={`${open}-${current.version}`} onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void submit("/api/waste/privacy/gps/notices","POST",{title:f.get("title"),body:f.get("body"),changeSummary:f.get("changeSummary")})}} className="grid gap-4 text-sm">
       {error&&<Feedback tone="error">{error}</Feedback>}
       <label className="font-medium text-slate-700">Title<input name="title" required maxLength={150} defaultValue={current.title} className={field}/></label>
@@ -172,7 +172,7 @@ function NoticeDialog({open,current,onClose,onDone}:{open:boolean;current:Overvi
 
 function HoldDialog({open,onClose,onDone}:{open:boolean;onClose:()=>void;onDone:(m:string)=>void}){
   const {busy,error,submit}=useSubmit(onDone);
-  return <Modal open={open} title="Put a trip on hold" description="Its positions are kept past the retention period until the hold is released." onClose={onClose}>
+  return <Modal open={open} title="Put a trip on hold" description="Kept until the hold is released." onClose={onClose}>
     <form key={String(open)} onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void submit("/api/waste/privacy/gps/holds","POST",{tripNumber:f.get("tripNumber"),reason:f.get("reason")})}} className="grid gap-4 text-sm">
       {error&&<Feedback tone="error">{error}</Feedback>}
       <label className="font-medium text-slate-700">Trip number<input name="tripNumber" required className={`${field} font-mono`} placeholder="TRP-…"/></label>
@@ -184,7 +184,7 @@ function HoldDialog({open,onClose,onDone}:{open:boolean;onClose:()=>void;onDone:
 
 function ReleaseDialog({hold,onClose,onDone}:{hold:Overview["holds"][number]|null;onClose:()=>void;onDone:(m:string)=>void}){
   const {busy,error,submit}=useSubmit(onDone);
-  return <Modal open={Boolean(hold)} title={`Release ${hold?.trip_number??"hold"}`} description="The trip's positions then follow the retention period and may be deleted at the next daily run." onClose={onClose}>
+  return <Modal open={Boolean(hold)} title={`Release ${hold?.trip_number??"hold"}`} description="Positions may be deleted at the next daily run." onClose={onClose}>
     <form onSubmit={e=>{e.preventDefault();if(hold)void submit(`/api/waste/privacy/gps/holds/${hold.id}/release`,"POST",{note:new FormData(e.currentTarget).get("note")})}} className="grid gap-4 text-sm">
       {error&&<Feedback tone="error">{error}</Feedback>}
       {hold&&<p className="text-slate-600">Held for: {hold.reason}</p>}

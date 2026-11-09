@@ -50,7 +50,7 @@ export default function ArrearsPage(){
   const s=summary,overdue=Number(s?.overdue_ugx??0),billed=Number(s?.billed_ugx??0);
   return <AppShell><div className="mx-auto max-w-[1400px] space-y-6">
     <PageHeader eyebrow="Income & billing" title="Arrears"
-      description="Households with bills past their due date, by how long they are late. Record each call or visit, follow promises to pay, and agree payment plans for larger debts. Households keeping to a plan are not sent overdue reminders."
+      description="Overdue households, follow-ups and payment plans."
       action={<button onClick={()=>void openAuthenticatedFile("/api/waste/billing/arrears/export",{download:"arrears.csv"}).catch(e=>setError(e instanceof Error?e.message:"Could not download"))} className="border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800">Download (CSV)</button>}/>
     {error&&<Feedback tone="error">{error}</Feedback>}{notice&&<Feedback tone="success">{notice}</Feedback>}
 
@@ -141,7 +141,7 @@ function HouseholdDialog({customerId,onClose,onChanged}:{customerId:string|null;
 
       {mode==="plan"&&<form onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);
         void send(`/api/waste/billing/arrears/customers/${customerId}/plans`,{totalUgx:Number(f.get("total")),instalments:Number(f.get("instalments")),frequency:f.get("frequency"),firstDueOn:f.get("firstDueOn"),...(f.get("note")?{note:f.get("note")}:{})})}} className="grid gap-3 border border-slate-200 p-4">
-        <p className="text-slate-600">A plan is kept as agreed. To change it, cancel it and agree a new one. Progress counts the household&apos;s confirmed payments from today.</p>
+        <p className="text-slate-600">To change a plan, cancel it and agree a new one.</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="font-medium">Amount to clear (UGX)<input name="total" type="number" required min={2000} max={Number(c?.open_ugx??0)} defaultValue={Number(c?.overdue_ugx??0)||undefined} className={field}/></label>
           <label className="font-medium">Instalments<input name="instalments" type="number" required min={2} max={24} defaultValue={3} className={field}/></label>

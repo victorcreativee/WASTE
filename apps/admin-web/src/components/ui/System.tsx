@@ -1,7 +1,8 @@
 "use client";
 import {useEffect,type ReactNode} from "react";
 
-export function PageHeader({eyebrow,title,description,action}:{eyebrow?:string;title:string;description?:string;action?:ReactNode}){return <header className="page-header"><div className="min-w-0">{eyebrow&&<p className="page-eyebrow">{eyebrow}</p>}<h1>{title}</h1>{description&&<p className="page-description">{description}</p>}</div>{action&&<div className="page-action">{action}</div>}</header>}
+// The eyebrow is no longer shown: the breadcrumb and section tabs already say where the page is.
+export function PageHeader({title,description,action}:{eyebrow?:string;title:string;description?:string;action?:ReactNode}){return <header className="page-header"><div className="min-w-0"><h1>{title}</h1>{description&&<p className="page-description">{description}</p>}</div>{action&&<div className="page-action">{action}</div>}</header>}
 export function Feedback({tone="info",children}:{tone?:"info"|"success"|"warning"|"error";children:ReactNode}){return <div role={tone==="error"?"alert":"status"} className={`feedback feedback-${tone}`}><div className="min-w-0">{children}</div></div>}
 export function EmptyState({title,description,action}:{title:string;description?:string;action?:ReactNode}){return <div className="empty-state"><p className="font-semibold text-slate-800">{title}</p>{description&&<p className="mx-auto max-w-md">{description}</p>}{action&&<div className="mt-4">{action}</div>}</div>}
 export function Status({value}:{value:string}){return <span className={`status status-${value.toLowerCase().replaceAll("_","-")}`}>{value.replaceAll("_"," ")}</span>}

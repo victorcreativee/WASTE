@@ -183,3 +183,41 @@ export async function updateCustomerServiceStatus(
   } catch(error) { await client.query('ROLLBACK');throw error; }
   finally { client.release(); }
 }
+
+/**
+ * Moves a customer's service location into another of the company's zones. The zone must be active and inside a
+ * division KCCA currently authorizes for the company. The customer leaves routes in other zones, since a route only
+ * serves its own zone; the company adds them to a route in the new zone afterwards.
+ */
+export async function changeCustomerZone(customerId: string, organizationId: string, zoneId: string, actorId: string) {
+  const client = await dbPool.connect();
+  try {
+    await client.query("BEGIN");
+    const location = (await client.query(
+      `SELECT csl.id,csl.zone_id FROM customer_service_locations csl
+       JOIN customer_service_relationships csr ON csr.service_location_id=csl.id AND csr.customer_id=csl.customer_id
+         AND csr.organization_id=$2::uuid AND csr.status IN ('active','suspended')
+       WHERE csl.customer_id=$1::uuid AND csl.is_primary FOR UPDATE OF csl`, [customerId, organizationId])).rows[0];
+    if (!location) throw Object.assign(new Error("Customer was not found in your organization"), { statusCode: 404 });
+    const zone = (await client.query(
+      `SELECT z.id,z.name,z.division_id FROM waste_zones z
+       WHERE z.id=$1::uuid AND z.organization_id=$2::uuid AND z.is_active
+         AND EXISTS(SELECT 1 FROM organization_division_authorizations a WHERE a.organization_id=z.organization_id
+           AND a.division_id=z.division_id AND a.status='active' AND (a.expires_on IS NULL OR a.expires_on>=CURRENT_DATE))`,
+      [zoneId, organizationId])).rows[0];
+    if (!zone) throw Object.assign(new Error("Choose an active zone inside a division KCCA has authorized for you"), { statusCode: 409 });
+    if (location.zone_id === zone.id) { await client.query("ROLLBACK"); return { id: customerId, zone_name: zone.name, routes_left: 0 }; }
+    await client.query(`UPDATE customer_service_locations SET zone_id=$2::uuid,division_id=$3::uuid,updated_at=CURRENT_TIMESTAMP WHERE id=$1::uuid`,
+      [location.id, zone.id, zone.division_id]);
+    const left = await client.query(
+      `UPDATE service_route_customers rc SET is_active=false,updated_at=CURRENT_TIMESTAMP FROM service_routes r
+       WHERE rc.service_route_id=r.id AND rc.service_location_id=$1::uuid AND rc.is_active AND r.zone_id IS DISTINCT FROM $2::uuid`,
+      [location.id, zone.id]);
+    await client.query(`INSERT INTO organization_audit_events(organization_id,actor_id,action,entity_type,entity_id,previous_value,new_value)
+      VALUES($1::uuid,$2::uuid,'customer_zone_changed','customer',$3::uuid,$4::jsonb,$5::jsonb)`,
+      [organizationId, actorId, customerId, JSON.stringify({ zone_id: location.zone_id }), JSON.stringify({ zone_id: zone.id, routes_left: left.rowCount })]);
+    await client.query("COMMIT");
+    return { id: customerId, zone_name: zone.name, routes_left: left.rowCount ?? 0 };
+  } catch (error) { await client.query("ROLLBACK").catch(() => undefined); throw error; }
+  finally { client.release(); }
+}

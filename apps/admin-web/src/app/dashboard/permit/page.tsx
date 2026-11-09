@@ -64,7 +64,7 @@ export default function OrganizationPermitPage(){
   const daysLeft=permit?.valid_until&&data?daysBetween(data.today,permit.valid_until):null;
 
   return <AppShell><div className="mx-auto max-w-5xl space-y-8">
-    <PageHeader eyebrow="Regulation" title="KCCA permit" description="Your licence to operate in Kampala: what it allows, where, and until when."
+    <PageHeader eyebrow="Regulation" title="KCCA permit" description="What your licence allows, where and until when."
       action={permit&&permit.effective_status==="approved"?<button onClick={()=>void openAuthenticatedFile("/api/waste/regulatory/organization-certificate/pdf",{download:`${permit.permit_number}.pdf`}).catch(e=>setError(e.message))} className="border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Download certificate</button>:undefined}/>
     {error&&<Feedback tone="error">{error}</Feedback>}{notice&&<Feedback tone="success">{notice}</Feedback>}
 
@@ -73,7 +73,7 @@ export default function OrganizationPermitPage(){
       <button onClick={()=>void acknowledge(n.id)} className="min-h-0 shrink-0 px-2 py-1 text-xs font-semibold underline">Mark as read</button>
     </div>)}
 
-    {loading?<p className="text-sm text-slate-500">Loading…</p>:!permit?<EmptyState title="No KCCA permit is linked to your organization" description="If you hold a permit, ask KCCA to link it to this account. Until then KCCA lists your company as operating without a permit on record."/>:<>
+    {loading?<p className="text-sm text-slate-500">Loading…</p>:!permit?<EmptyState title="No KCCA permit is linked to your organization" description="Ask KCCA to link your permit to this account."/>:<>
       <section className="card">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
           <div><p className="text-xs font-medium text-slate-500">Permit number</p><p className="mt-1 text-lg font-semibold text-slate-900">{permit.permit_number}</p></div>
@@ -100,7 +100,7 @@ export default function OrganizationPermitPage(){
       </div>
 
       <section>
-        <SectionHeading title="Renewal" description="Requests open 90 days before expiry and remain open after a permit expires."/>
+        <SectionHeading title="Renewal" description="Opens 90 days before expiry."/>
         {open?<div className="card flex flex-wrap items-center justify-between gap-4 px-5 py-4">
           <div><p className="text-sm font-semibold text-slate-900">{open.request_number} is waiting for KCCA</p><p className="text-sm text-slate-500">Sent {new Date(open.created_at).toLocaleDateString("en-GB")} by {open.requested_by_name}, asking for validity until {date(open.requested_valid_until)}.</p></div>
           {isAdmin&&<button onClick={()=>void withdraw(open.id)} className="border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Withdraw</button>}

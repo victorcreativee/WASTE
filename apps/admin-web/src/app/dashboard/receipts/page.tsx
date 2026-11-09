@@ -40,7 +40,7 @@ export default function ReceiptsPage(){
   const s=summary;
 
   return <AppShell><div className="mx-auto max-w-[1400px] space-y-6">
-    <PageHeader eyebrow="KCCA regulation" title="Collection receipts" description="Every household collection your drivers complete gets a numbered receipt, sent to the household by SMS. Receipts cannot be edited or deleted; a receipt issued in error is voided with a reason. A signed copy of each day's receipts is filed for KCCA after midnight."/>
+    <PageHeader eyebrow="KCCA regulation" title="Collection receipts" description="A numbered SMS receipt for every collection. Void with a reason; never edit."/>
     {error&&<Feedback tone="error">{error}</Feedback>}{notice&&<Feedback tone="success">{notice}</Feedback>}
 
     {s&&<div className="grid grid-cols-2 rounded-[var(--ui-radius-lg)] border border-slate-200 bg-white sm:grid-cols-3 lg:grid-cols-5">
@@ -84,7 +84,7 @@ export default function ReceiptsPage(){
       </table></div>:!receipts.loading&&<EmptyState title={query?"No receipts match":"No receipts yet"} description={query?undefined:"Receipts appear here as drivers complete household collections."}/>}
       <Pagination page={receipts.page} pageSize={receipts.pageSize} total={receipts.total} totalPages={receipts.totalPages} onPage={receipts.setPage} onPageSize={receipts.setPageSize}/>
     </section>:<section>
-      <p className="mb-3 text-sm text-slate-600">One file per day with every receipt issued and voided that day, signed so KCCA can confirm it was not changed. KCCA receives the same files.</p>
+      <p className="mb-3 text-sm text-slate-600">One signed file per day, shared with KCCA.</p>
       {exports.error&&<Feedback tone="error">{exports.error}</Feedback>}
       {exports.rows.length?<div className="table-wrap"><table className="w-full min-w-[820px] text-left">
         <thead><tr><th>Day</th><th className="text-right">Receipts</th><th className="text-right">Voids</th><th>Serials</th><th>Filed</th><th/></tr></thead>
@@ -96,7 +96,7 @@ export default function ReceiptsPage(){
           <td>{dateTime(e.generated_at)}</td>
           <td className="whitespace-nowrap text-right"><button onClick={()=>void download(e,"file")} className="border border-slate-300 px-3 py-2 text-xs text-slate-700">Download</button> <button onClick={()=>void download(e,"signature")} className="border border-slate-300 px-3 py-2 text-xs text-slate-700">Signature</button></td>
         </tr>)}</tbody>
-      </table></div>:!exports.loading&&<EmptyState title="No exports yet" description="The first export is filed after midnight following your first receipt."/>}
+      </table></div>:!exports.loading&&<EmptyState title="No exports yet" description="First file is made after midnight."/>}
       <Pagination page={exports.page} pageSize={exports.pageSize} total={exports.total} totalPages={exports.totalPages} onPage={exports.setPage} onPageSize={exports.setPageSize}/>
     </section>}
 
@@ -111,7 +111,7 @@ function VoidDialog({receipt,onClose,onDone}:{receipt:Receipt|null;onClose:()=>v
     try{await apiRequest(`/api/waste/receipts/${receipt.id}/void`,{method:"POST",body:JSON.stringify({reason:new FormData(e.currentTarget).get("reason")})});onDone(`Receipt ${receipt.serial_number} voided.`)}
     catch(err){setError(err instanceof Error?err.message:"Could not void the receipt")}finally{setBusy(false)}
   }
-  return <Modal open={Boolean(receipt)} title={`Void ${receipt?.serial_number||"receipt"}`} description="The receipt stays in the ledger and in KCCA's export, marked void with your name and reason. This cannot be undone." onClose={onClose}>
+  return <Modal open={Boolean(receipt)} title={`Void ${receipt?.serial_number||"receipt"}`} description="Stays on record as void. Can’t be undone." onClose={onClose}>
     <form onSubmit={submit} className="grid gap-4 text-sm">
       {error&&<Feedback tone="error">{error}</Feedback>}
       {receipt&&<p className="text-slate-600">{receipt.customer_name} · {receipt.location_label} · {dateTime(receipt.collected_at)}</p>}

@@ -109,7 +109,7 @@ export default function ReturnsPage(){
   }
 
   return <AppShell><div className="mx-auto max-w-5xl space-y-6">
-    <PageHeader eyebrow="KCCA regulation" title="Monthly returns" description="Report each month's operations to KCCA by the 15th of the following month. Figures are prefilled from what you recorded on the platform."/>
+    <PageHeader eyebrow="KCCA regulation" title="Monthly returns" description="Due to KCCA by the 15th. Figures are prefilled."/>
     {error&&<Feedback tone="error">{error}</Feedback>}{notice&&<Feedback tone="success">{notice}</Feedback>}
     {!isAdmin&&<Feedback tone="info">Your company administrator files returns. You can follow their status here.</Feedback>}
 
@@ -124,7 +124,7 @@ export default function ReturnsPage(){
           ?<button onClick={()=>void openForm(p.period)} className="bg-[var(--color-action)] px-3 py-2 text-xs font-semibold text-white">{p.state==="queried"?"Correct and resubmit":"File return"}</button>
           :p.return&&<button onClick={()=>setViewing(p.return)} className="border border-slate-300 px-3 py-2 text-xs text-slate-700">View</button>}</td>
       </tr>)}</tbody>
-    </table></div>:<EmptyState title="No returns are owed yet" description="Your first return is due on the 15th of the month after your first full month on the platform."/>)}
+    </table></div>:<EmptyState title="No returns are owed yet" description="First return is due after your first full month."/>)}
 
     <Modal open={!!prefill} onClose={()=>setPrefill(null)} title={prefill?`Return for ${monthName(prefill.period)}`:""} description={prefill?`Due ${shortDate(prefill.due_on)}`:undefined}>
       {prefill&&<ReturnForm key={prefill.period} prefill={prefill} onDone={message=>{setPrefill(null);setNotice(message);void load()}}/>}

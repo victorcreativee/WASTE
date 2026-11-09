@@ -152,7 +152,7 @@ export default function InventoryPage() {
         <PageHeader
           eyebrow="Stores and procurement"
           title="Inventory & purchasing"
-          description="Know what is available, record every stock change and request supplies before operations are interrupted."
+          description="Stock on hand, movements and requests."
           action={
             <button
               onClick={() => setForm("request")}
@@ -422,7 +422,7 @@ export default function InventoryPage() {
             ) : (
               <EmptyState
                 title="No stock movements"
-                description="Receipts, issues and adjustments will create the audit trail here."
+                description="Stock movements appear here."
               />
             )}
           </section>
@@ -482,7 +482,7 @@ export default function InventoryPage() {
             ) : (
               <EmptyState
                 title="No purchase requests"
-                description="Create a request when stock must be replenished or new supplies are required."
+                description="Request stock or new supplies."
               />
             )}
           </section>

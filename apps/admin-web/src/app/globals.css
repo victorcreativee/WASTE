@@ -108,12 +108,12 @@
 /* ---------- Data tables ---------- */
 main table { width: 100%; font-size: .8125rem; line-height: 1.45; color: var(--color-text-secondary); }
 main thead { background: var(--color-surface-muted); }
-main th { height: 44px; padding: .625rem 1rem !important; border-bottom: 1px solid var(--color-border); font-size: .75rem; line-height: 1rem; font-weight: 550; white-space: nowrap; color: var(--color-muted); text-align: left; }
-main td { height: 56px; padding: .75rem 1rem !important; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
+main th { height: 34px; padding: .375rem .75rem !important; border-bottom: 1px solid var(--color-border); font-size: .75rem; line-height: 1rem; font-weight: 550; white-space: nowrap; color: var(--color-muted); text-align: left; }
+main td { height: 40px; padding: .4375rem .75rem !important; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
 main tbody tr:last-child td { border-bottom: 0; }
 main td p { margin-top: 0; }
-main td p + p { margin-top: .2rem; }
-main table button, main table select, main table input { min-height: 32px; font-size: .75rem; }
+main td p + p { margin-top: .0625rem; }
+main table button, main table select, main table input { min-height: 28px; font-size: .75rem; }
 main table button { border-radius: var(--ui-radius-sm); font-weight: 600; }
 main td, main th { vertical-align: middle; }
 
@@ -130,7 +130,7 @@ main section > table { border: 1px solid var(--color-border); background: var(--
 }
 .table-count { flex: none; font-size: .75rem; font-weight: 500; color: var(--color-muted); }
 .table-primary { font-weight: 600; color: var(--color-text); }
-.table-secondary { margin-top: .15rem; font-size: .75rem; line-height: 1.125rem; color: var(--color-muted); }
+.table-secondary { margin-top: .0625rem; font-size: .75rem; line-height: 1rem; color: var(--color-muted); }
 main td.tabular-nums, main td .tabular-nums { white-space: nowrap; }
 .table-actions { display: flex; justify-content: flex-end; align-items: center; gap: .5rem; white-space: nowrap; }
 
@@ -167,10 +167,10 @@ main form > h2, main section > h2 { color: var(--color-text); }
 main button { min-height: 38px; }
 main button:not(:disabled):active { transform: translateY(1px); }
 
-.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1.5rem; padding-bottom: 1.75rem; }
-.page-header h1 { margin-top: .375rem; font-size: 1.75rem; line-height: 1.2; font-weight: 600; letter-spacing: -.022em; color: var(--color-text); }
+.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1.5rem; padding-bottom: 1.25rem; }
+.page-header h1 { margin-top: 0; font-size: 1.5rem; line-height: 1.2; font-weight: 600; letter-spacing: -.022em; color: var(--color-text); }
 .page-eyebrow { font-size: .75rem; line-height: 1rem; font-weight: 600; letter-spacing: .02em; color: var(--color-action); }
-.page-description { margin-top: .5rem; max-width: 46rem; font-size: .9375rem; color: var(--color-muted); line-height: 1.6; }
+.page-description { margin-top: .25rem; max-width: 46rem; font-size: .875rem; color: var(--color-muted); line-height: 1.6; }
 .page-action { flex: none; display: flex; gap: .5rem; }
 
 .section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; padding: 0 0 .875rem; }
@@ -208,6 +208,11 @@ main button:not(:disabled):active { transform: translateY(1px); }
 /* ---------- App shell ---------- */
 .nav-link { display: flex; align-items: center; gap: .625rem; min-height: 34px; padding: .375rem .625rem; border-radius: var(--ui-radius-sm); font-size: .8125rem; font-weight: 500; color: var(--color-text-secondary); transition: background-color .12s, color .12s; }
 .nav-link:hover { background: #f2f4f7; color: var(--color-text); }
+/* Pages of one menu section, shown as tabs above the page. */
+.section-tabs { display: flex; gap: 1.25rem; margin: -.5rem 0 1.5rem; overflow-x: auto; border-bottom: 1px solid var(--color-border); scrollbar-width: none; }
+.section-tabs a { flex: none; padding: .5rem 0 .625rem; margin-bottom: -1px; border-bottom: 2px solid transparent; font-size: .8125rem; font-weight: 500; color: var(--color-muted); white-space: nowrap; }
+.section-tabs a:hover { color: var(--color-text); }
+.section-tabs a[aria-current="page"] { border-bottom-color: var(--color-action); color: var(--color-action); font-weight: 600; }
 .nav-link[aria-current="page"] { background: var(--color-action-soft); color: var(--color-action); font-weight: 600; }
 .nav-link[aria-current="page"] .nav-dot { background: var(--color-action); }
 /* Keeps a wide table's action buttons on screen; the other columns scroll underneath. */

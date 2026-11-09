@@ -74,7 +74,7 @@ export default function ApiKeysPage(){
     </section>
 
     {canCreate&&<CreateDialog open={creating} partner={kcca} onClose={()=>setCreating(false)} onCreated={async(key,name)=>{setCreating(false);setIssued({key,name});setError("");await load()}}/>}
-    <Modal open={Boolean(issued)} title="Copy your key now" description="This is the only time the key is shown. KWMS keeps only a fingerprint of it; if it is lost, revoke it and create another." onClose={()=>setIssued(null)}>
+    <Modal open={Boolean(issued)} title="Copy your key now" description="Shown once. If lost, revoke it and make another." onClose={()=>setIssued(null)}>
       {issued&&<div className="grid gap-3 text-sm">
         <p className="font-medium text-slate-900">{issued.name}</p>
         <code className="block break-all border border-slate-300 bg-slate-50 px-3 py-2.5 font-mono text-[13px]">{issued.key}</code>
@@ -85,7 +85,7 @@ export default function ApiKeysPage(){
       </div>}
     </Modal>
     <RevokeDialog keyToRevoke={revoking} onClose={()=>setRevoking(null)} onDone={async message=>{setRevoking(null);setNotice(message);setError("");await load()}}/>
-    <Modal open={Boolean(usage)} title={usage?`Usage · ${usage.key.name}`:""} description="Requests per day and endpoint over the last 30 days. Refused requests were over the limit, missing a scope or invalid." onClose={()=>setUsage(null)}>
+    <Modal open={Boolean(usage)} title={usage?`Usage · ${usage.key.name}`:""} description="Requests per day, last 30 days." onClose={()=>setUsage(null)}>
       {usage&&(usage.rows.length?<div className="table-wrap"><table className="w-full text-left text-sm"><thead><tr><th>Day</th><th>Endpoint</th><th className="text-right">Requests</th><th className="text-right">Refused</th></tr></thead>
         <tbody>{usage.rows.map(u=><tr key={`${u.day}${u.endpoint}`}><td>{u.day}</td><td className="font-mono text-[12.5px]">{u.endpoint}</td><td className="text-right tabular-nums">{u.requests}</td>
           <td className={`text-right tabular-nums ${u.refused?"text-[var(--color-warning)]":""}`}>{u.refused}</td></tr>)}</tbody></table></div>

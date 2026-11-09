@@ -85,7 +85,7 @@ export default function FleetQualityPage(){
           <td className="text-right tabular-nums"><Pct a={d.trips_verified} b={d.trips_completed} low={95}/><p className="table-secondary">{d.trips_verified} of {d.trips_completed}</p></td>
           <td className="text-right tabular-nums">{d.receipts}</td></tr>)}</tbody></table></div>
         :<EmptyState title="No drivers" description="Drivers appear here once they are added under Trips & drivers."/>}
-      <p className="mt-2 text-xs text-slate-500">Collections done: completed stops of those due on jobs assigned to the driver. Trips weighed at KCCA: completed trips with a completed weighbridge ticket (disposal verification).</p>
+      <p className="mt-2 text-xs text-slate-500">Collections: completed stops of those due. Weighed: trips with a KCCA weighbridge ticket.</p>
     </section>}
   </div></AppShell>;
 }

@@ -26,9 +26,9 @@ export default function SubscriptionPage(){
   const s=data?.subscription,open=data?.invoices.filter(i=>i.status==="open")??[];
 
   return <AppShell><div className="mx-auto max-w-[1200px] space-y-6">
-    <PageHeader eyebrow="Administration" title="Subscription" description="Your plan, what it includes, and your invoices. KCCA regulation (permit, returns, compliance) is free and never depends on the subscription."/>
+    <PageHeader eyebrow="Administration" title="Subscription" description="Your plan and invoices. KCCA pages are always free."/>
     {error&&<Feedback tone="error">{error}</Feedback>}{message&&<Feedback tone="success">{message}</Feedback>}
-    {data&&!s&&<EmptyState title="Your company has no subscription yet" description="Your account is managed directly by the platform team. Contact them to choose a plan."/>}
+    {data&&!s&&<EmptyState title="Your company has no subscription yet" description="Managed by the platform team."/>}
     {s?.status==="suspended"&&<Feedback tone="error">The subscription is suspended{s.status_reason?` (${s.status_reason})`:""}. Your records stay available to read and KCCA obligations can still be met; pay the overdue invoice below to make changes again.</Feedback>}
     {s?.status==="past_due"&&<Feedback tone="warning">An invoice is overdue. The subscription is suspended {data?.rules?.suspendAfterDays??14} days after its due date.</Feedback>}
     {s?.status==="cancelled"&&<Feedback tone="warning">The subscription has ended. Your records stay available to read. Contact the platform team to resume.</Feedback>}
@@ -52,7 +52,7 @@ export default function SubscriptionPage(){
           <div><p className="font-medium text-slate-900">{i.invoice_number} · {ugx(i.amount_ugx)}</p><p className="text-xs text-slate-500">{i.kind==="proration"?"Upgrade for the rest of the period":`${day(i.period_start)} to ${day(i.period_end)}`} · due {day(i.due_on)}</p></div>
           <div className="flex items-center gap-2"><span className={i.overdue?"status status-failed normal-case":INVOICE_STATUS[i.status].className}>{i.overdue?"Overdue":INVOICE_STATUS[i.status].label}</span>{i.status==="open"&&<button onClick={()=>setPaying(i)} className="bg-[var(--color-action)] px-3 py-1.5 text-xs font-semibold text-white">I have paid</button>}</div>
         </li>)}</ul>:<p className="mt-3 text-sm text-slate-500">No invoices yet.</p>}
-        {open.length>0&&<p className="mt-3 text-xs text-slate-500">Pay by mobile money or bank transfer quoting the invoice number, then enter the transaction reference. The platform confirms it within one working day.</p>}
+        {open.length>0&&<p className="mt-3 text-xs text-slate-500">Pay quoting the invoice number, then enter the reference.</p>}
       </section>
     </div>}
 
@@ -67,7 +67,7 @@ export default function SubscriptionPage(){
           {current&&cycle===s.billing_cycle?<p className="mt-4 text-sm font-medium text-[var(--color-action)]">Your plan</p>
             :<button onClick={()=>void act(p.code,"/api/waste/subscription/plan","PATCH",{planCode:p.code,billingCycle:cycle})} disabled={busy===p.code} className={`mt-4 px-3 py-2 text-sm font-semibold disabled:opacity-50 ${dearer?"bg-[var(--color-action)] text-white":"border border-slate-300 text-slate-700"}`}>{current?`Switch to ${cycle} billing`:dearer?"Upgrade now":"Move to this plan"}</button>}
         </div>})}</div>
-      <p className="text-xs text-slate-500">An upgrade applies at once; for a paid period you are invoiced for the difference for the days that remain. A cheaper plan or a change of billing starts at the end of the current period. During the trial, changes apply at once.</p>
+      <p className="text-xs text-slate-500">Upgrades apply now. Downgrades start next period.</p>
     </section>}
 
     <PaymentDialog invoice={paying} onClose={()=>setPaying(null)} onDone={async text=>{setPaying(null);setMessage(text);await load()}}/>

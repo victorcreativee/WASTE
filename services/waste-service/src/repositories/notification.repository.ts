@@ -9,7 +9,7 @@ import { notifyDisposalGaps } from "./disposal.repository";
 import { notifyOverdueCleanups } from "./dumping.repository";
 import { notifyPenaltyDeadlines } from "./penalty.repository";
 
-export const CATEGORIES = ["permit", "renewal", "returns", "compliance", "custody", "disposal", "dumping", "penalties", "billing", "system"] as const;
+export const CATEGORIES = ["permit", "renewal", "returns", "compliance", "custody", "disposal", "dumping", "penalties", "billing", "system", "operations"] as const;
 
 // ---------- In-app ----------
 

@@ -21,7 +21,7 @@ export default function PenaltyNoticesPage(){
   const s=summary;
 
   return <AppShell><div className="mx-auto max-w-[1400px] space-y-6">
-    <PageHeader eyebrow="KCCA regulation" title="Penalty notices" description={`Penalties KCCA has issued to your company. Pay within ${s?.rules.daysToPay??30} days and send KCCA the payment reference, or appeal within ${s?.rules.appealDays??14} days. Unpaid penalties can lead to suspension of your permit.`}/>
+    <PageHeader eyebrow="KCCA regulation" title="Penalty notices" description={`Pay within ${s?.rules.daysToPay??30} days or appeal within ${s?.rules.appealDays??14}.`}/>
     {error&&<Feedback tone="error">{error}</Feedback>}{message&&<Feedback tone="success">{message}</Feedback>}
     {s&&s.overdue>0&&<Feedback tone="warning">{s.overdue} penalty notice{s.overdue===1?" is":"s are"} overdue. KCCA can suspend your permit {s.rules.escalateAfterDays} days after the due date.</Feedback>}
     {s&&<div className="grid grid-cols-2 border border-slate-200 bg-white sm:grid-cols-4 rounded-[var(--ui-radius-lg)]">
@@ -43,7 +43,7 @@ export default function PenaltyNoticesPage(){
     </table></div>:!list.loading&&<EmptyState title="No penalty notices" description="KCCA has not issued any penalties to your company."/>}
     <Pagination page={list.page} pageSize={list.pageSize} total={list.total} totalPages={list.totalPages} onPage={list.setPage} onPageSize={list.setPageSize}/>
 
-    {notice&&<NoticePanel notice={notice} onClose={()=>setNotice(null)} actions={notice.status==="issued"?<CompanyActions notice={notice} onDone={done} onError={setError}/>:notice.status==="appealed"?<p className="border-y border-slate-100 py-4 text-slate-600">Your appeal is with KCCA. You do not need to pay until KCCA decides it.</p>:null}/>}
+    {notice&&<NoticePanel notice={notice} onClose={()=>setNotice(null)} actions={notice.status==="issued"?<CompanyActions notice={notice} onDone={done} onError={setError}/>:notice.status==="appealed"?<p className="border-y border-slate-100 py-4 text-slate-600">Under appeal. No payment until KCCA decides.</p>:null}/>}
   </div></AppShell>;
 }
 

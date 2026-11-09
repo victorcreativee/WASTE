@@ -11,3 +11,6 @@ export const upsertCustomerServiceSchema = z.object({
 export const updateCustomerServiceStatusSchema = z.object({
   status: z.enum(["active", "suspended", "inactive"]),
 });
+
+// Any UUID shape: zone ids come from the database, and older seeded ids are not RFC version 4.
+export const changeCustomerZoneSchema = z.object({ zoneId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "Choose a zone") });

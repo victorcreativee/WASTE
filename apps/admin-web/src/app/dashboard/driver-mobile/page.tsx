@@ -41,12 +41,6 @@ type JobProblem = {
   plate_number: string | null;
 };
 
-type ManagementTrip = {
-  id:string; trip_number:string; route_date:string; status:string; route_name:string;
-  zone_name:string; division_name:string; plate_number:string; driver_name:string;
-  supervisor_name:string; customer_count:number; collected_count:number; not_collected_count:number;
-};
-
 type DriverRoute = {
   id: string; name: string; route_date: string; status: string;
   plate_number: string | null; driver_name?:string|null; total_distance_km: string | null;
@@ -126,7 +120,6 @@ export default function DriverMobilePage() {
   const [problems, setProblems] = useState<JobProblem[]>([]);
   const [routes, setRoutes] = useState<DriverRoute[]>([]);
   const [driverDashboard,setDriverDashboard]=useState<DriverDashboard|null>(null);
-  const [managementTrips,setManagementTrips]=useState<ManagementTrip[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<RouteDetails | null>(null);
   const [selectedDriverId, setSelectedDriverId] = useState("");
   const [collectedWeights, setCollectedWeights] = useState<
@@ -329,7 +322,9 @@ export default function DriverMobilePage() {
       setStopDrafts((current) => ({ ...current, [stopId]: { weight: "", notes: "" } }));
       if(response.data.route_completed&&selectedRoute){
         const customers=selectedRoute.stops.flatMap(stop=>stop.customer_stops||[]);
-        setTripSummary({name:selectedRoute.name,date:selectedRoute.route_date,truck:selectedRoute.plate_number||"Not recorded",driver:selectedRoute.driver_name||"Assigned driver",stops:customers.length,collected:customers.filter(customer=>customer.status==='completed').length,notCollected:customers.filter(customer=>customer.status==='skipped').length,weight:selectedRoute.stops.reduce((sum,stop)=>sum+Number(stop.collected_weight_kg||0),0)+Number(draft.weight||0)});
+        // Weights entered per household win; the stop-level weight is used only when no household weight was entered.
+        const customerWeight=customers.reduce((sum,customer)=>sum+Number(customer.collected_weight_kg||0),0);
+        setTripSummary({name:selectedRoute.name,date:selectedRoute.route_date,truck:selectedRoute.plate_number||"Not recorded",driver:selectedRoute.driver_name||"Assigned driver",stops:customers.length,collected:customers.filter(customer=>customer.status==='completed').length,notCollected:customers.filter(customer=>customer.status==='skipped').length,weight:customerWeight>0?customerWeight:selectedRoute.stops.reduce((sum,stop)=>sum+Number(stop.collected_weight_kg||0),0)+Number(draft.weight||0)});
       }
       await loadRoutes(selectedDriverId);
       await loadDriverDashboard();
@@ -435,8 +430,11 @@ export default function DriverMobilePage() {
     }
 
     if (!["driver","unknown","hydrating"].includes(storedRole)) {
-      Promise.all([apiRequest<ApiListResponse<Driver>>("/api/waste/drivers"),apiRequest<ApiListResponse<ManagementTrip>>("/api/waste/trips")])
-        .then(([driverResponse,tripResponse]) => {setDrivers(driverResponse.data);setManagementTrips(tripResponse.data);})
+      apiRequest<ApiListResponse<Driver>>("/api/waste/drivers")
+        .then((driverResponse) => {setDrivers(driverResponse.data);
+          // Managers arrive from Operations → Today with ?route=<trip>; open that trip straight away.
+          const routeId=new URLSearchParams(window.location.search).get("route");
+          if(routeId)void loadRouteDetails(routeId);})
         .catch((error: unknown) =>
           setError(
             error instanceof Error ? error.message : "Failed to load drivers"
@@ -444,6 +442,7 @@ export default function DriverMobilePage() {
         )
         .finally(() => setLoadingDrivers(false));
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- loads once per role; loadRouteDetails is recreated each render
   }, [storedRole]);
 
   function selectDriver(driverId: string) {
@@ -462,7 +461,7 @@ export default function DriverMobilePage() {
     <AppShell>
       <div className="mx-auto max-w-7xl">
         {!isDriverAccount&&<OrganizationWorkspaceNav/>}
-        <PageHeader eyebrow={isDriverAccount?"Driver workspace":"Field operations"} title={isDriverAccount?"Today’s route":"Trips & drivers"} description={isDriverAccount?"Follow the assigned route in order, record every collection outcome, and report blockers to dispatch.":"Check driver readiness, inspect assigned routes, and respond to operational blockers."}/>
+        <PageHeader eyebrow={isDriverAccount?"Driver workspace":"Field operations"} title={isDriverAccount?"Today’s route":"Trip details"} description={isDriverAccount?"Follow stops in order and record each outcome.":"Stops, outcomes and progress for one trip."}/>
 
         {error && (
           <div className="mt-6 border-l-4 border-red-600 bg-red-50 px-5 py-4 text-sm font-semibold text-red-700">
@@ -474,7 +473,8 @@ export default function DriverMobilePage() {
         {isDriverAccount&&<LocationConsent onChange={setGpsConsent}/>}
         {isDriverAccount&&driverDashboard&&<DriverOverview data={driverDashboard}/>}
 
-        {!isDriverAccount&&<ManagementTrips trips={managementTrips} drivers={drivers} onOpen={loadRouteDetails}/>}
+        {/* Today's trip list lives in Operations → Today; managers use this page for one trip's details. */}
+        {!isDriverAccount&&!selectedRoute&&<div className="mt-7 border-y border-slate-300 bg-white py-10 text-center"><p className="font-semibold">Choose a trip</p><p className="mt-1 text-sm text-slate-500">Open a trip from today’s list.</p><a href="/dashboard/waste" className="mt-4 inline-block text-sm font-semibold text-[var(--color-action)]">Go to Today →</a></div>}
 
         {(isDriverAccount||selectedRoute)&&<section ref={tripDetailsRef} className="mt-8 scroll-mt-24 border-y border-slate-300 bg-white">
           <div className="flex flex-col justify-between gap-4 border-b border-slate-200 p-5 md:flex-row md:items-center">
@@ -488,7 +488,7 @@ export default function DriverMobilePage() {
             <div className="mt-5 grid border-y border-slate-200 text-sm sm:grid-cols-3"><div className="py-3 sm:border-r sm:pr-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Customers</p><p className="mt-1 text-xl font-semibold">{routeCustomers.length}</p></div><div className="border-t py-3 sm:border-r sm:border-t-0 sm:px-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Collected</p><p className="mt-1 text-xl font-semibold">{collectedCustomers}</p></div><div className="border-t py-3 sm:border-t-0 sm:pl-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Remaining</p><p className="mt-1 text-xl font-semibold">{Math.max(routeCustomers.length-resolvedCustomers,0)}</p></div></div>
             <div className="mt-5 h-1 overflow-hidden bg-slate-200"><div className="h-full bg-[var(--color-action)]" style={{width:`${routeProgress}%`}} /></div>
             <div className="mt-2 flex justify-between text-xs font-semibold text-slate-500"><span>{resolvedCustomers} of {routeCustomers.length} customer outcomes recorded</span><span>{routeProgress}%</span></div>
-            {isDriverAccount&&selectedRoute.disposal_leg_open&&<p className="mt-4 border-l-2 border-[var(--color-action)] bg-blue-50 px-4 py-3 text-sm text-slate-700">Trip complete. Keep this page open with location on until the truck is weighed at the disposal facility; KCCA checks the route to the weighbridge.</p>}
+            {isDriverAccount&&selectedRoute.disposal_leg_open&&<p className="mt-4 border-l-2 border-[var(--color-action)] bg-blue-50 px-4 py-3 text-sm text-slate-700">Trip complete. Keep location on until the truck is weighed.</p>}
             {isDriverAccount&&<div className="mt-5 border-l-2 border-[var(--color-action)] bg-blue-50 px-4 py-4"><p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-action)]">Next action</p>{["planned","dispatched"].includes(selectedRoute.status)?<div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="font-semibold">Start the route when the vehicle and team are ready.</p><button disabled={saving} type="button" onClick={()=>startRoute(selectedRoute.id)} className="min-h-12 bg-[var(--color-action)] px-5 py-3 font-semibold text-white disabled:opacity-50">{saving?"Starting…":"Start route"}</button></div>:selectedRoute.status==="in_progress"&&nextStop?<div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">{nextStop.status==="arrived"?"Record every customer outcome at this stop.":`Travel to stop ${nextStop.stop_order}: ${nextStop.zone_name||"collection point"}.`}</p><p className="mt-1 text-xs text-slate-600">Follow the route in order so dispatch receives accurate progress.</p></div><a href="#current-stop" className="min-h-12 border border-[var(--color-action)] px-5 py-3 text-center font-semibold text-[var(--color-action)]">Open current stop ↓</a></div>:<p className="mt-2 font-semibold">All route work has been recorded.</p>}</div>}
             <div className="mt-5 divide-y border-y border-slate-200">{selectedRoute.stops.map((stop,index)=>{
               const previousComplete = index === 0 || ["completed","skipped"].includes(selectedRoute.stops[index-1].status);
@@ -701,18 +701,19 @@ export default function DriverMobilePage() {
           </main>
         </section>}
 
-        <section className="mt-9 border-y border-slate-300 bg-white">
+        {/* Managers handle driver problems in Operations → Service issues. */}
+        {isDriverAccount&&<section className="mt-9 border-y border-slate-300 bg-white">
           <div className="flex flex-wrap items-end justify-between gap-4 border-b px-1 py-4">
             <div><h2 className="text-xl font-semibold text-slate-950">{isDriverAccount?"My reported problems":"Exceptions from today’s work"}</h2><p className="mt-1 text-sm text-slate-500">{isDriverAccount?"Dispatch can see these reports and will update their status.":"Review each exception once in Service issues to avoid conflicting actions."}</p></div>
             {!isDriverAccount&&problems.some(problem=>problem.status!=="resolved")&&<a href="/dashboard/citizen-issues" className="text-sm font-semibold text-[var(--color-action)]">Open service issues →</a>}
           </div>
           {problems.length?<div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left"><thead><tr><th>Problem</th><th>Location</th><th>Driver / vehicle</th><th>Status</th>{!isDriverAccount&&<th>Action</th>}</tr></thead><tbody>{problems.map(problem=><tr key={problem.id}><td><p className="table-primary">{formatLabel(problem.category)}</p><p className="table-secondary">{problem.description}</p></td><td>{problem.zone_name||"Unknown zone"}</td><td>{problem.driver_name} · {problem.plate_number||"No vehicle"}</td><td><StatusText value={problem.status}/></td>{!isDriverAccount&&<td><a href="/dashboard/citizen-issues" className="font-semibold text-[var(--color-action)]">Review →</a></td>}</tr>)}</tbody></table></div>:<p className="px-1 py-7 text-sm text-slate-500">No operational problems reported.</p>}
-        </section>
+        </section>}
         {tripSummary&&<div role="dialog" aria-modal="true" aria-labelledby="trip-summary-title" className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 sm:items-center sm:p-6">
           <section className="w-full max-w-xl bg-white p-6 shadow-2xl">
             <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-action)]">Trip completed</p>
             <h2 id="trip-summary-title" className="mt-2 text-2xl font-semibold text-slate-950">{tripSummary.name}</h2>
-            <p className="mt-2 text-sm text-slate-600">The vehicle and driver are available for their next assignment. This trip is ready for KCCA weighbridge verification.</p>
+            <p className="mt-2 text-sm text-slate-600">Vehicle and driver are free. Waiting for KCCA weighing.</p>
             <dl className="mt-6 divide-y border-y text-sm">{[["Date",formatJobDate(tripSummary.date)],["Truck",tripSummary.truck],["Driver",tripSummary.driver],["Customer outcomes",tripSummary.stops||"No household stops"],["Collected",tripSummary.collected],["Not collected",tripSummary.notCollected],["Driver-recorded weight",`${tripSummary.weight.toLocaleString()} kg`]].map(([label,value])=><div key={String(label)} className="flex justify-between gap-6 py-3"><dt className="text-slate-500">{label}</dt><dd className="text-right font-semibold">{value}</dd></div>)}</dl>
             <div className="mt-6 flex justify-end"><button type="button" onClick={()=>setTripSummary(null)} className="bg-[var(--color-action)] px-5 py-3 text-sm font-semibold text-white">Finish and return to today</button></div>
           </section>
@@ -721,7 +722,7 @@ export default function DriverMobilePage() {
           <form onSubmit={(event)=>{event.preventDefault();void updateCustomerStop(proofTarget.id,'complete',{collectedWeightKg:proofWeight?Number(proofWeight):undefined,notes:[proofNotes,proofLocation?`GPS: ${proofLocation}`:""].filter(Boolean).join("\n")||undefined,evidenceUrl:proofPhoto||undefined});}} className="max-h-[92vh] w-full max-w-lg overflow-y-auto bg-white p-6 shadow-2xl">
             <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-action)]">Proof of collection</p>
             <h2 id="proof-title" className="mt-2 text-xl font-semibold text-slate-950">Confirm collection for {proofTarget.name}</h2>
-            <p className="mt-2 text-sm text-slate-600">Record only what was collected at this customer. The time and signed-in driver are saved automatically.</p>
+            <p className="mt-2 text-sm text-slate-600">Only what was collected here. Time and driver are saved.</p>
             {error&&<p role="alert" className="mt-4 border-l-2 border-red-600 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800">{error}</p>}
             <label className="mt-5 block text-sm font-semibold">Collected weight (kg) <span className="font-normal text-slate-400">(optional)</span><input type="number" min="0" step="0.01" value={proofWeight} onChange={event=>setProofWeight(event.target.value)} className="mt-2 w-full border border-slate-300 px-3 py-3 font-normal"/></label>
             <label className="mt-4 block text-sm font-semibold">Collection photo <span className="font-normal text-slate-400">(optional, maximum 2 MB)</span><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={event=>readProofPhoto(event.target.files?.[0])} className="mt-2 w-full border border-slate-300 px-3 py-3 font-normal"/></label>
@@ -764,28 +765,3 @@ function DriverHistory({trips}:{trips:DriverDashboard["recent_trips"]}){
   return <section className="mt-9 border-y border-slate-300"><div className="border-b py-4"><h2 className="text-xl font-semibold">Recent trips</h2><p className="mt-1 text-sm text-slate-500">Your latest assignments, household outcomes and verified KCCA weight.</p></div>{trips.length?<div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left"><thead><tr><th>Date / trip</th><th>Route / vehicle</th><th>Households</th><th>Outcome</th><th>Verified weight</th><th>Status</th></tr></thead><tbody>{trips.map(trip=><tr key={trip.id}><td><p className="table-primary">{formatJobDate(trip.route_date)}</p><p className="table-secondary">{trip.trip_number}</p></td><td><p>{trip.route_name}</p><p className="table-secondary">{trip.plate_number||"No vehicle recorded"}</p></td><td>{trip.customer_count}</td><td><p className="font-semibold">{trip.collected_count} collected</p><p className="table-secondary">{trip.not_collected_count} not collected</p></td><td>{trip.verified_weight_kg?`${Number(trip.verified_weight_kg).toLocaleString()} kg`:trip.status==="completed"?"Awaiting KCCA":"—"}</td><td><StatusText value={trip.status}/></td></tr>)}</tbody></table></div>:<p className="py-8 text-sm text-slate-500">No trip history yet. Completed and assigned trips will appear here.</p>}</section>;
 }
 
-function ManagementTrips({trips,drivers,onOpen}:{trips:ManagementTrip[];drivers:Driver[];onOpen:(id:string)=>Promise<void>}) {
-  const [query,setQuery]=useState("");
-  const [status,setStatus]=useState("all");
-  const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Africa/Kampala",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
-  const todayTrips=trips.filter(trip=>trip.route_date.slice(0,10)===today);
-  const filtered=todayTrips.filter(trip=>(status==="all"||trip.status===status)&&`${trip.trip_number} ${trip.route_name} ${trip.driver_name} ${trip.plate_number} ${trip.zone_name}`.toLowerCase().includes(query.toLowerCase()));
-  const values=[
-    ["Trips today",todayTrips.length],
-    ["In progress",todayTrips.filter(trip=>trip.status==="in_progress").length],
-    ["Completed",todayTrips.filter(trip=>trip.status==="completed").length],
-    ["Not started",todayTrips.filter(trip=>["planned","dispatched"].includes(trip.status)).length],
-    ["Available drivers",drivers.filter(driver=>driver.status==="available").length],
-    ["Not collected",todayTrips.reduce((sum,trip)=>sum+trip.not_collected_count,0)],
-  ];
-  return <>
-    <section className="mt-7 grid border-y border-slate-300 sm:grid-cols-3 lg:grid-cols-6">
-      {values.map(([label,value])=><div key={String(label)} className="border-b border-slate-200 py-4 pr-4 sm:border-r lg:border-b-0"><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-1 text-2xl font-semibold">{value}</p></div>)}
-    </section>
-    <section className="mt-9 border-y border-slate-300">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b py-4"><div><h2 className="text-xl font-semibold">Today’s driver assignments</h2><p className="mt-1 text-sm text-slate-500">One row per trip, with the team and customer progress together.</p></div><a href="/dashboard/waste" className="bg-[var(--color-action)] px-4 py-2.5 text-sm font-semibold text-white">+ Create trip</a></div>
-      <div className="table-toolbar"><input value={query} onChange={event=>setQuery(event.target.value)} className="table-search" placeholder="Search trip, route, driver or vehicle"/><select value={status} onChange={event=>setStatus(event.target.value)} className="border px-3 py-2 text-sm"><option value="all">All statuses</option><option value="dispatched">Not started</option><option value="in_progress">In progress</option><option value="completed">Completed</option></select><span className="table-count">{filtered.length} results</span></div>
-      {filtered.length?<div className="overflow-x-auto"><table className="w-full min-w-[1080px] text-left"><thead><tr><th>Trip / route</th><th>Driver</th><th>Vehicle</th><th>Supervisor</th><th>Customers</th><th>Progress</th><th>Status</th><th>Action</th></tr></thead><tbody>{filtered.map(trip=>{const resolved=trip.collected_count+trip.not_collected_count;return <tr key={trip.id}><td><p className="table-primary">{trip.route_name}</p><p className="table-secondary">{trip.division_name} · {trip.zone_name} · {trip.trip_number}</p></td><td>{trip.driver_name||"Not assigned"}</td><td>{trip.plate_number||"Not assigned"}</td><td>{trip.supervisor_name||"Not assigned"}</td><td>{trip.customer_count}</td><td><p className="font-semibold">{resolved} / {trip.customer_count}</p><p className="table-secondary">{trip.collected_count} collected · {trip.not_collected_count} not collected</p></td><td><StatusText value={trip.status}/></td><td><button onClick={()=>void onOpen(trip.id)} className="font-semibold text-[var(--color-action)]">View details ↓</button></td></tr>})}</tbody></table></div>:<div className="py-10 text-center"><p className="font-semibold">No trips match this view</p><p className="mt-1 text-sm text-slate-500">Create a trip from Today’s Operations or change the filters.</p></div>}
-    </section>
-  </>;
-}
