@@ -210,6 +210,8 @@ main button:not(:disabled):active { transform: translateY(1px); }
 .nav-link:hover { background: #f2f4f7; color: var(--color-text); }
 .nav-link[aria-current="page"] { background: var(--color-action-soft); color: var(--color-action); font-weight: 600; }
 .nav-link[aria-current="page"] .nav-dot { background: var(--color-action); }
+/* Keeps a wide table's action buttons on screen; the other columns scroll underneath. */
+.sticky-action { position: sticky; right: 0; z-index: 1; background: #fff; box-shadow: -1px 0 0 #e2e8f0; }
 /* Shown from a menu click until the next page is on screen. */
 .nav-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; overflow: hidden; background: var(--color-action-soft); }
 .nav-progress::after { content: ""; position: absolute; inset: 0 auto 0 0; width: 35%; background: var(--color-action); animation: nav-progress 1s ease-in-out infinite; }
