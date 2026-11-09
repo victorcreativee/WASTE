@@ -7,7 +7,7 @@ import {apiRequest} from '@/lib/api';
 type Contact={email:string;phone:string;address:string};
 type Setup={profile:{id:string;name:string;type:string;is_active:boolean;email:string|null;phone:string|null;address:string|null};counts:{staff:number;packages:number;locations:number;vehicles:number}};
 type Certificate={permit_number:string;application_number:string;registration_number:string;valid_from:string;valid_until:string;certificate_issued_at:string}|null;
-const apiBase=process.env.NEXT_PUBLIC_API_BASE_URL||'http://localhost:8090';
+const apiBase=process.env.NEXT_PUBLIC_API_BASE_URL??'';
 const contact=(data:Setup):Contact=>({email:data.profile.email||'',phone:data.profile.phone||'',address:data.profile.address||''});
 export default function CompanySettings(){
  const [data,setData]=useState<Setup|null>(null),[certificate,setCertificate]=useState<Certificate>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[message,setMessage]=useState(''),[open,setOpen]=useState(false),[saving,setSaving]=useState(false),[formError,setFormError]=useState(''),[form,setForm]=useState<Contact>({email:'',phone:'',address:''});

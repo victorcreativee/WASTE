@@ -4,7 +4,7 @@ import {useEffect,useState} from "react";
 import {apiRequest} from "@/lib/api";
 
 type PermitStatus={id:string;company_name:string;status:string;review_notes:string|null;permit_number:string|null};
-const base=process.env.NEXT_PUBLIC_API_BASE_URL||"http://localhost:8090";
+const base=process.env.NEXT_PUBLIC_API_BASE_URL??"";
 const field="mt-1 w-full border border-slate-300 px-3 py-3 font-normal outline-none focus:border-[var(--color-action)]";
 const pretty=(value:string)=>value.replaceAll("_"," ").replace(/\b\w/g,c=>c.toUpperCase());
 

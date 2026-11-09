@@ -3,7 +3,7 @@ import Link from "next/link";
 import {useCallback,useEffect,useState} from "react";
 import {apiRequest} from "@/lib/api";
 type Permit={id:string;application_number:string;registration_number:string;status:string;review_notes:string|null;permit_number:string|null;document_count:number};
-const apiBase=process.env.NEXT_PUBLIC_API_BASE_URL||"http://localhost:8090",field="mt-1 w-full border border-slate-300 p-3 text-sm outline-none focus:border-[var(--color-action)]";
+const apiBase=process.env.NEXT_PUBLIC_API_BASE_URL??"",field="mt-1 w-full border border-slate-300 p-3 text-sm outline-none focus:border-[var(--color-action)]";
 const asDataUrl=(file:File)=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error("The document could not be read"));reader.readAsDataURL(file)});
 export default function ApplicantPermit(){
  const [items,setItems]=useState<Permit[]>([]),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
