@@ -6,10 +6,16 @@ const publicAppUrl=()=>String(process.env.PUBLIC_APP_URL||'http://localhost:3000
 const hash=(token:string)=>crypto.createHash('sha256').update(token).digest('hex');
 let transport:ReturnType<typeof nodemailer.createTransport>|null=null;
 
+export const appLink=(path:string,token:string)=>`${publicAppUrl()}${path}?token=${encodeURIComponent(token)}`;
 async function deliver(to:string,fullName:string,token:string){
- const link=`${publicAppUrl()}/verify-email?token=${encodeURIComponent(token)}`;
+ const link=appLink('/verify-email',token);
  const subject='Verify your Kampala WMS email';
  const text=`Hello ${fullName},\n\nVerify this email address to activate your Kampala WMS sign-in:\n${link}\n\nThis link expires in 30 minutes and can be used once. If you did not create this account, you can ignore this email.`;
+ return sendAuthEmail(to,subject,text,`verification link for ${to}: ${link}`);
+}
+
+/** Sends an account email through the configured provider. Returns false when no provider can send it. */
+export async function sendAuthEmail(to:string,subject:string,text:string,logLine:string){
  const provider=String(process.env.AUTH_EMAIL_PROVIDER||process.env.NOTIFY_EMAIL_PROVIDER||(process.env.NODE_ENV==='production'?'off':'log')).toLowerCase();
  if(provider==='smtp'&&process.env.SMTP_URL){
   transport??=nodemailer.createTransport(process.env.SMTP_URL);
@@ -28,7 +34,7 @@ async function deliver(to:string,fullName:string,token:string){
   return true;
  }
  if(provider==='log'&&process.env.NODE_ENV!=='production'){
-  console.info(`[auth-email] verification link for ${to}: ${link}`);
+  console.info(`[auth-email] ${logLine}`);
   return true;
  }
  return false;

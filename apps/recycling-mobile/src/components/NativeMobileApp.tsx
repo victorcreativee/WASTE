@@ -32,7 +32,10 @@ import { RecyclingSalesWorkspace } from "./RecyclingSalesWorkspace";
 import { RecyclingPurchaseWorkspace } from "./RecyclingPurchaseWorkspace";
 import { RecyclingManagerWorkspace } from "./RecyclingManagerWorkspace";
 import { Banner, Button, Field, Icon, Input } from "../ui/kit";
+
 import { color, initials, radius, shadow, space, type } from "../ui/theme";
+
+const WEB_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || "https://kampalawms.com").replace(/\/$/, "");
 
 const BRAND_MARK = require("../../assets/brand-mark.png");
 
@@ -286,6 +289,8 @@ export function NativeMobileApp() {
                 </Field>
                 {error ? <Banner tone="danger" text={error} /> : null}
                 <Button loading={busy} title={busy ? "Signing in…" : "Sign in"} onPress={() => void signIn()} />
+                {/* Resetting happens on the website, which sends the one-time link by email. */}
+                <Pressable onPress={() => void Linking.openURL(`${WEB_URL}/forgot-password`)} style={s.center} hitSlop={8} accessibilityRole="link"><Text style={s.link}>Forgot password?</Text></Pressable>
                 {saved?.saved ? <Pressable onPress={() => { setUseAnother(false); setError(""); }} style={s.center} hitSlop={8}><Text style={s.link}>Back to saved account</Text></Pressable> : null}
                 <View style={s.note}><Icon name="lock-closed-outline" size={16} tint={color.muted} /><Text style={[type.caption, { flex: 1 }]}>Your password is checked by the server and never stored on this phone.</Text></View>
               </>

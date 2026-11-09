@@ -12,6 +12,7 @@ import systemBootstrapRoutes from "./routes/system-bootstrap.routes";
 import platformUserRoutes from "./routes/platform-user.routes";
 import platformOrganizationRoutes from "./routes/platform-organization.routes";
 import emailVerificationRoutes from "./routes/email-verification.routes";
+import passwordResetRoutes from "./routes/password-reset.routes";
 
 import healthRoutes from "./routes/health.routes";
 
@@ -31,6 +32,7 @@ app.use("/api/auth", healthRoutes);
 app.get("/api/auth/ready", readinessHandler("auth-service", (sql, params) => dbPool.query(sql, params), ["users", "roles", "user_roles", "user_sessions", "organization_memberships"]));
 app.use("/api/auth", systemBootstrapRoutes);
 app.use("/api/auth", emailVerificationRoutes);
+app.use("/api/auth", passwordResetRoutes);
 app.use("/api/auth", platformUserRoutes);
 app.use("/api/auth", platformOrganizationRoutes);
 app.use("/api/auth", authRoutes);

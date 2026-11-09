@@ -213,7 +213,7 @@ export default function LoginPage() {
               </label>
 
               <label className="block">
-                <span className="text-sm font-medium text-slate-700">Password</span>
+                <span className="flex items-baseline justify-between"><span className="text-sm font-medium text-slate-700">Password</span><Link href="/forgot-password" className="text-xs font-semibold text-[var(--color-action)] hover:underline">Forgot password?</Link></span>
                 <div className="relative mt-1.5">
                   <input id="kwms-password" name="password" required autoComplete="current-password" type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} className={`${inputClass} pr-16`} placeholder="Enter your password" />
                   <button type="button" onClick={() => setShowPassword((value) => !value)} aria-pressed={showPassword} className="absolute right-1.5 top-1/2 min-h-0 -translate-y-1/2 px-2.5 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800">{showPassword ? "Hide" : "Show"}</button>
@@ -233,7 +233,7 @@ export default function LoginPage() {
             <div className="mt-10 space-y-2 border-t border-slate-100 pt-6 text-sm text-slate-500">
               <p>Waste collection company? <Link href="/apply" className="font-semibold text-[var(--color-action)] hover:underline">Start onboarding</Link></p>
               <p>Permit already approved? <Link href="/apply/account" className="font-semibold text-[var(--color-action)] hover:underline">Request a company account</Link></p>
-              <p className="pt-2 text-xs text-slate-400">Trouble signing in? Contact your organization administrator or KCCA support.</p>
+              <p className="pt-2 text-xs text-slate-400">Trouble signing in? <Link href="/forgot-password" className="underline">Reset your password</Link>, or ask your organization administrator to send you a reset link.</p>
             </div>
           </form>
         </div>
