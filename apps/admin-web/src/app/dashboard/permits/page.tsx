@@ -16,8 +16,18 @@ type HistoryEntry={id:string;previous_status:string|null;new_status:string;notes
 
 const label=(v:string)=>v.replaceAll("_"," ").replace(/^\w/,c=>c.toUpperCase());
 const date=(v:string|null)=>v?new Date(`${v.slice(0,10)}T00:00:00`).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}):"—";
+/** Uploaded documents are stored as data: links, which browsers refuse to open in a new tab; open them as a file instead. */
+function openDocument(url:string){
+  if(!url.startsWith("data:")){window.open(url,"_blank","noopener,noreferrer");return;}
+  const [head,body=""]=url.split(","),type=head.slice(5).split(";")[0]||"application/octet-stream";
+  const bytes=head.includes(";base64")?Uint8Array.from(atob(body),c=>c.charCodeAt(0)):new TextEncoder().encode(decodeURIComponent(body));
+  const link=URL.createObjectURL(new Blob([bytes],{type}));
+  window.open(link,"_blank","noopener,noreferrer");window.setTimeout(()=>URL.revokeObjectURL(link),60_000);
+}
+
 const ACTIONS:Record<string,Array<[string,string]>>={
-  submitted:[["start_review","Start review"]],
+  // The server opens the review itself when a decision is recorded on a new application, so KCCA can decide in one step.
+  submitted:[["approve","Approve and issue permit"],["request_information","Request information"],["reject","Reject"],["start_review","Mark as under review"]],
   under_review:[["approve","Approve and issue permit"],["request_information","Request information"],["reject","Reject"]],
   information_required:[["start_review","Resume review"]],
   approved:[["renew","Renew"],["update_activities","Change authorized activities"],["suspend","Suspend"]],
@@ -148,14 +158,14 @@ export default function PermitsPage(){
         <span className="table-count">{filtered.length} results</span>
       </div>
       <div className="table-wrap"><table className="w-full min-w-[980px] text-left">
-        <thead><tr><th>Company</th><th>Permit</th><th>Authorized activities</th><th>Valid until</th><th>Status</th><th className="text-right">Action</th></tr></thead>
+        <thead><tr><th>Company</th><th>Permit</th><th>Authorized activities</th><th>Valid until</th><th>Status</th><th className="sticky-action text-right">Action</th></tr></thead>
         <tbody>{paging.paged.map(item=><tr key={item.id}>
           <td><p className="table-primary">{item.company_name}</p><p className="table-secondary">{item.registration_number} · {item.application_number}</p></td>
           <td><p>{item.permit_number||"Not issued"}</p>{item.renewal_count>0&&<p className="table-secondary">Renewed {item.renewal_count}×</p>}</td>
           <td className="max-w-[260px]">{item.activities.length?<p className="text-slate-600">{item.activities.map(a=>a.name).join(", ")}</p>:<span className="text-slate-400">—</span>}</td>
           <td><Validity permit={item}/></td>
           <td><div className="flex flex-col items-start gap-1"><Status value={effective(item)}/>{item.renewal_pending&&<span className="text-xs font-medium text-[var(--color-warning)]">Renewal requested</span>}</div></td>
-          <td className="text-right"><button onClick={()=>openPermit(item)} className="border border-slate-300 px-3 py-2 text-xs text-slate-700">Open</button></td>
+          <td className="sticky-action text-right"><button onClick={()=>openPermit(item)} className="border border-slate-300 px-3 py-2 text-xs text-slate-700">Open</button></td>
         </tr>)}
         {!paging.paged.length&&<tr><td colSpan={6} className="p-8 text-center text-sm text-slate-500">No permits match this view.</td></tr>}</tbody>
       </table></div>
@@ -163,22 +173,22 @@ export default function PermitsPage(){
     </section>}
 
     {tab==="renewals"&&<section>{renewals.length?<div className="table-wrap"><table className="w-full min-w-[980px] text-left">
-      <thead><tr><th>Request</th><th>Company</th><th>Current expiry</th><th>Requested until</th><th>Status</th><th className="text-right">Action</th></tr></thead>
+      <thead><tr><th>Request</th><th>Company</th><th>Current expiry</th><th>Requested until</th><th>Status</th><th className="sticky-action text-right">Action</th></tr></thead>
       <tbody>{renewals.map(item=><tr key={item.id}>
         <td><p className="table-primary">{item.request_number}</p><p className="table-secondary">{new Date(item.created_at).toLocaleDateString("en-GB")} · {item.requested_by_name}</p></td>
         <td><p>{item.company_name}</p><p className="table-secondary">{item.permit_number}</p></td>
         <td><Validity permit={{valid_until:item.current_valid_until,days_left:item.days_left,status:item.permit_status}}/></td>
         <td>{date(item.granted_valid_until||item.requested_valid_until)}{item.granted_valid_until&&item.granted_valid_until!==item.requested_valid_until&&<p className="table-secondary">Requested {date(item.requested_valid_until)}</p>}</td>
         <td><Status value={item.status}/></td>
-        <td className="text-right"><button onClick={()=>setRenewal(item)} className="border border-slate-300 px-3 py-2 text-xs text-slate-700">{item.status==="submitted"&&canReview?"Review":"View"}</button></td>
+        <td className="sticky-action text-right"><button onClick={()=>setRenewal(item)} className="border border-slate-300 px-3 py-2 text-xs text-slate-700">{item.status==="submitted"&&canReview?"Review":"View"}</button></td>
       </tr>)}</tbody>
     </table></div>:<EmptyState title="No renewal requests yet" description="Companies can request renewal from 90 days before their permit expires."/>}</section>}
 
     {tab==="unlicensed"&&<section className="space-y-3">
       <Feedback tone="warning">These companies joined before permits applied to them: collectors created before licensing, and recycling companies, which join with a registration document. They can operate until KCCA issues a permit; after that the permit rules apply to them like everyone else.</Feedback>
-      {overview?.no_permit_on_record.length?<div className="table-wrap"><table className="w-full text-left"><thead><tr><th>Company</th><th>Type</th><th>On the platform since</th><th/></tr></thead><tbody>
+      {overview?.no_permit_on_record.length?<div className="table-wrap"><table className="w-full text-left"><thead><tr><th>Company</th><th>Type</th><th>On the platform since</th><th className="sticky-action"/></tr></thead><tbody>
         {overview.no_permit_on_record.map(org=><tr key={org.id}><td className="table-primary">{org.name}</td><td>{org.type==="recycling_company"?"Recycling company":org.type==="processing_plant"?"Recycling factory":"Waste collector"}</td><td>{new Date(org.created_at).toLocaleDateString("en-GB")}</td>
-          <td className="text-right">{canReview&&<button onClick={()=>setIssueFor(org)} className="border border-slate-300 px-3 py-2 text-xs text-slate-700">Issue permit</button>}</td></tr>)}
+          <td className="sticky-action text-right">{canReview&&<button onClick={()=>setIssueFor(org)} className="border border-slate-300 px-3 py-2 text-xs text-slate-700">Issue permit</button>}</td></tr>)}
       </tbody></table></div>:<EmptyState title="Every active company holds a permit"/>}
     </section>}
 
@@ -197,7 +207,7 @@ export default function PermitsPage(){
             {selected.activities.length?<ul className="mt-2 space-y-1 text-sm text-slate-700">{selected.activities.map(a=><li key={a.code}>— {a.name}</li>)}</ul>:<p className="mt-2 text-sm text-slate-500">Chosen when the permit is approved.</p>}
             <h3 className="mt-6 text-sm font-semibold">Proposed service</h3><p className="mt-2 text-sm leading-6 text-slate-600">{selected.service_description}</p>
             <h3 className="mt-6 text-sm font-semibold">Documents</h3>
-            {selected.documents.length?<div className="mt-2 divide-y divide-slate-200 border-y border-slate-200">{selected.documents.map(d=><a key={d.id} href={d.file_url} target="_blank" rel="noreferrer" className="flex justify-between py-2.5 text-sm text-[var(--color-action)]"><span>{d.file_name}</span><span className="text-slate-500">{label(d.document_type)} ↗</span></a>)}</div>:<p className="mt-2 text-sm text-slate-500">No documents on file.</p>}
+            {selected.documents.length?<div className="mt-2 divide-y divide-slate-200 border-y border-slate-200">{selected.documents.map(d=><button key={d.id} type="button" onClick={()=>openDocument(d.file_url)} className="flex min-h-0 w-full justify-between rounded-none px-0 py-2.5 text-left text-sm text-[var(--color-action)] hover:underline"><span>{d.file_name}</span><span className="text-slate-500">{label(d.document_type)} ↗</span></button>)}</div>:<p className="mt-2 text-sm text-slate-500">No documents on file.</p>}
           </div>
 
           {canReview&&ACTIONS[selected.status]&&<form onSubmit={review} className="border-b border-slate-200 py-6">

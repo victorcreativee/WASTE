@@ -60,6 +60,13 @@ type CommandCenterSummary = {
 
 type SummaryResponse = { success: boolean; data: CommandCenterSummary };
 
+type RequestQueue = { key: string; label: string; action: string; href: string; waiting: number; arrivedToday: number; oldestAt: string | null; newestAt: string | null };
+
+const waitingFor = (iso: string) => {
+  const hours = Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000);
+  return hours < 1 ? "less than an hour" : hours < 48 ? `${hours} h` : `${Math.floor(hours / 24)} days`;
+};
+
 const EMPTY_SUMMARY: CommandCenterSummary = {
   jobs_today: 0,
   completed_jobs: 0,
@@ -83,6 +90,7 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState(EMPTY_SUMMARY);
   const [organizationsLoaded, setOrganizationsLoaded] = useState(false);
   const [summaryLoaded, setSummaryLoaded] = useState(false);
+  const [requests, setRequests] = useState<RequestQueue[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -127,10 +135,13 @@ export default function DashboardPage() {
           return;
         }
 
-        const [organizationsResult, summaryResult] = await Promise.allSettled([
+        const cityController = roleNames.some((role) => ["kcca_admin", "system_admin"].includes(role));
+        const [organizationsResult, summaryResult, requestsResult] = await Promise.allSettled([
           apiRequest<OrganizationsResponse>("/api/organizations"),
           apiRequest<SummaryResponse>("/api/waste/command-center/summary"),
+          cityController ? apiRequest<{ data: RequestQueue[] }>("/api/waste/command-center/requests") : Promise.resolve({ data: [] }),
         ]);
+        if (requestsResult.status === "fulfilled") setRequests(requestsResult.value.data);
 
         if (organizationsResult.status === "fulfilled") {
           setOrganizations(organizationsResult.value.data);
@@ -152,6 +163,7 @@ export default function DashboardPage() {
         const failedSections = [
           organizationsResult.status === "rejected" ? "organization readiness" : "",
           summaryResult.status === "rejected" ? "today’s operations" : "",
+          requestsResult.status === "rejected" ? "waiting requests" : "",
         ].filter(Boolean);
 
         if (failedSections.length) {
@@ -170,6 +182,9 @@ export default function DashboardPage() {
   }, []);
 
   const recentOrganizations = organizations.slice(0, 5);
+  const waiting = (requests ?? []).filter((queue) => queue.waiting > 0);
+  const waitingTotal = waiting.reduce((sum, queue) => sum + queue.waiting, 0);
+  const arrivedToday = waiting.reduce((sum, queue) => sum + queue.arrivedToday, 0);
   const roles = user?.roles.map((role) => role.name) || [];
   const isCityController = roles.some((role) => ["kcca_admin", "system_admin"].includes(role));
   const attention = [
@@ -186,6 +201,11 @@ export default function DashboardPage() {
         {error&&<Feedback tone="error">{error}</Feedback>}
         <div className="space-y-8">
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">{([["Trips today",summaryLoaded?summary.jobs_today:"—"],["In progress",summaryLoaded?summary.active_routes:"—"],["Completed",summaryLoaded?summary.completed_jobs:"—"],["Completion rate",summaryLoaded?`${summary.service_completion_percentage}%`:"—"]] as const).map(([label,value])=><Stat key={label} label={label} value={loading?<span className="inline-block h-7 w-14 animate-pulse rounded bg-slate-100"/>:value}/>)}</div>
+
+          {isCityController&&<section aria-live="polite">
+            <SectionHeading title={waitingTotal?`New requests (${waitingTotal})`:"New requests"} description={requests===null?"Checking for requests…":waitingTotal?`Waiting for your decision${arrivedToday?`, ${arrivedToday} arrived in the last 24 hours`:""}.`:"Applications, appeals and reports that wait for a decision."} />
+            {requests===null?<div className="card px-5 py-4"><span className="inline-block h-4 w-48 animate-pulse rounded bg-slate-100"/></div>:waiting.length?<div className="card divide-y divide-slate-100 border-l-[3px] border-l-[var(--color-action)]">{waiting.map(queue=><Link key={queue.key} href={queue.href} className="group flex flex-wrap items-center justify-between gap-x-6 gap-y-1 px-5 py-4 transition hover:bg-slate-50"><div className="flex min-w-0 items-center gap-4"><span className="min-w-8 text-right text-lg font-semibold tabular-nums text-[var(--color-action)]">{queue.waiting}</span><span className="min-w-0"><span className="flex flex-wrap items-center gap-2 text-sm font-medium text-slate-800">{queue.label}{queue.arrivedToday>0&&<span className="rounded-[3px] bg-[var(--color-action)] px-1.5 py-px text-[11px] font-semibold uppercase tracking-wide text-white">{queue.arrivedToday} new</span>}</span>{queue.oldestAt&&<span className="block text-xs text-slate-500">Oldest waiting {waitingFor(queue.oldestAt)}</span>}</span></div><span className="text-sm font-medium text-slate-500 group-hover:text-[var(--color-action)]">{queue.action} <span aria-hidden="true">→</span></span></Link>)}</div>:<div className="card px-5 py-4"><p className="text-sm text-slate-500">No requests waiting. New applications, appeals and reports will show here and in your notifications.</p></div>}
+          </section>}
 
           {isCityController&&<section>
             <SectionHeading title="Needs attention" description="Exceptions that need action first." />

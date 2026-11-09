@@ -1,4 +1,4 @@
-import { notifyOrganization } from "../services/notify";
+import { notifyOrganization, notifyRole } from "../services/notify";
 import type { PoolClient } from "pg";
 import { dbPool } from "../config/database";
 import { effectivePermitStatus } from "../services/permit-lifecycle.rules";
@@ -170,6 +170,8 @@ export async function submitReturn(organizationId: string, userId: string, input
       [`RET-${input.period.replace("-", "")}-${String(Date.now()).slice(-6)}`, organizationId, org.type, periodStart(input.period), due,
         JSON.stringify(value), JSON.stringify(recorded), JSON.stringify(variances(comparable, recorded)), input.declarantName, input.declarantTitle, userId, dateToday > due])).rows[0];
     await history(client, row.id, 1, "submitted", value, `Declared by ${input.declarantName}, ${input.declarantTitle}`, userId);
+    await notifyRole(client, "kcca_admin", { category: "returns", severity: "info", title: `Monthly return from ${org.name}`,
+      body: `${row.return_number} for ${input.period}${row.submitted_late ? " (filed late)" : ""} is waiting for review in the Returns register.`, link: "/dashboard/returns-register", dedupeKey: `return-submitted:${row.id}:1` }, organizationId);
     return row;
   });
 }
@@ -189,6 +191,8 @@ export async function resubmitReturn(organizationId: string, userId: string, ret
        WHERE id=$1::uuid RETURNING id,return_number,status,version,variances`,
       [returnId, JSON.stringify(value), JSON.stringify(recorded), JSON.stringify(variances(comparable, recorded)), input.declarantName, input.declarantTitle, userId])).rows[0];
     await history(client, returnId, row.version, "resubmitted", value, `Declared by ${input.declarantName}, ${input.declarantTitle}`, userId);
+    await notifyRole(client, "kcca_admin", { category: "returns", severity: "info", title: `Corrected return from ${org.name}`,
+      body: `${row.return_number} for ${current.period} was resubmitted after your query.`, link: "/dashboard/returns-register", dedupeKey: `return-submitted:${row.id}:${row.version}` }, organizationId);
     return row;
   });
 }
