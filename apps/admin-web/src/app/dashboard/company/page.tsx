@@ -14,16 +14,26 @@ function money(value:number){return `UGX ${new Intl.NumberFormat("en-UG",{maximu
 
 export default function CompanyDashboard(){
  const [organization,setOrganization]=useState<Organization|null>(null),[summary,setSummary]=useState<Summary|null>(null),[billing,setBilling]=useState<Billing>({subscriptions:[],invoices:[],payments:[]}),[staff,setStaff]=useState<Staff[]>([]);
- const [loading,setLoading]=useState(true),[error,setError]=useState("");
- useEffect(()=>{Promise.all([
+ const [loading,setLoading]=useState(true),[error,setError]=useState(""),[pkg,setPkg]=useState<{organization_type:string;package_name:string;feature_codes:string[]}|null>(null);
+ useEffect(()=>{apiRequest<{data:{organization_type:string;package_name:string;feature_codes:string[]}}>("/api/waste/regulatory/organization-package").then(r=>setPkg(r.data)).catch(()=>undefined);},[]);
+ // Waste collection companies only see what their package includes; other organization types are not gated.
+ const has=(feature:string)=>!pkg||pkg.organization_type!=="waste_collection_company"||pkg.feature_codes.includes(feature);
+ useEffect(()=>{Promise.allSettled([
   apiRequest<Response<Organization[]>>("/api/organizations"),apiRequest<Response<Summary>>("/api/waste/command-center/summary"),
   apiRequest<Response<Billing>>("/api/waste/billing/overview"),apiRequest<Response<Staff[]>>("/api/auth/organization-users"),
  ]).then(([o,s,b,t])=>{
-  const selectedOrganization=o.data[0]||null;
-  setOrganization(selectedOrganization);setSummary(s.data);setBilling(b.data);setStaff(t.data);
+  // A module the company's package leaves out answers 403; its panel stays empty instead of failing the whole page.
+  const notInPackage=(r:PromiseSettledResult<unknown>)=>r.status==="rejected"&&r.reason instanceof Error&&r.reason.message.includes("not included in");
+  const failed=[o,s,b,t].find(r=>r.status==="rejected"&&!notInPackage(r)) as PromiseRejectedResult|undefined;
+  if(failed)setError(failed.reason instanceof Error?failed.reason.message:"Failed to load organization operations");
+  const selectedOrganization=o.status==="fulfilled"?o.value.data[0]||null:null;
+  setOrganization(selectedOrganization);
+  if(s.status==="fulfilled")setSummary(s.value.data);
+  if(b.status==="fulfilled")setBilling(b.value.data);
+  if(t.status==="fulfilled")setStaff(t.value.data);
   const user=JSON.parse(sessionStorage.getItem("currentUser")||"{}");
-  if(user.id&&user.organizationId)void window.kwmsDesktop?.setSnapshot({key:"company-dashboard",organizationId:user.organizationId,userId:user.id,data:{organization:selectedOrganization,summary:s.data,billing:b.data,staff:t.data}}).catch(()=>undefined);
- }).catch((e:unknown)=>setError(e instanceof Error?e.message:"Failed to load organization operations")).finally(()=>setLoading(false));},[]);
+  if(!failed&&user.id&&user.organizationId)void window.kwmsDesktop?.setSnapshot({key:"company-dashboard",organizationId:user.organizationId,userId:user.id,data:{organization:selectedOrganization,summary:s.status==="fulfilled"?s.value.data:null,billing:b.status==="fulfilled"?b.value.data:null,staff:t.status==="fulfilled"?t.value.data:[]}}).catch(()=>undefined);
+ }).finally(()=>setLoading(false));},[]);
  const finance=useMemo(()=>({outstanding:billing.invoices.reduce((n,i)=>n+Number(i.balance_ugx),0),billed:billing.invoices.reduce((n,i)=>n+Number(i.amount_ugx),0),received:billing.payments.filter(p=>p.status==="successful").reduce((n,p)=>n+Number(p.amount_ugx),0),pending:billing.payments.filter(p=>p.status==="pending").length}),[billing]);
  const activeStaff=staff.filter(p=>p.status==="active"),drivers=staff.filter(p=>p.roles.includes("driver")),supervisors=staff.filter(p=>p.roles.includes("supervisor"));
  const attentionItems=[
@@ -36,6 +46,7 @@ export default function CompanyDashboard(){
  return <AppShell><div className="mx-auto max-w-7xl">
   <PageHeader eyebrow="Organization overview" title={organization?.name||"Your organization"} description="See today’s service delivery, workforce readiness, customer revenue, and items requiring action." action={<div className="text-right"><p className="mb-1 text-xs font-semibold text-slate-500">Operating status</p><Status value={organization?.is_active?"active":"pending"}/></div>}/>
   {error&&<Feedback tone="error">{error}</Feedback>}
+  {pkg?.organization_type==="waste_collection_company"&&!pkg.feature_codes.length&&<Feedback tone="warning">Your {pkg.package_name} package has no operations modules switched on yet, so trips, customers and billing are hidden. Choose Standard or Professional under Subscription, or ask the platform administrator to switch modules on for your package.</Feedback>}
 
   <section className="mt-8 grid border-y border-slate-300 sm:grid-cols-2 xl:grid-cols-4">{[
    ["Service completion",`${summary?.service_completion_percentage||0}%`,`${summary?.completed_jobs||0} of ${summary?.jobs_today||0} jobs today`],
@@ -46,15 +57,15 @@ export default function CompanyDashboard(){
 
   <section className="mt-8 grid gap-8 xl:grid-cols-[1.3fr_.7fr]">
    <div className="space-y-8">
-    <div className="border-y border-slate-300 bg-white"><div className="flex items-center justify-between border-b p-5"><div><h2 className="text-xl font-semibold">Active trips</h2><p className="mt-1 text-sm text-slate-500">Monitor routes already dispatched today.</p></div><Link href="/dashboard/waste" className="text-sm font-semibold text-[var(--color-action)]">Open daily operations →</Link></div>
+    <div className="border-y border-slate-300 bg-white"><div className="flex items-center justify-between border-b p-5"><div><h2 className="text-xl font-semibold">Active trips</h2><p className="mt-1 text-sm text-slate-500">Monitor routes already dispatched today.</p></div>{has("core_operations")&&<Link href="/dashboard/waste" className="text-sm font-semibold text-[var(--color-action)]">Open daily operations →</Link>}</div>
      {summary?.active_route_progress.length?<div className="table-wrap"><table className="text-left"><thead><tr><th>Route</th><th>Driver</th><th>Stops</th><th className="text-right">Progress</th></tr></thead><tbody>{summary.active_route_progress.map(route=>{const p=route.stop_count?Math.round(route.completed_stop_count/route.stop_count*100):0;return <tr key={route.id}><td className="table-primary">{route.name}</td><td>{route.driver_name||"Not assigned"}</td><td>{route.completed_stop_count} of {route.stop_count}</td><td className="text-right font-semibold text-[var(--color-action)]">{p}%</td></tr>})}</tbody></table></div>:<p className="p-5 text-sm text-slate-500">No routes are currently active.</p>}
     </div>
 
-    <div className="border-y border-slate-300 bg-white"><div className="flex items-center justify-between border-b p-5"><div><h2 className="text-xl font-semibold">Outstanding invoices</h2><p className="mt-1 text-sm text-slate-500">Customer balances that still require payment.</p></div><Link href="/dashboard/billing" className="text-sm font-semibold text-[var(--color-action)]">Open income & billing →</Link></div><div className="p-5">{billing.invoices.filter(i=>Number(i.balance_ugx)>0).slice(0,4).map(i=><div key={i.invoice_number} className="flex justify-between gap-4 border-b py-3 last:border-0"><div><p className="font-semibold">{i.customer_name}</p><p className="text-sm text-slate-500">{i.invoice_number} · due {new Date(i.due_on).toLocaleDateString("en-GB")}</p></div><p className="font-semibold">{money(Number(i.balance_ugx))}</p></div>)}{!billing.invoices.some(i=>Number(i.balance_ugx)>0)&&<p className="text-sm text-slate-500">No outstanding customer invoices.</p>}</div></div>
+    {has("billing")&&<div className="border-y border-slate-300 bg-white"><div className="flex items-center justify-between border-b p-5"><div><h2 className="text-xl font-semibold">Outstanding invoices</h2><p className="mt-1 text-sm text-slate-500">Customer balances that still require payment.</p></div><Link href="/dashboard/billing" className="text-sm font-semibold text-[var(--color-action)]">Open income & billing →</Link></div><div className="p-5">{billing.invoices.filter(i=>Number(i.balance_ugx)>0).slice(0,4).map(i=><div key={i.invoice_number} className="flex justify-between gap-4 border-b py-3 last:border-0"><div><p className="font-semibold">{i.customer_name}</p><p className="text-sm text-slate-500">{i.invoice_number} · due {new Date(i.due_on).toLocaleDateString("en-GB")}</p></div><p className="font-semibold">{money(Number(i.balance_ugx))}</p></div>)}{!billing.invoices.some(i=>Number(i.balance_ugx)>0)&&<p className="text-sm text-slate-500">No outstanding customer invoices.</p>}</div></div>}
    </div>
 
    <aside className="space-y-8">
-    <div className="border-y border-slate-300 bg-white"><div className="flex items-center justify-between border-b p-5"><h2 className="text-xl font-semibold">Workforce readiness</h2><Link href="/dashboard/team" className="text-sm font-semibold text-[var(--color-action)]">Manage staff →</Link></div><dl className="divide-y divide-slate-200">{[["Active staff",activeStaff.length],["Available drivers",drivers.length],["Supervisors",supervisors.length]].map(([label,value])=><div key={label} className="flex justify-between px-5 py-3 text-sm"><dt className="text-slate-600">{label}</dt><dd className="font-semibold">{value}</dd></div>)}</dl></div>
+    <div className="border-y border-slate-300 bg-white"><div className="flex items-center justify-between border-b p-5"><h2 className="text-xl font-semibold">Workforce readiness</h2>{has("core_operations")&&<Link href="/dashboard/team" className="text-sm font-semibold text-[var(--color-action)]">Manage staff →</Link>}</div><dl className="divide-y divide-slate-200">{[["Active staff",activeStaff.length],["Available drivers",drivers.length],["Supervisors",supervisors.length]].map(([label,value])=><div key={label} className="flex justify-between px-5 py-3 text-sm"><dt className="text-slate-600">{label}</dt><dd className="font-semibold">{value}</dd></div>)}</dl></div>
     <div className="border-y border-slate-300 bg-white"><div className="border-b p-5"><h2 className="text-xl font-semibold">Attention required</h2><p className="mt-1 text-sm text-slate-500">Only queues with outstanding work are shown.</p></div>{attentionItems.some(([,value])=>value>0)?<div className="table-wrap"><table className="text-left"><thead><tr><th>Queue</th><th className="text-right">Open</th><th className="text-right">Action</th></tr></thead><tbody>{attentionItems.filter(([,value])=>value>0).map(([l,v,h])=><tr key={l}><td className="table-primary">{l}</td><td className="text-right font-semibold">{v}</td><td className="text-right"><Link href={h} className="font-semibold text-[var(--color-action)]">Review</Link></td></tr>)}</tbody></table></div>:<div className="p-5"><p className="font-semibold text-slate-800">No action required</p><p className="mt-1 text-sm text-slate-500">Operational and customer queues are clear.</p></div>}</div>
    </aside>
   </section>
