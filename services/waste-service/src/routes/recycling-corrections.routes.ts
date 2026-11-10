@@ -16,7 +16,32 @@ const material = z.string().trim().min(2).max(80);
 export const transferSchema = z.object({ fromMaterial: material, toMaterial: material, quantityKg: z.number().positive().max(10000000), transferDate: z.string().date(), reason, allowNewMaterial: z.boolean().default(false) })
   .refine(d => d.fromMaterial.toLowerCase() !== d.toMaterial.toLowerCase(), { message: "Choose two different materials", path: ["toMaterial"] });
 export const cashSchema = z.object({ account: z.enum(["office", "float"]), direction: z.enum(["add", "reduce"]), amountUgx: z.number().int().positive().max(100000000000), correctionDate: z.string().date(), reason });
+export const stockCountSchema = z.object({
+  countDate: z.string().date(),
+  reason,
+  counts: z.array(z.object({ material, physicalKg: z.number().min(0).max(10000000) })).min(1).max(250),
+}).superRefine((value, ctx) => {
+  const seen = new Set<string>();
+  value.counts.forEach((line, index) => {
+    const key = line.material.toLowerCase();
+    if (seen.has(key)) ctx.addIssue({ code: "custom", message: "Each material can appear only once", path: ["counts", index, "material"] });
+    seen.add(key);
+  });
+});
 export const cancelSchema = z.object({ entryType: z.enum(["expense", "float", "cash"]), id: z.guid(), reason });
+
+r.get("/recycling/corrections/backup", admin, run(async (req, res) => {
+  const data = await repo.createCompanyBackup(org(req));
+  const safeName = String(data.organization.name ?? "recycling-company").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "recycling-company";
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename=\"${safeName}-backup-${data.generatedAt.slice(0, 10)}.json\"`);
+  return res.send(JSON.stringify(data, null, 2));
+}));
+r.post("/recycling/corrections/stock-counts", admin, run(async (req, res) => {
+  const data = await repo.reconcilePhysicalStock(org(req), user(req), stockCountSchema.parse(req.body));
+  return res.status(201).json({ success: true, message: `Physical count approved. ${data.materialsAdjusted} material${data.materialsAdjusted === 1 ? "" : "s"} adjusted; ${data.shortageKg.toLocaleString("en-GB")} kg recorded as waste/loss.`, data });
+}));
 
 r.post("/recycling/corrections/material-transfers", admin, run(async (req, res) => {
   const data = await repo.transferMaterial(org(req), user(req), transferSchema.parse(req.body));

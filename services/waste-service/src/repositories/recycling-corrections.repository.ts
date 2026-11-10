@@ -7,6 +7,7 @@ import { ensureMaterial, financeError, financeState, setLotAvailable, takeFromSt
 type Client = { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number | null }> };
 const notFound = (message: string) => Object.assign(new Error(message), { statusCode: 404 });
 const kg = (value: number) => Math.round(value * 1000) / 1000;
+const countedKg = (value: number) => Math.round(value * 100) / 100;
 
 /** Runs a correction in one transaction, holding the company's finance lock so balances are checked against settled figures. */
 async function correction<T>(org: string, work: (c: Client) => Promise<T>) {
@@ -22,6 +23,79 @@ async function correction<T>(org: string, work: (c: Client) => Promise<T>) {
 const audit = (c: Client, org: string, type: string, id: string, before: unknown, after: unknown, user: string) =>
   c.query(`INSERT INTO recycling_transaction_edits(organization_id,transaction_type,transaction_id,before_state,after_state,edited_by)VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6)`,
     [org, type, id, JSON.stringify(before), JSON.stringify(after), user]);
+
+/** A portable, organization-scoped operational backup. Authentication secrets are deliberately excluded. */
+export async function createCompanyBackup(org: string) {
+  const organization = (await dbPool.query(`SELECT id,name,type,is_active,address,email,phone,created_at,updated_at FROM organizations WHERE id=$1::uuid`, [org])).rows[0];
+  if (!organization) throw notFound("Organization not found");
+  const recyclingTables = (await dbPool.query(`SELECT DISTINCT table_name FROM information_schema.columns WHERE table_schema='public' AND column_name='organization_id' AND table_name LIKE 'recycling\\_%' ESCAPE '\\' ORDER BY table_name`)).rows.map((row: { table_name: string }) => row.table_name);
+  const tables = [...recyclingTables, "organization_expenses", "organization_finance_settings", "organization_finance_setting_history"];
+  const records: Record<string, unknown[]> = {};
+  for (const table of tables) {
+    const quotedTable = `"${table.replaceAll('"', '""')}"`;
+    try { records[table] = (await dbPool.query(`SELECT * FROM ${quotedTable} WHERE organization_id=$1::uuid`, [org])).rows; }
+    catch (error: unknown) {
+      // A backup remains usable across staged deployments where an optional table has not been introduced yet.
+      if ((error as { code?: string })?.code === "42P01") records[table] = [];
+      else throw error;
+    }
+  }
+  return {
+    format: "kwms-recycling-company-backup",
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    security: "Passwords, access tokens and credential hashes are not included.",
+    organization,
+    records,
+  };
+}
+
+/** Reconciles the whole physical stock count in one approval and one audit event. */
+export async function reconcilePhysicalStock(org: string, user: string, d: { countDate: string; reason: string; counts: Array<{ material: string; physicalKg: number }> }) {
+  return correction(org, async c => {
+    const today = String((await c.query(`SELECT (now() AT TIME ZONE 'Africa/Kampala')::date::text today`)).rows[0].today);
+    if (d.countDate !== today) throw financeError("A physical stock count must be approved on the day the materials are counted.");
+    await assertRecyclingBusinessDayOpen(c, org, d.countDate, "approving this physical stock count");
+    const lots = (await c.query(`SELECT * FROM recycling_material_lots WHERE organization_id=$1::uuid AND collected_on<=$2::date AND available_kg>0 ORDER BY lower(material_type),collected_on,created_at,id FOR UPDATE`, [org, d.countDate])).rows;
+    const byMaterial = new Map<string, { material: string; lots: any[]; expectedKg: number }>();
+    for (const lot of lots) {
+      const key = String(lot.material_type).trim().toLowerCase();
+      const current = byMaterial.get(key) ?? { material: String(lot.material_type), lots: [], expectedKg: 0 };
+      current.lots.push(lot); current.expectedKg = countedKg(current.expectedKg + Number(lot.available_kg)); byMaterial.set(key, current);
+    }
+    const submitted = new Map(d.counts.map(line => [line.material.trim().toLowerCase(), line]));
+    const missing = [...byMaterial.entries()].filter(([key]) => !submitted.has(key)).map(([, value]) => value.material);
+    if (missing.length) throw financeError(`Count every material before approval. Missing: ${missing.join(", ")}.`);
+    const unknown = [...submitted.keys()].filter(key => !byMaterial.has(key));
+    if (unknown.length) throw financeError(`These materials have no available recorded stock: ${unknown.map(key => submitted.get(key)!.material).join(", ")}.`);
+
+    const entryId = randomUUID();
+    const differences: any[] = [];
+    let shortageKg = 0, surplusKg = 0;
+    for (const [key, group] of byMaterial) {
+      const physicalKg = countedKg(Number(submitted.get(key)!.physicalKg));
+      const differenceKg = countedKg(physicalKg - group.expectedKg);
+      if (!differenceKg) continue;
+      const adjustmentType = differenceKg < 0 ? "loss" : "correction_in";
+      const adjustmentRows: any[] = [];
+      if (differenceKg < 0) {
+        const parts = await takeFromStock(c, org, { materialType: group.material }, Math.abs(differenceKg), d.countDate);
+        for (const part of parts) adjustmentRows.push((await c.query(`INSERT INTO recycling_stock_adjustments(organization_id,lot_id,adjustment_date,adjustment_type,quantity_kg,reason,notes,recorded_by) VALUES($1,$2,$3,'loss',$4,$5,$6,$7) RETURNING *`, [org, part.lot.id, d.countDate, part.kg, d.reason, `Physical count ${entryId}: recorded ${group.expectedKg} kg, counted ${physicalKg} kg`, user])).rows[0]);
+        shortageKg = countedKg(shortageKg + Math.abs(differenceKg));
+      } else {
+        const lot = group.lots[group.lots.length - 1];
+        await c.query(`UPDATE recycling_material_lots SET quantity_kg=quantity_kg+$2,available_kg=available_kg+$2,status='available',updated_at=now() WHERE id=$1::uuid`, [lot.id, differenceKg]);
+        adjustmentRows.push((await c.query(`INSERT INTO recycling_stock_adjustments(organization_id,lot_id,adjustment_date,adjustment_type,quantity_kg,reason,notes,recorded_by) VALUES($1,$2,$3,'correction_in',$4,$5,$6,$7) RETURNING *`, [org, lot.id, d.countDate, differenceKg, d.reason, `Physical count ${entryId}: recorded ${group.expectedKg} kg, counted ${physicalKg} kg`, user])).rows[0]);
+        surplusKg = countedKg(surplusKg + differenceKg);
+      }
+      differences.push({ material: group.material, recordedKg: group.expectedKg, physicalKg, differenceKg, adjustmentType, adjustments: adjustmentRows });
+    }
+    const before = { countDate: d.countDate, counts: [...byMaterial.values()].map(group => ({ material: group.material, recordedKg: group.expectedKg })) };
+    const after = { countDate: d.countDate, reason: d.reason, counts: d.counts, differences, shortageKg, surplusKg };
+    await audit(c, org, "physical_stock_count", entryId, before, after, user);
+    return { entryId, countDate: d.countDate, materialsCounted: d.counts.length, materialsAdjusted: differences.length, shortageKg, surplusKg, differences };
+  });
+}
 
 /**
  * Moves weight from one material to another, oldest stock first. Each lot it takes from gives a new lot of the other

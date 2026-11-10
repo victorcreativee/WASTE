@@ -251,7 +251,7 @@ type DailyClosure = {
 };
 type TransactionEdit = {
   id: string;
-  transaction_type: "purchase" | "sale" | "sorting_reversal" | "material_transfer" | "material_transfer_reversal" | "cash_correction" | "entry_cancelled" | "settings_change" | "material_rename";
+  transaction_type: "purchase" | "sale" | "sorting_reversal" | "material_transfer" | "material_transfer_reversal" | "physical_stock_count" | "cash_correction" | "entry_cancelled" | "settings_change" | "material_rename";
   transaction_id: string;
   before_state: Record<string, unknown>;
   after_state: Record<string, unknown>;
@@ -1667,7 +1667,7 @@ export default function RecyclingPage() {
               ((data.transactionEdits ?? []).length ? (
                 <div className="mt-5 space-y-4">
                   <div className="border-l-2 border-[var(--color-action)] bg-blue-50 p-4 text-sm text-slate-700">
-                    Every correction is kept here: purchase and sale edits, reversed sorting, material moves, cash corrections and cancelled entries. Original and corrected values remain visible for accountability; closed operating days must be reopened before a correction.
+                    Every correction is kept here: purchase and sale edits, physical stock counts, reversed sorting, material moves, cash counts and cancelled entries. Original and corrected values remain visible for accountability; closed operating days must be reopened before a correction.
                   </div>
                   {editsPage.paged.map((edit) => {
                     if (isCorrection(edit)) return <CorrectionRecord key={edit.id} edit={edit as CorrectionEdit} canUndo={companyAdminMode && !data.transactionEdits.some((other) => other.transaction_type === "material_transfer_reversal" && other.transaction_id === edit.transaction_id)} onDone={(message) => { setNotice(message); void load(); }} />;
